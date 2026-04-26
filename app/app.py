@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 import qrcode
 from decimal import Decimal
 from urllib.parse import parse_qs, quote, urlsplit
+from xml.sax.saxutils import escape as xml_escape
 from PIL import Image, ImageOps, UnidentifiedImageError
 from qrcode.image.svg import SvgPathImage
 from uuid import uuid4
@@ -23,7 +24,7 @@ from functools import wraps
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session, Response
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -5463,6 +5464,120 @@ def safe_photo(urls: str) -> str:
     return items[0] if items else ""
 
 
+def public_site_base_url() -> str:
+    configured = (os.getenv("PUBLIC_SITE_URL") or os.getenv("SITE_BASE_URL") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+    forwarded_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+    forwarded_host = (request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
+    scheme = forwarded_proto or request.scheme or "https"
+    host = forwarded_host or request.host
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def absolute_public_url(path_or_url: str) -> str:
+    value = normalize_text(path_or_url or "").strip()
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://")):
+        return value
+    if value.startswith("//"):
+        return f"{request.scheme}:{value}"
+    return f"{public_site_base_url()}/{value.lstrip('/')}"
+
+
+def public_url_for(endpoint: str, **values) -> str:
+    return absolute_public_url(url_for(endpoint, **values))
+
+
+def compact_meta_text(*parts, limit: int = 160) -> str:
+    text = normalize_text(" ".join(str(part or "") for part in parts)).strip()
+    text = re.sub(r"\s+", " ", text)
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)].rstrip(" ,.;:-") + "…"
+
+
+def seo_json_dumps(payload) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
+    gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
+    price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": compact_meta_text(part.part_number, part.name, limit=120),
+        "sku": normalize_text(part.part_number or "").strip(),
+        "mpn": normalize_text(part.part_number or "").strip(),
+        "brand": {
+            "@type": "Brand",
+            "name": normalize_text(part.brand or part.producer_type or "USA Auto Parts").strip(),
+        },
+        "description": compact_meta_text(part.description or part.name, part.part_number, limit=300),
+        "image": gallery,
+        "offers": {
+            "@type": "Offer",
+            "url": public_url_for("part_detail", part_id=part.id),
+            "priceCurrency": "USD",
+            "price": price,
+            "availability": "https://schema.org/InStock" if part.in_stock and int(part.qty or 0) > 0 else "https://schema.org/OutOfStock",
+            "itemCondition": "https://schema.org/NewCondition" if producer_type_label(part.producer_type) == "OEM" else "https://schema.org/UsedCondition",
+        },
+    }
+    if warehouse:
+        payload["offers"]["seller"] = {"@type": "Organization", "name": "USA AUTO PARTS"}
+    return seo_json_dumps(payload)
+
+
+def build_car_product_schema(car: Car, photos: list[str]) -> str:
+    title = compact_meta_text(car.brand, car.model, car.year, limit=120)
+    description = compact_meta_text(car.description, car.vin, limit=300) or title
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": title,
+        "sku": normalize_text(car.vin or f"car-{car.id}").strip(),
+        "category": "Vehicle",
+        "image": [absolute_public_url(url) for url in photos],
+        "description": description,
+        "offers": {
+            "@type": "Offer",
+            "url": public_url_for("car_detail_public", car_id=car.id),
+            "priceCurrency": "USD",
+            "price": f"{float(car.price_usd or 0):.2f}",
+            "availability": "https://schema.org/InStock" if car.status == "in_stock" else "https://schema.org/PreOrder",
+        },
+        "additionalProperty": [
+            {"@type": "PropertyValue", "name": "VIN", "value": normalize_text(car.vin or "").strip()},
+            {"@type": "PropertyValue", "name": "Year", "value": str(car.year or "")},
+            {"@type": "PropertyValue", "name": "Mileage", "value": str(car.mileage or "")},
+        ],
+    }
+    return seo_json_dumps(payload)
+
+
+def sitemap_lastmod(value) -> str:
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    return str(value)[:10]
+
+
+def sitemap_url_node(location: str, lastmod: str = "", changefreq: str = "", priority: str = "") -> str:
+    lines = ["  <url>", f"    <loc>{xml_escape(location)}</loc>"]
+    if lastmod:
+        lines.append(f"    <lastmod>{xml_escape(lastmod)}</lastmod>")
+    if changefreq:
+        lines.append(f"    <changefreq>{xml_escape(changefreq)}</changefreq>")
+    if priority:
+        lines.append(f"    <priority>{xml_escape(priority)}</priority>")
+    lines.append("  </url>")
+    return "\n".join(lines)
+
+
 def recalc_warehouse_stats(warehouse: Warehouse):
     parts = [part for part in warehouse.parts if not part.is_deleted]
     total = len(parts)
@@ -5895,6 +6010,64 @@ def inject_globals():
     }
 
 
+@app.route("/robots.txt")
+def robots_txt():
+    content = "\n".join([
+        "User-agent: *",
+        "Disallow: /admin/",
+        "Disallow: /api/",
+        "Disallow: /cart",
+        "Disallow: /checkout",
+        "Allow: /uploads/",
+        f"Sitemap: {public_site_base_url()}/sitemap.xml",
+        "",
+    ])
+    return Response(content, mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    db = SessionLocal()
+    try:
+        nodes = [
+            sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"),
+            sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
+            sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
+        ]
+        parts = (
+            db.query(Part.id, Part.updated_at)
+            .filter(Part.is_deleted == False, Part.in_stock == True, Part.qty > 0)
+            .order_by(desc(Part.updated_at), desc(Part.id))
+            .all()
+        )
+        for part_id, updated_at in parts:
+            nodes.append(
+                sitemap_url_node(
+                    public_url_for("part_detail", part_id=part_id),
+                    lastmod=sitemap_lastmod(updated_at),
+                    changefreq="weekly",
+                    priority="0.8",
+                )
+            )
+        cars = db.query(Car.id, Car.created_at).order_by(desc(Car.created_at), desc(Car.id)).all()
+        for car_id, created_at in cars:
+            nodes.append(
+                sitemap_url_node(
+                    public_url_for("car_detail_public", car_id=car_id),
+                    lastmod=sitemap_lastmod(created_at),
+                    changefreq="weekly",
+                    priority="0.7",
+                )
+            )
+        body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+        body += "\n".join(nodes)
+        body += "\n</urlset>\n"
+        return Response(body, mimetype="application/xml")
+    finally:
+        db.close()
+
+
 @app.route("/")
 def home():
     db = SessionLocal()
@@ -5932,6 +6105,10 @@ def home():
             display_usd=display_usd,
             display_uah=display_uah,
             cars_random=cars_random,
+            seo_title="Запчастини для авто з США | USA AUTO PARTS",
+            seo_description="Запчастини для авто з США: пошук по OEM номеру, назві або бренду. Товари в наявності, авто в наявності та авто в дорозі.",
+            canonical_url=public_url_for("home"),
+            seo_noindex=bool(q) or page > 1,
         )
     finally:
         db.close()
@@ -6189,6 +6366,10 @@ def catalog():
             safe_photo=safe_photo,
             display_usd=display_usd,
             display_uah=display_uah,
+            seo_title="Каталог запчастин | USA AUTO PARTS",
+            seo_description="Каталог запчастин для авто з США. Пошук по OEM номеру, назві, бренду та швидке оформлення замовлення.",
+            canonical_url=public_url_for("catalog"),
+            seo_noindex=bool(q) or bool(condition),
         )
     finally:
         db.close()
@@ -6206,7 +6387,27 @@ def part_detail(part_id):
         part.views_24h += 1
         part.views_168h += 1
         db.commit()
-        return render_template("part_detail.html", part=part, warehouse=warehouse, safe_photo=safe_photo, display_usd=display_usd, display_uah=display_uah)
+        part_title = compact_meta_text(part.part_number, part.name, limit=90)
+        part_price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
+        return render_template(
+            "part_detail.html",
+            part=part,
+            warehouse=warehouse,
+            safe_photo=safe_photo,
+            display_usd=display_usd,
+            display_uah=display_uah,
+            seo_title=f"{part_title} | USA AUTO PARTS",
+            seo_description=compact_meta_text(
+                "Купити запчастину",
+                part.part_number,
+                part.name,
+                f"ціна ${part_price}",
+                f"наявність {int(part.qty or 0)} шт.",
+            ),
+            canonical_url=public_url_for("part_detail", part_id=part.id),
+            og_type="product",
+            json_ld=build_part_product_schema(part, warehouse),
+        )
     finally:
         db.close()
 
@@ -6267,7 +6468,17 @@ def cars_public():
         if status:
             cars_q = cars_q.filter(Car.status == status)
         cars = cars_q.order_by(desc(Car.created_at)).all()
-        return render_template("cars.html", cars=cars, status=status, safe_photo=safe_photo)
+        status_label = "Авто в дорозі" if status == "in_transit" else "Авто в наявності" if status == "in_stock" else "Авто з США"
+        return render_template(
+            "cars.html",
+            cars=cars,
+            status=status,
+            safe_photo=safe_photo,
+            seo_title=f"{status_label} | USA AUTO PARTS",
+            seo_description="Авто з США: перегляд фото, опису, VIN та статусу авто в наявності або в дорозі.",
+            canonical_url=public_url_for("cars_public"),
+            seo_noindex=bool(status),
+        )
     finally:
         db.close()
 
@@ -6282,7 +6493,24 @@ def car_detail_public(car_id):
             return redirect(url_for("cars_public"))
         photos = parse_media_urls(car.image_urls)
         video_url = youtube_embed_url(car.youtube_url)
-        return render_template("car_detail.html", car=car, photos=photos, video_url=video_url)
+        car_title = compact_meta_text(car.brand, car.model, car.year, limit=90)
+        return render_template(
+            "car_detail.html",
+            car=car,
+            photos=photos,
+            video_url=video_url,
+            seo_title=f"{car_title} | USA AUTO PARTS",
+            seo_description=compact_meta_text(
+                car.brand,
+                car.model,
+                car.year,
+                car.vin,
+                "фото, опис, VIN трекінг та статус авто.",
+            ),
+            canonical_url=public_url_for("car_detail_public", car_id=car.id),
+            og_type="product",
+            json_ld=build_car_product_schema(car, photos),
+        )
     finally:
         db.close()
 

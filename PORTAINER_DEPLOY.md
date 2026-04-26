@@ -18,7 +18,7 @@
 ```env
 POSTGRES_PASSWORD=your-strong-password
 SECRET_KEY=your-long-random-secret
-APP_PORT=8080
+APP_PORT=8081
 WEB_IMAGE=usa-auto-parts-site:vps-latest
 ```
 

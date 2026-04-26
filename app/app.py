@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 import zipfile
+import xml.etree.ElementTree as ET
 import qrcode
 from decimal import Decimal
 from urllib.parse import parse_qs, quote, urlsplit
@@ -5504,45 +5505,161 @@ def parse_avtopro_csv(file_storage):
         except Exception:
             return 0
 
+    def bool_cell(value, default=True):
+        text = normalize_text(value or "").strip().casefold()
+        if text in {"0", "false", "ні", "no", "нема", "немає"}:
+            return False
+        if text in {"1", "true", "так", "yes", "є"}:
+            return True
+        return default
+
+    def xlsx_cell_text(cell, shared_strings):
+        value_node = cell.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v")
+        raw_value = value_node.text if value_node is not None else ""
+        cell_type = cell.attrib.get("t", "")
+        if cell_type == "s":
+            try:
+                return shared_strings[int(raw_value)]
+            except Exception:
+                return raw_value or ""
+        if cell_type == "inlineStr":
+            texts = cell.findall(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t")
+            return "".join(item.text or "" for item in texts)
+        return raw_value or ""
+
+    def read_xlsx_rows(raw_bytes):
+        rows = []
+        with zipfile.ZipFile(io.BytesIO(raw_bytes)) as archive:
+            shared_strings = []
+            if "xl/sharedStrings.xml" in archive.namelist():
+                shared_root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+                for item in shared_root.findall("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}si"):
+                    texts = item.findall(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t")
+                    shared_strings.append("".join(text.text or "" for text in texts))
+            workbook_root = ET.fromstring(archive.read("xl/workbook.xml"))
+            rel_root = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+            rels = {
+                rel.attrib.get("Id"): rel.attrib.get("Target", "")
+                for rel in rel_root.findall("{http://schemas.openxmlformats.org/package/2006/relationships}Relationship")
+            }
+            first_sheet = workbook_root.find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheet")
+            if first_sheet is None:
+                return rows
+            rid = first_sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+            target = rels.get(rid, "worksheets/sheet1.xml")
+            sheet_path = f"xl/{target.lstrip('/')}"
+            sheet_root = ET.fromstring(archive.read(sheet_path))
+            for row in sheet_root.findall(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}row"):
+                values = []
+                for cell in row.findall("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c"):
+                    ref = cell.attrib.get("r", "")
+                    col_name = re.sub(r"[^A-Z]", "", ref.upper())
+                    if col_name:
+                        col_index = 0
+                        for char in col_name:
+                            col_index = col_index * 26 + (ord(char) - ord("A") + 1)
+                        while len(values) < col_index:
+                            values.append("")
+                        values[col_index - 1] = xlsx_cell_text(cell, shared_strings)
+                rows.append(values)
+        return rows
+
+    def looks_like_header(row):
+        first_cells = " ".join(normalize_text(item).casefold() for item in row[:4])
+        return any(token in first_cells for token in ["oem", "номер", "артикул", "опис", "цена", "ціна"])
+
+    def normalize_import_rows(raw_rows):
+        rows = []
+        for row in raw_rows:
+            row = [normalize_text(item or "").strip() for item in row]
+            if not row or not any(row):
+                continue
+            if looks_like_header(row):
+                continue
+
+            # New Avtopro XLSX price-list layout:
+            # A OEM, B brand, C title, D photo URLs, F qty, G price, H availability flag.
+            is_xlsx_pricelist = (
+                len(row) >= 7
+                and row[0]
+                and row[1]
+                and (not row[3] or "http" in row[3].lower() or "," in row[3])
+                and to_float(row[6]) >= 0
+                and not ("http" in (row[6] or "").lower())
+            )
+            if is_xlsx_pricelist:
+                part_number = row[0].strip().upper()
+                brand = row[1].strip()
+                name = row[2].strip() if len(row) > 2 else ""
+                gallery = parse_media_urls(row[3] if len(row) > 3 else "")
+                qty = to_int(row[5] if len(row) > 5 else 0)
+                in_stock = bool_cell(row[7] if len(row) > 7 else "", qty > 0)
+                if not in_stock:
+                    qty = 0
+                price_usd = to_float(row[6] if len(row) > 6 else 0)
+                brand_export = brand
+                part_number_export = part_number
+                avtopro_flag_1 = row[4] if len(row) > 4 else ""
+                avtopro_flag_2 = row[7] if len(row) > 7 else ""
+                avtopro_flag_3 = ""
+                avtopro_flag_4 = ""
+                producer_type = producer_type_label(brand)
+            else:
+                if len(row) < 9:
+                    continue
+                brand = row[0].strip()
+                part_number = row[1].strip().upper()
+                name = row[2].strip()
+                if not part_number:
+                    continue
+                price_usd = to_float(row[3] if len(row) > 3 else 0)
+                qty = to_int(row[4] if len(row) > 4 else 0)
+                in_stock = qty > 0
+                gallery = parse_media_urls(row[6] if len(row) > 6 else "")
+                producer_type = producer_type_label("OEM" if "OEM" in brand.upper() else "Замінник")
+                brand_export = row[7].strip() if len(row) > 7 else brand
+                part_number_export = row[8].strip() if len(row) > 8 else part_number
+                avtopro_flag_1 = row[5].strip() if len(row) > 5 else ""
+                avtopro_flag_2 = row[10].strip() if len(row) > 10 else ""
+                avtopro_flag_3 = row[15].strip() if len(row) > 15 else ""
+                avtopro_flag_4 = row[16].strip() if len(row) > 16 else ""
+
+            if not part_number:
+                continue
+            views_seed = int(hashlib.md5(part_number.encode()).hexdigest()[:4], 16)
+            rows.append({
+                "brand": brand,
+                "part_number": part_number,
+                "name": name,
+                "price_usd": price_usd,
+                "qty": qty,
+                "in_stock": in_stock,
+                "photo_urls": gallery[0] if gallery else "",
+                "showcase_photo_urls": dump_media_urls(gallery),
+                "has_photo": bool(gallery),
+                "has_description": False,
+                "producer_type": producer_type,
+                "brand_export": brand_export,
+                "part_number_export": part_number_export,
+                "avtopro_flag_1": avtopro_flag_1,
+                "avtopro_flag_2": avtopro_flag_2,
+                "avtopro_flag_3": avtopro_flag_3,
+                "avtopro_flag_4": avtopro_flag_4,
+                "raw_import_row": ";".join(row),
+                "views_24h": views_seed % 40,
+                "views_168h": (views_seed % 120) + 20,
+            })
+        return rows
+
     raw = file_storage.read()
+    raw_bytes = raw.encode("utf-8") if isinstance(raw, str) else raw
+    filename = normalize_text(getattr(file_storage, "filename", "") or "").strip().lower()
+    if filename.endswith((".xlsx", ".xlsm")) or raw_bytes[:2] == b"PK":
+        return normalize_import_rows(read_xlsx_rows(raw_bytes))
+
     content = raw if isinstance(raw, str) else raw.decode("utf-8-sig", errors="ignore")
     reader = csv.reader(io.StringIO(content), delimiter=";")
-    rows = []
-    for row in reader:
-        if not row or len(row) < 9:
-            continue
-        brand = (row[0] or "").strip()
-        part_number = (row[1] or "").strip()
-        name = (row[2] or "").strip()
-        if not part_number:
-            continue
-        price_usd = to_float(row[3] if len(row) > 3 else 0)
-        qty = to_int(row[4] if len(row) > 4 else 0)
-        photos = (row[6] or "").strip() if len(row) > 6 else ""
-        producer_type = producer_type_label("OEM" if "OEM" in brand.upper() else "Замінник")
-        views_seed = int(hashlib.md5(part_number.encode()).hexdigest()[:4], 16)
-        rows.append({
-            "brand": brand,
-            "part_number": part_number,
-            "name": name,
-            "price_usd": price_usd,
-            "qty": qty,
-            "in_stock": qty > 0,
-            "photo_urls": photos,
-            "has_photo": bool(photos),
-            "has_description": False,
-            "producer_type": producer_type,
-            "brand_export": (row[7] or "").strip(),
-            "part_number_export": (row[8] or "").strip(),
-            "avtopro_flag_1": (row[5] or "").strip() if len(row) > 5 else "",
-            "avtopro_flag_2": (row[10] or "").strip() if len(row) > 10 else "",
-            "avtopro_flag_3": (row[15] or "").strip() if len(row) > 15 else "",
-            "avtopro_flag_4": (row[16] or "").strip() if len(row) > 16 else "",
-            "raw_import_row": ";".join(row),
-            "views_24h": views_seed % 40,
-            "views_168h": (views_seed % 120) + 20,
-        })
-    return rows
+    return normalize_import_rows(reader)
 
 
 
@@ -9577,8 +9694,12 @@ def confirm_import(session_id):
                 part.price_usd = payload["price_usd"]
                 part.qty = payload["qty"]
                 part.in_stock = payload["in_stock"]
-                if payload["photo_urls"]:
+                gallery_payload = parse_media_urls(payload.get("showcase_photo_urls") or [])
+                if payload.get("photo_urls"):
                     part.photo_urls = payload["photo_urls"]
+                if gallery_payload:
+                    part.showcase_photo_urls = dump_media_urls(gallery_payload)
+                elif payload.get("photo_urls"):
                     part.showcase_photo_urls = dump_media_urls(part_gallery_urls(part) + [payload["photo_urls"]])
                 part.has_photo = bool(part_gallery_urls(part))
                 part.brand_export = payload["brand_export"]
@@ -9603,8 +9724,8 @@ def confirm_import(session_id):
                     qty=payload["qty"],
                     in_stock=payload["in_stock"],
                     photo_urls=payload["photo_urls"],
-                    showcase_photo_urls=dump_media_urls([payload["photo_urls"]] if payload["photo_urls"] else []),
-                    has_photo=payload["has_photo"],
+                    showcase_photo_urls=payload.get("showcase_photo_urls") or dump_media_urls([payload["photo_urls"]] if payload["photo_urls"] else []),
+                    has_photo=payload.get("has_photo", False),
                     has_description=False,
                     views_24h=payload["views_24h"],
                     views_168h=payload["views_168h"],

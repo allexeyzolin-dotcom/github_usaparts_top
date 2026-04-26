@@ -3,7 +3,7 @@
 <div class="panel-header">
   <div>
     <h2>Склади</h2>
-    <div class="muted">Тут залишилися тільки базові дії по складах: створення, видалення, імпорт і експорт CSV.</div>
+    <div class="muted">Тут залишилися тільки базові дії по складах: створення, видалення, імпорт CSV/Excel і експорт CSV.</div>
   </div>
 </div>
 
@@ -40,7 +40,7 @@
   </section>
 
   <section class="card stack">
-    <h3>Імпорт CSV</h3>
+    <h3>Імпорт CSV / Excel</h3>
     <form method="post" action="{{ url_for('import_preview') }}" enctype="multipart/form-data" class="stack">
       <select name="warehouse_id" required>
         <option value="">Оберіть склад</option>
@@ -48,8 +48,8 @@
         <option value="{{ warehouse.id }}">{{ warehouse.name }}</option>
         {% endfor %}
       </select>
-      <input type="file" name="file" accept=".csv" required>
-      <button class="btn primary" type="submit">Завантажити CSV</button>
+      <input type="file" name="file" accept=".csv,.xlsx,.xlsm" required>
+      <button class="btn primary" type="submit">Завантажити файл</button>
     </form>
   </section>
 

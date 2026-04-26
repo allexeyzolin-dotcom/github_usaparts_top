@@ -35,7 +35,7 @@ services:
       BACKUP_SYNC_ENABLED: ${BACKUP_SYNC_ENABLED:-0}
       RCLONE_CONFIG: /config/rclone/rclone.conf
     ports:
-      - "${APP_PORT:-8080}:8080"
+      - "${APP_PORT:-8081}:8080"
     volumes:
       - uploads:/app/app/uploads
       - backups:/app/backups

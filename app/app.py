@@ -10986,6 +10986,11 @@ def uploaded_file(filename):
     return send_file(UPLOAD_DIR / filename)
 
 
+@app.route("/google6a2f4ce00040ba4f.html")
+def google_site_verification():
+    return send_file(BASE_DIR / "google6a2f4ce00040ba4f.html", mimetype="text/html")
+
+
 if __name__ == "__main__":
     wait_for_db()
     seed_if_empty()

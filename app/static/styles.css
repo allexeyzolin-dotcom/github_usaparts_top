@@ -30,9 +30,9 @@ a{text-decoration:none;color:inherit}
   height:42px;
   object-fit:contain;
   border-radius:12px;
-  background:#fff;
-  padding:4px 10px;
-  box-shadow:0 10px 22px rgba(0,0,0,.22);
+  background:transparent;
+  padding:0;
+  box-shadow:none;
 }
 .nav-link{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
 .cabinet{padding:10px 14px;border-radius:10px;background:rgba(255,179,0,.15);border:1px solid rgba(255,179,0,.3);color:#ffd166;font-weight:700}
@@ -506,9 +506,9 @@ th{position:sticky;top:0;background:rgba(17,25,39,.96);z-index:2}
   object-fit:contain;
   margin:0 auto 18px;
   border-radius:24px;
-  background:#fff;
-  padding:14px 22px;
-  box-shadow:0 24px 48px rgba(0,0,0,.3);
+  background:transparent;
+  padding:0;
+  box-shadow:none;
 }
 .home-main-title{
   margin:14px 0 0;

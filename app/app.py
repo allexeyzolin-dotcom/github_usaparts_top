@@ -978,8 +978,8 @@ def apply_template_to_parts(db, template: PartTemplate, only_parts=None):
 
 
 def merge_master_value(current_value, candidate_value, *, allow_zero: bool = False):
-    current_text = normalize_text(current_value or "").strip()
-    candidate_text = normalize_text(candidate_value or "").strip()
+    current_text = normalize_text("" if current_value is None else str(current_value)).strip()
+    candidate_text = normalize_text("" if candidate_value is None else str(candidate_value)).strip()
     if current_text:
         return current_value
     if candidate_text:

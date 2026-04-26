@@ -5472,6 +5472,10 @@ def public_site_base_url() -> str:
     forwarded_host = (request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
     scheme = forwarded_proto or request.scheme or "https"
     host = forwarded_host or request.host
+    host_name = host.split(":", 1)[0].lower()
+    if host_name in {"usaparts.top", "www.usaparts.top"}:
+        scheme = "https"
+        host = "usaparts.top"
     return f"{scheme}://{host}".rstrip("/")
 
 
@@ -6010,6 +6014,18 @@ def inject_globals():
     }
 
 
+@app.before_request
+def redirect_to_primary_domain():
+    host = request.host.split(":", 1)[0].lower()
+    forwarded_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+    scheme = forwarded_proto or request.scheme or "http"
+    if host == "www.usaparts.top" or (host == "usaparts.top" and scheme == "http"):
+        target = f"https://usaparts.top{request.full_path}"
+        if target.endswith("?"):
+            target = target[:-1]
+        return redirect(target, code=301)
+
+
 @app.route("/robots.txt")
 def robots_txt():
     content = "\n".join([
@@ -6105,8 +6121,8 @@ def home():
             display_usd=display_usd,
             display_uah=display_uah,
             cars_random=cars_random,
-            seo_title="Запчастини для авто з США | USA AUTO PARTS",
-            seo_description="Запчастини для авто з США: пошук по OEM номеру, назві або бренду. Товари в наявності, авто в наявності та авто в дорозі.",
+            seo_title="Авторозбірка USAparts.top | Запчастини для авто з США",
+            seo_description="USAparts.top - авторозбірка та автошрот в Україні. Б/у запчастини для авто зі США, пошук по OEM номеру, склади в Україні та поставки зі США.",
             canonical_url=public_url_for("home"),
             seo_noindex=bool(q) or page > 1,
         )

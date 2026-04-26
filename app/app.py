@@ -291,6 +291,21 @@ class OrderItem(Base):
     order = relationship("Order", back_populates="items")
 
 
+class StatsEvent(Base):
+    __tablename__ = "stats_events"
+    id = Column(Integer, primary_key=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    visitor_id = Column(String(64), nullable=False, default="", index=True)
+    part_id = Column(Integer, nullable=True)
+    part_number = Column(String(255), nullable=False, default="", index=True)
+    part_name = Column(String(500), nullable=False, default="")
+    query_text = Column(String(500), nullable=False, default="", index=True)
+    quantity = Column(Integer, nullable=False, default=1)
+    order_id = Column(Integer, nullable=True)
+    meta_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
 class ReceivingDraftItem(Base):
     __tablename__ = "receiving_draft_items"
     id = Column(Integer, primary_key=True)
@@ -5464,6 +5479,141 @@ def safe_photo(urls: str) -> str:
     return items[0] if items else ""
 
 
+def stats_visitor_id() -> str:
+    visitor_id = normalize_text(session.get("stats_visitor_id") or "").strip()
+    if not visitor_id:
+        visitor_id = uuid4().hex
+        session["stats_visitor_id"] = visitor_id
+    return visitor_id
+
+
+def track_stats_event(
+    db,
+    event_type: str,
+    part: Part | None = None,
+    query_text: str = "",
+    quantity: int = 1,
+    order_id: int | None = None,
+    meta: dict | None = None,
+):
+    clean_event = normalize_text(event_type or "").strip()
+    if not clean_event:
+        return None
+    meta_json = "{}"
+    if meta:
+        try:
+            meta_json = json.dumps(meta, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            meta_json = "{}"
+    event = StatsEvent(
+        event_type=clean_event,
+        visitor_id=stats_visitor_id(),
+        part_id=part.id if part else None,
+        part_number=normalize_text(part.part_number if part else "").strip()[:255],
+        part_name=normalize_text(part.name if part else "").strip()[:500],
+        query_text=normalize_text(query_text or "").strip()[:500],
+        quantity=max(int(quantity or 0), 0),
+        order_id=order_id,
+        meta_json=meta_json,
+        created_at=now(),
+    )
+    db.add(event)
+    return event
+
+
+def should_track_guest_visit() -> bool:
+    endpoint = request.endpoint or ""
+    return request.method == "GET" and endpoint in {
+        "home",
+        "catalog",
+        "part_detail",
+        "cars_public",
+        "car_detail_public",
+        "cart_view",
+    }
+
+
+def track_daily_guest_visit():
+    if not should_track_guest_visit():
+        return
+    today_key = datetime.utcnow().strftime("%Y-%m-%d")
+    tracked_days = session.get("stats_guest_days") or []
+    if not isinstance(tracked_days, list):
+        tracked_days = []
+    if today_key in tracked_days:
+        return
+    db = SessionLocal()
+    try:
+        track_stats_event(db, "guest_visit", meta={"path": request.path})
+        db.commit()
+        tracked_days.append(today_key)
+        session["stats_guest_days"] = tracked_days[-45:]
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+def parse_stats_date(value: str, fallback):
+    try:
+        return datetime.strptime((value or "").strip(), "%Y-%m-%d").date()
+    except Exception:
+        return fallback
+
+
+def stats_date_range_from_request():
+    today = datetime.utcnow().date()
+    mode = normalize_text(request.args.get("mode") or "day").strip()
+    if mode == "range":
+        start_date = parse_stats_date(request.args.get("date_from", ""), today)
+        end_date = parse_stats_date(request.args.get("date_to", ""), start_date)
+    else:
+        mode = "day"
+        start_date = parse_stats_date(request.args.get("date", ""), today)
+        end_date = start_date
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+    return mode, start_date, end_date, start_dt, end_dt
+
+
+def aggregate_part_stats(events):
+    grouped = {}
+    for event in events:
+        key = normalize_text(event.part_number or "").strip() or f"ID {event.part_id or event.id}"
+        row = grouped.setdefault(
+            key,
+            {
+                "part_number": key,
+                "part_name": normalize_text(event.part_name or "").strip(),
+                "count": 0,
+                "quantity": 0,
+                "last_at": event.created_at,
+            },
+        )
+        if not row["part_name"] and event.part_name:
+            row["part_name"] = normalize_text(event.part_name).strip()
+        row["count"] += 1
+        row["quantity"] += max(int(event.quantity or 0), 0)
+        if event.created_at and (not row["last_at"] or event.created_at > row["last_at"]):
+            row["last_at"] = event.created_at
+    return sorted(grouped.values(), key=lambda row: (row["quantity"], row["count"], row["last_at"]), reverse=True)
+
+
+def aggregate_search_stats(events):
+    grouped = {}
+    for event in events:
+        query = normalize_text(event.query_text or "").strip()
+        if not query:
+            continue
+        row = grouped.setdefault(query.casefold(), {"query": query, "count": 0, "last_at": event.created_at})
+        row["count"] += 1
+        if event.created_at and (not row["last_at"] or event.created_at > row["last_at"]):
+            row["last_at"] = event.created_at
+    return sorted(grouped.values(), key=lambda row: (row["count"], row["last_at"]), reverse=True)
+
+
 def vehicle_names_from_warehouses(warehouses) -> list[str]:
     vehicle_keywords = {
         "ACURA", "AUDI", "BMW", "CADILLAC", "CHEVROLET", "CHRYSLER", "DODGE", "FIAT",
@@ -5880,6 +6030,10 @@ def seed_if_empty():
             conn.exec_driver_sql("ALTER TABLE packing_requests ADD COLUMN IF NOT EXISTS np_street_name VARCHAR(255) NOT NULL DEFAULT ''")
             conn.exec_driver_sql("ALTER TABLE packing_requests ADD COLUMN IF NOT EXISTS np_house VARCHAR(64) NOT NULL DEFAULT ''")
             conn.exec_driver_sql("ALTER TABLE packing_requests ADD COLUMN IF NOT EXISTS control_payment_uah NUMERIC(12, 2) NOT NULL DEFAULT 0")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_stats_events_event_type ON stats_events (event_type)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_stats_events_created_at ON stats_events (created_at)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_stats_events_part_number ON stats_events (part_number)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_stats_events_query_text ON stats_events (query_text)")
         except Exception:
             pass
     db = SessionLocal()
@@ -6059,6 +6213,7 @@ def redirect_to_primary_domain():
         if target.endswith("?"):
             target = target[:-1]
         return redirect(target, code=301)
+    track_daily_guest_visit()
 
 
 @app.route("/robots.txt")
@@ -6150,6 +6305,9 @@ def home():
         vehicle_warehouses = vehicle_names_from_warehouses(
             db.query(Warehouse).order_by(Warehouse.name.asc()).all()
         )
+        if q and page == 1:
+            track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
+            db.commit()
         return render_template(
             "home.html",
             featured=featured,
@@ -6417,6 +6575,9 @@ def catalog():
         if q and parts_total == 0:
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle) for part in parts_pool)
+        if q:
+            track_stats_event(db, "search", query_text=q, meta={"source": "catalog", "results": parts_total})
+            db.commit()
         return render_template(
             "catalog.html",
             parts=parts,
@@ -6446,6 +6607,7 @@ def part_detail(part_id):
         warehouse = db.get(Warehouse, part.warehouse_id)
         part.views_24h += 1
         part.views_168h += 1
+        track_stats_event(db, "part_view", part=part)
         db.commit()
         part_title = compact_meta_text(part.part_number, part.name, limit=90)
         part_price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
@@ -6508,6 +6670,7 @@ def part_seller_request(part_id):
             f"{part.part_number} • {phone} • {part_name or 'Без опису'}",
             "info",
         )
+        track_stats_event(db, "seller_request", part=part, meta={"warehouse": warehouse.name if warehouse else ""})
         db.commit()
         flash("Дякуємо з вами зв'яжуться в самий короткий термін", "success")
         return redirect(url_for("part_detail", part_id=part.id))
@@ -6594,6 +6757,8 @@ def cart_add(part_id):
             return redirect(request.referrer or url_for("catalog"))
         cart[str(part_id)] = current_qty + 1
         session["cart"] = cart
+        track_stats_event(db, "cart_add", part=part, quantity=1, meta={"cart_qty": current_qty + 1})
+        db.commit()
         flash("Товар додано в корзину", "success")
         return redirect(request.referrer or url_for("catalog"))
     finally:
@@ -6692,6 +6857,14 @@ def checkout():
                 qty=item["qty"],
                 price_usd=item["part"].price_usd
             ))
+            track_stats_event(
+                db,
+                "order_item",
+                part=item["part"],
+                quantity=item["qty"],
+                order_id=order.id,
+                meta={"customer": order.customer_name, "city": city_name},
+            )
         db.flush()
         reserve_order_inventory(db, order)
         flash_news(db, "orders", "РќРѕРІРµ Р·Р°РјРѕРІР»РµРЅРЅСЏ", f"Р—Р°РјРѕРІР»РµРЅРЅСЏ #{order.id}: {city_name}, {address}.", "success")
@@ -6936,6 +7109,92 @@ def admin_backup_download(filename):
 @admin_required
 def admin_root():
     return redirect(url_for("admin_parts"))
+
+
+@app.route("/admin/statistics")
+@admin_required
+def admin_statistics():
+    db = SessionLocal()
+    try:
+        mode, start_date, end_date, start_dt, end_dt = stats_date_range_from_request()
+        events = (
+            db.query(StatsEvent)
+            .filter(StatsEvent.created_at >= start_dt, StatsEvent.created_at < end_dt)
+            .order_by(desc(StatsEvent.created_at), desc(StatsEvent.id))
+            .all()
+        )
+        by_type = {}
+        for event in events:
+            by_type.setdefault(event.event_type, []).append(event)
+
+        daily_rows = {}
+        for event in events:
+            day_key = event.created_at.strftime("%Y-%m-%d") if event.created_at else ""
+            row = daily_rows.setdefault(
+                day_key,
+                {
+                    "date": day_key,
+                    "guests": set(),
+                    "part_views": 0,
+                    "searches": 0,
+                    "seller_requests": 0,
+                    "cart_adds": 0,
+                    "orders": 0,
+                },
+            )
+            if event.event_type == "guest_visit" and event.visitor_id:
+                row["guests"].add(event.visitor_id)
+            elif event.event_type == "part_view":
+                row["part_views"] += 1
+            elif event.event_type == "search":
+                row["searches"] += 1
+            elif event.event_type == "seller_request":
+                row["seller_requests"] += 1
+            elif event.event_type == "cart_add":
+                row["cart_adds"] += max(int(event.quantity or 0), 0)
+            elif event.event_type == "order_item":
+                row["orders"] += max(int(event.quantity or 0), 0)
+        day_stats = []
+        for row in daily_rows.values():
+            row["guests_count"] = len(row.pop("guests"))
+            day_stats.append(row)
+        day_stats.sort(key=lambda row: row["date"], reverse=True)
+
+        summary = {
+            "guests": len({event.visitor_id for event in by_type.get("guest_visit", []) if event.visitor_id}),
+            "part_views": len(by_type.get("part_view", [])),
+            "searches": len(by_type.get("search", [])),
+            "seller_requests": len(by_type.get("seller_request", [])),
+            "cart_adds": sum(max(int(event.quantity or 0), 0) for event in by_type.get("cart_add", [])),
+            "ordered_items": sum(max(int(event.quantity or 0), 0) for event in by_type.get("order_item", [])),
+        }
+        event_labels = {
+            "guest_visit": "Гість",
+            "part_view": "Перегляд товару",
+            "search": "Пошук",
+            "seller_request": "Запит продавцю",
+            "cart_add": "Додано в кошик",
+            "order_item": "Замовлено",
+        }
+        news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
+        return render_template(
+            "admin_statistics.html",
+            mode=mode,
+            start_date=start_date,
+            end_date=end_date,
+            summary=summary,
+            day_stats=day_stats,
+            search_stats=aggregate_search_stats(by_type.get("search", [])),
+            viewed_parts=aggregate_part_stats(by_type.get("part_view", [])),
+            seller_parts=aggregate_part_stats(by_type.get("seller_request", [])),
+            cart_parts=aggregate_part_stats(by_type.get("cart_add", [])),
+            ordered_parts=aggregate_part_stats(by_type.get("order_item", [])),
+            recent_events=events[:80],
+            event_labels=event_labels,
+            news=news,
+        )
+    finally:
+        db.close()
 
 
 @app.route("/admin/news/clear", methods=["POST"])

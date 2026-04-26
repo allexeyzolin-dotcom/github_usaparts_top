@@ -17,6 +17,7 @@
     <div></div>
     <div class="header-right admin-header-links">
       <a class="nav-link {% if request.endpoint == 'admin_cars' %}is-active{% endif %}" href="{{ url_for('admin_cars') }}">Авто</a>
+      <a class="nav-link {% if request.endpoint == 'admin_statistics' %}is-active{% endif %}" href="{{ url_for('admin_statistics') }}">Статистика</a>
       <a class="nav-link {% if request.endpoint in ['admin_backup', 'admin_backup_settings', 'admin_backup_create', 'admin_backup_download'] %}is-active{% endif %}" href="{{ url_for('admin_backup') }}">Бекап</a>
       <a class="nav-link {% if request.endpoint == 'admin_account' %}is-active{% endif %}" href="{{ url_for('admin_account') }}">Змінити пароль</a>
       <a class="nav-link {% if request.endpoint == 'admin_api' %}is-active{% endif %}" href="{{ url_for('admin_api') }}">API</a>

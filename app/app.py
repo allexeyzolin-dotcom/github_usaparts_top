@@ -5464,6 +5464,41 @@ def safe_photo(urls: str) -> str:
     return items[0] if items else ""
 
 
+def vehicle_names_from_warehouses(warehouses) -> list[str]:
+    vehicle_keywords = {
+        "ACURA", "AUDI", "BMW", "CADILLAC", "CHEVROLET", "CHRYSLER", "DODGE", "FIAT",
+        "FORD", "GMC", "HONDA", "HYUNDAI", "INFINITI", "JEEP", "KIA", "LEXUS",
+        "LINCOLN", "MAZDA", "MERCEDES", "MERCEDES-BENZ", "MITSUBISHI", "NISSAN",
+        "PORSCHE", "RENAULT", "SATURN", "SCION", "SSANGYONG", "SUBARU", "SUZUKI",
+        "TOYOTA", "VOLKSWAGEN", "VW", "VAG", "BUICK", "TESLA", "VOLVO", "RAM",
+        "TIGUAN", "PASSAT", "JETTA", "GOLF", "TOUAREG", "ATLAS", "TAHOE", "CAMRY",
+        "RAV4", "VENZA", "ROGUE", "ESCAPE", "FUSION", "MALIBU", "CHEROKEE",
+        "COMPASS", "DURANGO", "PACIFICA", "X5", "X3", "Q5", "Q7",
+    }
+    service_words = {
+        "СКЛАД", "ГАРАНТОВАН", "НАЯВ", "TEST", "MARKET", "OEM", "ЗАМІННИК",
+        "ЗАМЕННИК", "ПРИЙОМ", "ПРИЕМ", "ТОВАР", "TRANSIT", "ALL", "ВСІ", "ВСЕ",
+    }
+    result = []
+    seen = set()
+    for warehouse in warehouses:
+        name = normalize_text(getattr(warehouse, "name", "") or "").strip()
+        if not name:
+            continue
+        upper = name.upper()
+        normalized = re.sub(r"[^A-ZА-ЯІЇЄҐ0-9]+", " ", upper).strip()
+        tokens = set(normalized.split())
+        if tokens and tokens.issubset(service_words):
+            continue
+        if not any(keyword in upper for keyword in vehicle_keywords):
+            continue
+        key = upper.casefold()
+        if key not in seen:
+            seen.add(key)
+            result.append(name)
+    return result
+
+
 def public_site_base_url() -> str:
     configured = (os.getenv("PUBLIC_SITE_URL") or os.getenv("SITE_BASE_URL") or "").strip()
     if configured:
@@ -6041,6 +6076,11 @@ def robots_txt():
     return Response(content, mimetype="text/plain")
 
 
+@app.route("/favicon.ico")
+def favicon_ico():
+    return send_file(BASE_DIR / "static" / "favicon.ico", mimetype="image/x-icon")
+
+
 @app.route("/sitemap.xml")
 def sitemap_xml():
     db = SessionLocal()
@@ -6107,6 +6147,9 @@ def home():
         cars_random = random.sample(cars_pool, min(5, len(cars_pool))) if cars_pool else []
         cars_stock = db.query(Car).filter(Car.status == "in_stock").count()
         cars_transit = db.query(Car).filter(Car.status == "in_transit").count()
+        vehicle_warehouses = vehicle_names_from_warehouses(
+            db.query(Warehouse).order_by(Warehouse.name.asc()).all()
+        )
         return render_template(
             "home.html",
             featured=featured,
@@ -6121,6 +6164,7 @@ def home():
             display_usd=display_usd,
             display_uah=display_uah,
             cars_random=cars_random,
+            vehicle_warehouses=vehicle_warehouses,
             seo_title="Авторозбірка USAparts.top | Запчастини для авто з США",
             seo_description="USAparts.top - авторозбірка та автошрот в Україні. Б/у запчастини для авто зі США, пошук по OEM номеру, склади в Україні та поставки зі США.",
             canonical_url=public_url_for("home"),

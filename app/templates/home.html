@@ -22,6 +22,7 @@
     {% endif %}
 
     <div class="home-title-block">
+      <img class="home-brand-logo" src="{{ url_for('static', filename='usaparts-logo.jpg') }}" alt="USAparts.top">
       <span class="eyebrow">USA авторозбірка • запчастини • поставки</span>
       <h1 class="home-main-title">Запчастини для авто з США</h1>
     </div>
@@ -101,11 +102,11 @@
         </div>
       </div>
 
-      <div class="seo-brand-strip" aria-label="Марки авто на розбірці">
-        ACURA, AUDI, BMW, CADILLAC, CHEVROLET, CHRYSLER, DODGE, FIAT, FORD, GMC, HONDA, HYUNDAI,
-        INFINITI, JEEP, KIA, LEXUS, LINCOLN, MAZDA, MERCEDES, MITSUBISHI, NISSAN, PORSCHE, RENAULT,
-        SATURN, SCION, SSANGYONG, SUBARU, SUZUKI, TOYOTA, VOLKSWAGEN.
+      {% if vehicle_warehouses %}
+      <div class="seo-brand-strip" aria-label="Авто на розбірці">
+        Авто на розбірці: {{ vehicle_warehouses|join(', ') }}.
       </div>
+      {% endif %}
     </article>
   </div>
 </section>

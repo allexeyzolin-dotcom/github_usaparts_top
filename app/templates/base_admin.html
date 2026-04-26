@@ -4,11 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>USA AUTO PARTS • Кабінет</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body class="admin-theme">
   <header class="topbar">
-    <a href="{{ url_for('home') }}" class="logo">USA AUTO PARTS</a>
+    <a href="{{ url_for('home') }}" class="logo site-logo" aria-label="USAparts.top">
+      <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo.jpg') }}" alt="USAparts.top">
+    </a>
     <div></div>
     <div class="header-right admin-header-links">
       <a class="nav-link {% if request.endpoint == 'admin_cars' %}is-active{% endif %}" href="{{ url_for('admin_cars') }}">Авто</a>

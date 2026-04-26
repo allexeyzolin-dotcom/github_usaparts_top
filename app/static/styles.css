@@ -18,6 +18,22 @@ a{text-decoration:none;color:inherit}
 .header-center{display:flex;gap:14px;justify-self:center}
 .header-right{display:flex;gap:12px;justify-self:end;align-items:center}
 .logo{font-weight:800;letter-spacing:.04em}
+.site-logo{
+  display:inline-flex;
+  align-items:center;
+  padding:0;
+  border-radius:14px;
+}
+.site-logo-img{
+  display:block;
+  width:clamp(148px, 16vw, 230px);
+  height:42px;
+  object-fit:contain;
+  border-radius:12px;
+  background:#fff;
+  padding:4px 10px;
+  box-shadow:0 10px 22px rgba(0,0,0,.22);
+}
 .nav-link{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
 .cabinet{padding:10px 14px;border-radius:10px;background:rgba(255,179,0,.15);border:1px solid rgba(255,179,0,.3);color:#ffd166;font-weight:700}
 .cart-badge{display:inline-flex;min-width:20px;height:20px;border-radius:999px;background:#ffb300;color:#111827;align-items:center;justify-content:center;font-size:12px;font-weight:800;margin-left:6px}
@@ -483,6 +499,17 @@ th{position:sticky;top:0;background:rgba(17,25,39,.96);z-index:2}
   text-align:center;
   margin:0 auto 18px;
 }
+.home-brand-logo{
+  display:block;
+  width:min(520px, 92vw);
+  max-height:146px;
+  object-fit:contain;
+  margin:0 auto 18px;
+  border-radius:24px;
+  background:#fff;
+  padding:14px 22px;
+  box-shadow:0 24px 48px rgba(0,0,0,.3);
+}
 .home-main-title{
   margin:14px 0 0;
   font-size:clamp(32px,4.8vw,54px);
@@ -653,6 +680,16 @@ th{position:sticky;top:0;background:rgba(17,25,39,.96);z-index:2}
   }
   .home-main-title{
     font-size:30px;
+  }
+  .site-logo-img{
+    width:150px;
+    height:38px;
+    padding:3px 8px;
+  }
+  .home-brand-logo{
+    max-height:112px;
+    padding:10px 14px;
+    border-radius:18px;
   }
   .seo-about-card{
     padding:20px;

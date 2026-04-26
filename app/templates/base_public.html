@@ -18,6 +18,9 @@
   <meta property="og:url" content="{{ canonical_url }}">
   {% endif %}
   <meta property="og:type" content="{{ og_type|default('website', true) }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   {% if json_ld|default('') %}
   <script type="application/ld+json">{{ json_ld|safe }}</script>
@@ -26,7 +29,9 @@
 <body>
   <header class="topbar topbar-salvage">
     <div class="header-left">
-      <a href="{{ url_for('home') }}" class="logo">USA AUTO PARTS</a>
+      <a href="{{ url_for('home') }}" class="logo site-logo" aria-label="USAparts.top">
+        <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo.jpg') }}" alt="USAparts.top">
+      </a>
     </div>
     <nav class="header-center">
       <a class="nav-link" href="{{ url_for('cars_public', status='in_stock') }}">Авто в наявності</a>

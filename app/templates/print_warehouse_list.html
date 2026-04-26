@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>{{ scope_title }}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      color: #111827;
+      background: #ffffff;
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .page {
+      width: 100%;
+    }
+
+    .header {
+      margin-bottom: 10mm;
+      border-bottom: 1px solid #cbd5e1;
+      padding-bottom: 4mm;
+    }
+
+    .header h1 {
+      margin: 0 0 2mm;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .meta {
+      color: #475569;
+      font-size: 11px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    thead th {
+      text-align: left;
+      padding: 2.5mm 2mm;
+      border: 1px solid #94a3b8;
+      background: #e2e8f0;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    tbody td {
+      vertical-align: top;
+      padding: 2.5mm 2mm;
+      border: 1px solid #cbd5e1;
+      word-break: break-word;
+    }
+
+    .col-oem {
+      width: 28%;
+      font-weight: 700;
+    }
+
+    .col-desc {
+      width: 54%;
+    }
+
+    .col-qty {
+      width: 18%;
+      text-align: right;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .empty {
+      margin-top: 10mm;
+      padding: 6mm;
+      border: 1px dashed #94a3b8;
+      text-align: center;
+      color: #64748b;
+    }
+
+    @media screen {
+      body {
+        padding: 20px;
+        background: #f1f5f9;
+      }
+
+      .page {
+        max-width: 210mm;
+        margin: 0 auto;
+        padding: 12mm;
+        background: #ffffff;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <h1>{{ scope_title }}</h1>
+      <div class="meta">Надруковано: {{ generated_at }}</div>
+    </div>
+
+    {% if rows %}
+    <table>
+      <thead>
+        <tr>
+          <th class="col-oem">OEM номер</th>
+          <th class="col-desc">Опис</th>
+          <th class="col-qty">Кількість, шт.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="col-oem">{{ row.part_number }}</td>
+          <td class="col-desc">{{ row.description }}</td>
+          <td class="col-qty">{{ row.qty }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">У цій вибірці поки немає товарів.</div>
+    {% endif %}
+  </div>
+</body>
+</html>

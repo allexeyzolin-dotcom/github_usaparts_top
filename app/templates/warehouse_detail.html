@@ -1,0 +1,446 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <a class="backlink" href="{{ url_for('admin_products') }}">← До складів</a>
+    <h2>{{ warehouse.name }}</h2>
+    <div class="muted">
+      Націнка: {{ '%.2f'|format(warehouse.markup_percent|float) }}% |
+      Позицій: {{ stats.total }} |
+      Фото: {{ stats.with_photo_pct }}% |
+      Описів: {{ stats.with_desc_pct }}%
+    </div>
+  </div>
+  <div class="button-row">
+    <a class="btn ghost" href="{{ url_for('export_warehouse', warehouse_id=warehouse.id) }}">Експорт складу</a>
+    <form id="warehouse-print-all-form" method="post" action="{{ url_for('print_warehouse_barcodes', warehouse_id=warehouse.id) }}">
+      <input type="hidden" name="label_qty" value="">
+      <button class="btn ghost" type="button" onclick="promptWarehouseLabels(false)">Друк усіх етикеток</button>
+    </form>
+    <a class="btn primary" href="{{ url_for('revision', warehouse_id=warehouse.id) }}">Почати ревізію</a>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Налаштування складу</h3>
+  <form method="post" action="{{ url_for('update_warehouse', warehouse_id=warehouse.id) }}" class="grid-2">
+    <input name="name" value="{{ warehouse.name }}" placeholder="Назва складу" required>
+    <input name="markup_percent" type="number" step="0.01" value="{{ warehouse.markup_percent }}" placeholder="Націнка %">
+    <button class="btn primary" type="submit">Зберегти зміни</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Пошук по складу</h3>
+  <form class="search-row" method="get">
+    <input name="q" value="{{ q }}" placeholder="Пошук по номеру, назві або бренду">
+    <button class="btn primary" type="submit">Знайти</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Нова позиція в складі</h3>
+  <form method="post" action="{{ url_for('create_part') }}" enctype="multipart/form-data" class="stack" id="create-part-form" data-prefill-url="{{ url_for('admin_part_prefill') }}">
+    <input type="hidden" name="warehouse_id" value="{{ warehouse.id }}">
+    <input type="hidden" name="existing_photo_url" id="create-existing-photo-url">
+
+    <div class="grid-2">
+      <input id="create-part-number" name="part_number" placeholder="Номер виробника" required>
+      <input id="create-brand" name="brand" placeholder="Бренд / виробник" required>
+    </div>
+
+    <div id="create-part-prefill-status" class="muted">
+      Введіть номер позиції. Якщо товар уже є в базі, система підкаже наявні дані.
+    </div>
+
+    <div class="grid-2">
+      <select id="create-producer-type" name="producer_type">
+        <option value="OEM">OEM</option>
+        <option value="Аналог">Аналог</option>
+      </select>
+      <input id="create-name" name="name" placeholder="Назва товару" required>
+    </div>
+
+    <textarea id="create-description" name="description" placeholder="Службовий опис для кабінету"></textarea>
+
+    <div class="grid-2">
+      <input id="create-price-usd" type="number" step="0.01" name="price_usd" placeholder="Ціна USD" required>
+      <input id="create-qty" type="number" min="0" name="qty" placeholder="Кількість" required>
+    </div>
+
+    <input id="create-youtube" name="youtube_url" placeholder="YouTube посилання для вітрини">
+
+    <div id="create-part-prefill-card" class="card inner-card" style="display:none">
+      <strong id="create-part-prefill-title"></strong>
+      <div id="create-part-prefill-meta" class="muted"></div>
+      <img id="create-part-prefill-photo" class="rev-photo" alt="" style="display:none;margin-top:10px">
+    </div>
+
+    <div class="grid-2">
+      <div class="stack">
+        <label class="field-label">Фото для імпорту / експорту</label>
+        <input id="create-export-photo" type="file" name="export_photo" accept="image/*" capture="environment">
+      </div>
+      <div class="stack">
+        <label class="field-label">Фото для вітрини</label>
+        <input id="create-showcase-photo" type="file" name="showcase_photos" accept="image/*" multiple>
+      </div>
+    </div>
+
+    <label class="choice">
+      <input type="checkbox" name="use_first_showcase_as_export">
+      Використати перше фото з вітрини як фото для імпорту / експорту
+    </label>
+
+    <button class="btn primary" type="submit">Додати товар</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="panel-header">
+    <div>
+      <h3>Позиції складу</h3>
+      <div class="muted">Тут можна друкувати етикетки, працювати з імпортним фото, доповнювати вітрину галереєю і спокійно редагувати картку товару.</div>
+    </div>
+    <form id="warehouse-print-form" method="post" action="{{ url_for('print_warehouse_barcodes', warehouse_id=warehouse.id) }}">
+      <input type="hidden" name="label_qty" value="">
+      <button class="btn primary" type="button" onclick="promptWarehouseLabels(true)">Друк вибраних етикеток</button>
+    </form>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th>Код</th>
+          <th>Штрихкод</th>
+          <th>Назва</th>
+          <th>Ціна</th>
+          <th>Кількість</th>
+          <th>Медіа</th>
+          <th>Перевірка</th>
+          <th>Дії</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in parts %}
+        {% set gallery = part_gallery_urls(p) %}
+        {% set showcase = parse_media_urls(p.showcase_photo_urls) %}
+        <tr class="warehouse-item-row {% if p.stock_check_status == 'needs_clarification' %}row-problem{% endif %}">
+          <td><input type="checkbox" name="part_ids" value="{{ p.id }}" form="warehouse-print-form"></td>
+          <td class="warehouse-part-main">
+            <div class="warehouse-part-head">
+              {% if primary_part_photo(p) %}
+              <img class="warehouse-part-thumb" src="{{ primary_part_photo(p) }}" alt="{{ p.name }}">
+              {% else %}
+              <div class="warehouse-part-thumb warehouse-part-thumb-placeholder">Фото</div>
+              {% endif %}
+              <div>
+                <strong>{{ p.part_number }}</strong>
+                <div class="muted">{{ p.brand }} / {{ p.producer_type }}</div>
+              </div>
+            </div>
+          </td>
+          <td>{{ p.barcode }}</td>
+          <td>
+            <div class="warehouse-part-title">{{ p.name }}</div>
+            {% if p.description %}
+            <div class="muted">{{ p.description[:110] }}{% if p.description|length > 110 %}...{% endif %}</div>
+            {% endif %}
+          </td>
+          <td>
+            ${{ display_usd(p.price_usd, warehouse.markup_percent) }}
+            <div class="muted">₴{{ display_uah(p.price_usd, warehouse.markup_percent) }}</div>
+          </td>
+          <td>
+            {{ p.qty }}
+            <div class="muted">{{ 'В наявності' if p.in_stock else 'Немає' }}</div>
+          </td>
+          <td>
+            {% if p.photo_urls %}
+            <div><a href="{{ p.photo_urls }}" target="_blank" rel="noopener">Імпорт / експорт</a></div>
+            {% endif %}
+            <div class="muted">На вітрині: {{ gallery|length }}</div>
+            {% if p.youtube_url %}
+            <div><a href="{{ p.youtube_url }}" target="_blank" rel="noopener">YouTube</a></div>
+            {% endif %}
+          </td>
+          <td>
+            <div>{{ stock_status_label(p.stock_check_status) }}</div>
+            {% if p.stock_checked_at %}
+            <div class="muted">{{ format_dt(p.stock_checked_at) }}</div>
+            {% endif %}
+            {% if p.stock_check_note %}
+              <div class="muted">{{ clean_text(p.stock_check_note) }}</div>
+            {% endif %}
+          </td>
+          <td class="warehouse-action-cell">
+            <button class="btn ghost small" type="button" onclick="toggleEditor('part-editor-{{ p.id }}')">Редагувати</button>
+          </td>
+        </tr>
+        <tr id="part-editor-{{ p.id }}" class="warehouse-editor-row hidden">
+          <td colspan="9" class="warehouse-editor-cell">
+            <form method="post" action="{{ url_for('update_part', part_id=p.id) }}" enctype="multipart/form-data" class="edit-form warehouse-part-form">
+              <input type="hidden" name="current_showcase_photo_urls" value='{{ p.showcase_photo_urls|e }}'>
+
+              <div class="warehouse-form-grid">
+                <div class="warehouse-form-main stack">
+                  <div class="warehouse-edit-head">
+                    <div>
+                      <strong>{{ p.part_number }}</strong>
+                      <div class="muted">Головне імпортне фото лишається в базі, а додаткові фото працюють як галерея вітрини.</div>
+                    </div>
+                    <div class="badge neutral">Вітрина: {{ gallery|length }} фото</div>
+                  </div>
+
+                  <div class="warehouse-inline-grid">
+                    <input name="name" value="{{ p.name }}" placeholder="Назва">
+                    <input name="brand" value="{{ p.brand }}" placeholder="Бренд">
+                    <select name="producer_type">
+                      <option value="OEM" {% if p.producer_type == 'OEM' %}selected{% endif %}>OEM</option>
+                      <option value="Аналог" {% if p.producer_type == 'Аналог' %}selected{% endif %}>Аналог</option>
+                    </select>
+                  </div>
+
+                  <textarea name="description" placeholder="Службовий опис">{{ p.description }}</textarea>
+
+                  <div class="warehouse-inline-grid">
+                    <input type="number" step="0.01" name="price_usd" value="{{ p.price_usd }}" placeholder="Ціна USD">
+                    <input type="number" min="0" name="qty" value="{{ p.qty }}" placeholder="Кількість">
+                    <input name="youtube_url" value="{{ p.youtube_url or '' }}" placeholder="YouTube посилання">
+                  </div>
+                </div>
+
+                <div class="warehouse-form-media stack">
+                  <div class="card inner-card warehouse-media-card">
+                    <label class="field-label">Фото для імпорту / експорту</label>
+                    {% if p.photo_urls %}
+                    <div class="warehouse-single-photo">
+                      <a href="{{ p.photo_urls }}" target="_blank" rel="noopener">
+                        <img src="{{ p.photo_urls }}" alt="{{ p.name }}">
+                      </a>
+                      <div class="stack">
+                        <div class="muted">Це фото зберігається в базі і використовується як основне.</div>
+                        <label class="choice">
+                          <input type="checkbox" name="clear_export_photo">
+                          Очистити поточне фото
+                        </label>
+                      </div>
+                    </div>
+                    {% else %}
+                    <div class="muted">Фото ще не призначене.</div>
+                    {% endif %}
+                    <input type="file" name="export_photo" accept="image/*" capture="environment">
+                  </div>
+
+                  <div class="card inner-card warehouse-media-card">
+                    <label class="field-label">Галерея вітрини</label>
+                    {% if showcase %}
+                    <div class="warehouse-gallery-grid">
+                      {% for photo in showcase %}
+                      <label class="warehouse-gallery-card">
+                        <img src="{{ photo }}" alt="Фото вітрини">
+                        <label class="choice">
+                          <input type="radio" name="export_photo_selected" value="{{ photo }}" {% if p.photo_urls == photo %}checked{% endif %}>
+                          Зробити основним
+                        </label>
+                        <label class="choice">
+                          <input type="checkbox" name="remove_showcase_urls" value="{{ photo }}">
+                          Прибрати з вітрини
+                        </label>
+                      </label>
+                      {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="muted">Додаткових фото для вітрини ще немає.</div>
+                    {% endif %}
+
+                    <div class="warehouse-media-actions">
+                      <input type="file" name="showcase_photos" accept="image/*" multiple>
+                      <label class="choice">
+                        <input type="checkbox" name="use_first_showcase_as_export">
+                        Якщо основне фото не вибране, взяти перше з галереї
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="button-row">
+                <button class="btn primary" type="submit">Зберегти</button>
+                <button class="btn ghost" type="button" onclick="toggleEditor('part-editor-{{ p.id }}')">Закрити</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="muted">У цьому складі поки немає товарів.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function toggleEditor(id) {
+  const node = document.getElementById(id);
+  if (node) node.classList.toggle('hidden');
+}
+
+(() => {
+  const form = document.getElementById('create-part-form');
+  if (!form) return;
+
+  const prefillUrl = form.dataset.prefillUrl;
+  const warehouseId = form.querySelector('input[name="warehouse_id"]')?.value || '';
+  const partNumberInput = document.getElementById('create-part-number');
+  const brandInput = document.getElementById('create-brand');
+  const producerTypeInput = document.getElementById('create-producer-type');
+  const nameInput = document.getElementById('create-name');
+  const descriptionInput = document.getElementById('create-description');
+  const priceInput = document.getElementById('create-price-usd');
+  const existingPhotoInput = document.getElementById('create-existing-photo-url');
+  const statusBox = document.getElementById('create-part-prefill-status');
+  const infoCard = document.getElementById('create-part-prefill-card');
+  const infoTitle = document.getElementById('create-part-prefill-title');
+  const infoMeta = document.getElementById('create-part-prefill-meta');
+  const photo = document.getElementById('create-part-prefill-photo');
+
+  let lookupTimer = null;
+  let lookupToken = '';
+
+  function setStatus(text, tone) {
+    statusBox.textContent = text || '';
+    statusBox.style.color = tone === 'error' ? '#b42318' : tone === 'success' ? '#027a48' : '';
+  }
+
+  function clearPreview() {
+    existingPhotoInput.value = '';
+    infoCard.style.display = 'none';
+    infoTitle.textContent = '';
+    infoMeta.textContent = '';
+    photo.src = '';
+    photo.style.display = 'none';
+  }
+
+  function applyPrefill(data) {
+    const part = data.part || {};
+    brandInput.value = part.brand || '';
+    producerTypeInput.value = part.producerType || 'OEM';
+    nameInput.value = part.name || '';
+    descriptionInput.value = part.description || '';
+    priceInput.value = part.priceUsd ?? '';
+    existingPhotoInput.value = part.photoUrl || '';
+
+    infoCard.style.display = 'block';
+    infoTitle.textContent = `${part.partNumber || ''} ${part.name || ''}`.trim();
+
+    const stockBits = Array.isArray(part.stocks)
+      ? part.stocks.slice(0, 4).map((item) => `${item.warehouseName}: ${item.qty}`).join(' • ')
+      : '';
+
+    const lines = [];
+    if (part.warehouseName) {
+      lines.push(
+        data.sameWarehouse
+          ? `Позиція вже є в цьому складі, кількість: ${part.qty}`
+          : `Знайдено в складі: ${part.warehouseName}, кількість: ${part.qty}`
+      );
+    }
+    if (part.barcode) {
+      lines.push(`Штрихкод: ${part.barcode}`);
+    }
+    if (stockBits) {
+      lines.push(`По складах: ${stockBits}`);
+    }
+    infoMeta.textContent = lines.join(' | ');
+
+    if (part.photoUrl) {
+      photo.src = part.photoUrl;
+      photo.style.display = 'block';
+    } else {
+      photo.src = '';
+      photo.style.display = 'none';
+    }
+
+    setStatus(
+      data.sameWarehouse
+        ? 'Позицію вже знайдено в цьому складі. Дані підтягнуто у форму.'
+        : 'Позицію знайдено в базі товарів. Дані підтягнуто у форму.',
+      'success'
+    );
+  }
+
+  async function lookupPart() {
+    const partNumber = (partNumberInput.value || '').trim().toUpperCase();
+    partNumberInput.value = partNumber;
+
+    if (partNumber.length < 3) {
+      clearPreview();
+      setStatus('Введіть мінімум 3 символи для автоматичної перевірки.', '');
+      return;
+    }
+
+    const token = `${warehouseId}:${partNumber}`;
+    lookupToken = token;
+
+    try {
+      const response = await fetch(`${prefillUrl}?warehouse_id=${encodeURIComponent(warehouseId)}&part_number=${encodeURIComponent(partNumber)}`);
+      const data = await response.json();
+      if (lookupToken !== token) return;
+
+      if (!data.found) {
+        clearPreview();
+        setStatus('Позицію не знайдено в товарах. Можна створити її з нуля.', '');
+        return;
+      }
+
+      applyPrefill(data);
+    } catch (error) {
+      clearPreview();
+      setStatus('Не вдалося перевірити позицію по сайту.', 'error');
+    }
+  }
+
+  partNumberInput.addEventListener('input', () => {
+    clearTimeout(lookupTimer);
+    lookupTimer = setTimeout(lookupPart, 280);
+  });
+})();
+</script>
+<script>
+function promptWarehouseLabels(requireSelection) {
+  const form = document.getElementById(requireSelection ? "warehouse-print-form" : "warehouse-print-all-form");
+  if (!form) return;
+
+  if (requireSelection) {
+    const selected = document.querySelectorAll("input[name='part_ids'][form='warehouse-print-form']:checked");
+    if (selected.length === 0) {
+      window.alert("Позначте позиції для друку.");
+      return;
+    }
+  }
+
+  const answer = window.prompt("Кількість етикеток на кожну позицію? Залиште порожнім, щоб друкувати за кількістю товару.", "");
+  if (answer === null) return;
+
+  const qtyField = form.querySelector("input[name='label_qty']");
+  const trimmed = String(answer).trim();
+  if (!trimmed) {
+    qtyField.value = "";
+    form.submit();
+    return;
+  }
+
+  const qty = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    window.alert("Вкажіть коректну кількість етикеток.");
+    return;
+  }
+
+  qtyField.value = String(qty);
+  form.submit();
+}
+</script>
+{% endblock %}

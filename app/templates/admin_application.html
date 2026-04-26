@@ -1,0 +1,313 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+{% set application_total = (app_notifications_count or 0) + (availability_open_count or 0) %}
+<div class="panel-header">
+  <div>
+    <h2>Питання наявності</h2>
+    <div class="muted">Тут зібрані запити на підтвердження залишків і повідомлення, що потребують уточнення.</div>
+  </div>
+  <div class="badge {% if application_total %}danger{% else %}success{% endif %}">
+    Активних задач: {{ application_total }}
+  </div>
+</div>
+
+<div class="card stack">
+  <div class="panel-header">
+    <div>
+      <h3>Новий запит</h3>
+      <div class="muted">Додайте позиції зі складу, і вони відразу підуть у мобільний додаток на перевірку.</div>
+    </div>
+  </div>
+  <form method="post" action="{{ url_for('admin_application_request_create') }}" id="availability-request-form" class="stack" data-search-url="{{ url_for('admin_parts_search') }}">
+    <div class="grid-2">
+      <select name="warehouse_id" id="availability-warehouse" required>
+        <option value="">Оберіть склад</option>
+        {% for warehouse in warehouses %}
+        <option value="{{ warehouse.id }}">{{ warehouse.name }}</option>
+        {% endfor %}
+      </select>
+      <input name="title" placeholder="Назва запиту, наприклад: Підтвердити наявність по відбору">
+    </div>
+
+    <div class="stack">
+      <input id="availability-search" placeholder="Пошук по номеру, назві або штрихкоду (від 3 символів)">
+      <div id="availability-search-hint" class="muted">Після додавання позицій можна змінити кількість прямо в списку нижче.</div>
+      <div id="availability-search-results" class="top-list"></div>
+    </div>
+
+    <div class="card inner-card">
+      <strong>Позиції у запиті</strong>
+      <div id="availability-selected-list" class="top-list" style="margin-top:10px"></div>
+      <div id="availability-selected-empty" class="muted">Список порожній.</div>
+    </div>
+
+    <input type="hidden" name="items_json" id="availability-items-json">
+    <div class="button-row">
+      <button class="btn primary" type="submit">Створити запит</button>
+    </div>
+  </form>
+</div>
+
+<div class="orders-list" style="margin-top:16px">
+  {% for req in availability_requests %}
+  <div class="order-card {% if req.status == 'issue' %}status-alert{% elif req.status == 'ok' or req.status == 'applied' %}status-packed{% endif %}">
+    <div class="order-body" style="padding-top:18px">
+      <div class="stack">
+        <div class="order-line">
+          <strong>#{{ req.id }}</strong>
+          <span>{{ clean_text(req.title) }}</span>
+          <span>{{ clean_text(req.warehouseName) }}</span>
+          <span class="badge {% if req.status == 'issue' %}danger{% elif req.status == 'ok' or req.status == 'applied' %}success{% else %}warn{% endif %}">
+            {{ req.statusLabel }}
+          </span>
+        </div>
+
+        <div class="muted">
+          Прогрес: {{ req.checkedItems }} / {{ req.totalItems }}
+          {% if req.completedAt %} • Завершено: {{ req.completedAt }}{% endif %}
+        </div>
+
+        <div class="card inner-card">
+          <strong>Позиції</strong>
+          <div class="top-list" style="margin-top:10px">
+            {% for item in req['items'] %}
+            <div class="top-item {% if item.status in ['missing','mismatch'] %}row-problem{% endif %}">
+              <div>
+                <div class="news-title">{{ item.partNumber }} — {{ clean_text(item.title) }}</div>
+                <div class="muted">
+                  Очікувалось: {{ item.expectedQty }}
+                  {% if item.checkedQty is not none %} • Знайдено: {{ item.checkedQty }}{% endif %}
+                  {% if item.barcode %} • Штрихкод: {{ item.barcode }}{% endif %}
+                </div>
+                {% if item.note %}
+                <div class="danger-text">{{ clean_text(item.note) }}</div>
+                {% endif %}
+              </div>
+              <span class="badge {% if item.status in ['missing','mismatch'] %}danger{% elif item.status == 'found' %}success{% else %}neutral{% endif %}">
+                {{ item.statusLabel }}
+              </span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="button-row">
+          {% if req.status in ['ok', 'issue', 'applied'] %}
+          <form method="post" action="{{ url_for('admin_application_request_restart', request_id=req.id) }}">
+            <button class="btn ghost" type="submit">Почати заново</button>
+          </form>
+          {% endif %}
+          {% if req.status == 'issue' %}
+          <form method="post" action="{{ url_for('admin_application_request_apply', request_id=req.id) }}">
+            <button class="btn primary" type="submit">Внести зміни в склад</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('admin_application_request_delete', request_id=req.id) }}" onsubmit="return confirm('Видалити цей запит?');">
+            <button class="btn danger" type="submit">Видалити запит</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="card"><div class="muted">Запитів на наявність поки немає.</div></div>
+  {% endfor %}
+</div>
+
+<div class="panel-header" style="margin-top:24px">
+  <div>
+    <h3>Повідомлення з додатку</h3>
+    <div class="muted">Сюди потрапляють позиції, які працівник залишив без змін під час звірки й попросив уточнити.</div>
+  </div>
+</div>
+
+<div class="orders-list" style="margin-top:16px">
+  {% for item in notifications %}
+  <div class="order-card">
+    <div class="order-body" style="padding-top:18px">
+      {% if item.part %}
+      <div class="stack">
+        <div class="order-line">
+          <strong>{{ item.part.partNumber }}</strong>
+          <span>{{ clean_text(item.part.title) }}</span>
+          <span>{{ clean_text(item.warehouseName) }}</span>
+          <span class="badge warn">{{ clean_text(item.part.stockCheckStatusLabel) }}</span>
+        </div>
+
+        {% if item.part.photoUrl %}
+        <img class="rev-photo" src="{{ item.part.photoUrl }}" alt="{{ clean_text(item.part.title) }}">
+        {% endif %}
+
+        <div><strong>Штрихкод:</strong> {{ item.part.barcode }}</div>
+        <div><strong>На складі:</strong> {{ item.currentQty }} шт.</div>
+        <div><strong>Під час звірки введено:</strong> {{ item.enteredQty }} шт.</div>
+        <div><strong>Причина:</strong> {{ clean_text(item.reason) }}</div>
+        <div><strong>Створено:</strong> {{ item.createdAt }}</div>
+
+        <form method="post" action="{{ url_for('admin_application_resolve', notification_id=item.id) }}" class="stack">
+          <label class="field-label">Нова кількість</label>
+          <input type="number" min="0" name="qty" value="{{ item.enteredQty }}">
+          <button class="btn primary">Зберегти і закрити повідомлення</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="muted">Товар для цього повідомлення вже відсутній.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="card"><div class="muted">Активних повідомлень немає.</div></div>
+  {% endfor %}
+</div>
+
+<script>
+(() => {
+  const form = document.getElementById('availability-request-form');
+  if (!form) return;
+
+  const searchUrl = form.dataset.searchUrl;
+  const warehouseInput = document.getElementById('availability-warehouse');
+  const searchInput = document.getElementById('availability-search');
+  const hint = document.getElementById('availability-search-hint');
+  const results = document.getElementById('availability-search-results');
+  const selectedList = document.getElementById('availability-selected-list');
+  const selectedEmpty = document.getElementById('availability-selected-empty');
+  const hiddenInput = document.getElementById('availability-items-json');
+  let timer = null;
+  let items = [];
+
+  function syncItems() {
+    hiddenInput.value = JSON.stringify(items.map((item) => ({
+      partId: item.partId,
+      qty: Number(item.qty || 0)
+    })));
+    selectedList.innerHTML = '';
+    selectedEmpty.style.display = items.length ? 'none' : 'block';
+
+    items.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'top-item';
+      row.innerHTML = `
+        <div>
+          <div class="news-title">${item.partNumber} — ${item.title}</div>
+          <div class="muted">${item.warehouseName} • Залишок: ${item.qtyOnStock} • Штрихкод: ${item.barcode || '—'}</div>
+        </div>
+      `;
+
+      const controls = document.createElement('div');
+      controls.style.display = 'flex';
+      controls.style.gap = '8px';
+      controls.style.alignItems = 'center';
+
+      const qty = document.createElement('input');
+      qty.type = 'number';
+      qty.min = '0';
+      qty.value = item.qty;
+      qty.style.width = '88px';
+      qty.addEventListener('input', () => {
+        items[index].qty = Math.max(Number(qty.value || 0), 0);
+        hiddenInput.value = JSON.stringify(items.map((entry) => ({ partId: entry.partId, qty: Number(entry.qty || 0) })));
+      });
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn danger small';
+      remove.textContent = 'Прибрати';
+      remove.addEventListener('click', () => {
+        items = items.filter((entry) => entry.partId !== item.partId);
+        syncItems();
+      });
+
+      controls.appendChild(qty);
+      controls.appendChild(remove);
+      row.appendChild(controls);
+      selectedList.appendChild(row);
+    });
+  }
+
+  function addItem(item) {
+    if (items.some((entry) => entry.partId === item.partId)) {
+      hint.textContent = 'Ця позиція вже додана до запиту.';
+      return;
+    }
+    items.push({
+      partId: item.partId,
+      partNumber: item.partNumber,
+      title: item.title,
+      barcode: item.barcode,
+      warehouseName: item.warehouseName,
+      qtyOnStock: item.qty,
+      qty: item.qty
+    });
+    syncItems();
+    hint.textContent = 'Позицію додано до запиту.';
+  }
+
+  function renderResults(found) {
+    results.innerHTML = '';
+    if (!found.length) {
+      return;
+    }
+    found.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'top-item';
+      row.innerHTML = `
+        <div>
+          <div class="news-title">${item.partNumber} — ${item.title}</div>
+          <div class="muted">${item.warehouseName} • Залишок: ${item.qty} • Штрихкод: ${item.barcode || '—'}</div>
+        </div>
+      `;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn ghost small';
+      button.textContent = 'Додати';
+      button.addEventListener('click', () => addItem(item));
+      row.appendChild(button);
+      results.appendChild(row);
+    });
+  }
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(timer);
+    results.innerHTML = '';
+    hint.textContent = 'Пошук...';
+
+    timer = setTimeout(async () => {
+      const q = searchInput.value.trim();
+      const warehouseId = warehouseInput.value;
+      if (!warehouseId) {
+        hint.textContent = 'Спочатку оберіть склад.';
+        return;
+      }
+      if (q.length < 3) {
+        hint.textContent = 'Введіть мінімум 3 символи для пошуку.';
+        return;
+      }
+      try {
+        const response = await fetch(`${searchUrl}?warehouse_id=${encodeURIComponent(warehouseId)}&q=${encodeURIComponent(q)}`);
+        const data = await response.json();
+        renderResults(data.items || []);
+        hint.textContent = data.items?.length ? 'Оберіть позицію зі списку.' : 'Нічого не знайдено.';
+      } catch (error) {
+        hint.textContent = 'Не вдалося виконати пошук.';
+      }
+    }, 250);
+  });
+
+  warehouseInput.addEventListener('change', () => {
+    results.innerHTML = '';
+    searchInput.value = '';
+    hint.textContent = 'Після додавання позицій можна змінити кількість прямо в списку нижче.';
+  });
+
+  form.addEventListener('submit', (event) => {
+    if (!items.length) {
+      event.preventDefault();
+      window.alert('Додайте хоча б одну позицію до запиту.');
+    }
+  });
+
+  syncItems();
+})();
+</script>
+{% endblock %}

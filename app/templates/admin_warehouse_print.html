@@ -1,0 +1,110 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <h2>Друк складу</h2>
+    <div class="muted">Оберіть склад або `Всі товари`, знайдіть потрібні позиції й надрукуйте тільки вибране. Після друку дата для позиції оновиться прямо в цій вкладці.</div>
+  </div>
+</div>
+
+<section class="card stack">
+  <form method="get" action="{{ url_for('admin_warehouse_print') }}" class="stack warehouse-print-filter">
+    <div class="grid-2">
+      <div class="stack">
+        <label class="field-label">Склад</label>
+        <select name="scope" onchange="this.form.submit()">
+          <option value="all" {% if selected_scope == 'all' %}selected{% endif %}>Всі товари</option>
+          {% for warehouse in warehouses %}
+          <option value="{{ warehouse.id }}" {% if selected_scope == warehouse.id|string %}selected{% endif %}>{{ warehouse.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="stack">
+        <label class="field-label">Пошук по товарам</label>
+        <input type="search" name="q" value="{{ q }}" placeholder="OEM, опис, штрихкод">
+      </div>
+    </div>
+    <div class="button-row">
+      <button class="btn primary" type="submit">Показати список</button>
+      <a class="btn ghost" href="{{ url_for('admin_warehouse_print', scope=selected_scope) }}">Скинути пошук</a>
+    </div>
+  </form>
+</section>
+
+<section class="card stack">
+  <div class="panel-header">
+    <div>
+      <h3>{{ scope_label }}</h3>
+      <div class="muted">{{ rows|length }} позицій у поточній вибірці</div>
+    </div>
+    <div class="button-row">
+      <button class="btn ghost small" type="button" onclick="toggleWarehousePrintSelection(true)">Вибрати все видиме</button>
+      <button class="btn ghost small" type="button" onclick="toggleWarehousePrintSelection(false)">Зняти все</button>
+    </div>
+  </div>
+
+  <form method="post" action="{{ url_for('print_selected_warehouse_list') }}" class="stack" onsubmit="return validateWarehousePrintSelection(this)">
+    <input type="hidden" name="scope" value="{{ selected_scope }}">
+    <input type="hidden" name="q" value="{{ q }}">
+
+    {% if rows %}
+    <div class="table-wrap warehouse-print-table-wrap">
+      <table class="warehouse-print-table">
+        <thead>
+          <tr>
+            <th class="checkbox-col"><input type="checkbox" onclick="toggleWarehousePrintSelection(this.checked)"></th>
+            <th>OEM номер</th>
+            <th>Опис</th>
+            <th>Кількість, шт.</th>
+            <th>Друк</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr class="{% if row.is_printed %}is-printed{% endif %}">
+            <td class="checkbox-col">
+              <input type="checkbox" name="part_numbers" value="{{ row.part_number }}">
+            </td>
+            <td class="print-oem">{{ row.part_number }}</td>
+            <td>{{ row.description }}</td>
+            <td>{{ row.qty }}</td>
+            <td>
+              {% if row.is_printed %}
+              <span class="helper-note success">Друк: {{ row.printed_at_label }}</span>
+              {% else %}
+              <span class="helper-note">Ще не друкували</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="helper-note">За поточним фільтром позицій не знайдено.</div>
+    {% endif %}
+
+    <div class="button-row">
+      <button class="btn primary" type="submit">Друк вибраного A4</button>
+      <a class="btn ghost" href="{{ url_for('admin_products') }}">Назад до складів</a>
+    </div>
+  </form>
+</section>
+
+<script>
+function toggleWarehousePrintSelection(checked) {
+  document.querySelectorAll('input[name="part_numbers"]').forEach((input) => {
+    input.checked = checked;
+  });
+}
+
+function validateWarehousePrintSelection(form) {
+  const hasChecked = Array.from(form.querySelectorAll('input[name="part_numbers"]')).some((input) => input.checked);
+  if (!hasChecked) {
+    window.alert('Оберіть хоча б одну позицію для друку.');
+    return false;
+  }
+  return true;
+}
+</script>
+{% endblock %}

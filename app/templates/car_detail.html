@@ -1,0 +1,272 @@
+{% extends 'base_public.html' %}
+{% block content %}
+<div class="container">
+  <div class="panel-header">
+    <div>
+      <h2>{{ clean_text(car.brand) }} {{ clean_text(car.model) }}</h2>
+      <div class="muted">{{ car.year or '-' }} • {{ car.mileage or '-' }} км • {{ 'в дорозі' if car.status == 'in_transit' else 'в наявності' }}</div>
+    </div>
+    <a class="btn ghost small" href="{{ url_for('cars_public', status=car.status) }}">Назад</a>
+  </div>
+
+  <div class="card stack public-car-detail">
+    <div class="showcase-code">{{ car.vin or 'VIN не вказано' }}</div>
+    <div class="price-row">${{ '%.2f'|format(car.price_usd|float) }}</div>
+
+    <div class="card vin-tracking-panel">
+      <div class="field-label">Трекінг авто по VIN</div>
+      <div class="button-row">
+        <button class="btn primary" type="button" id="track-vin-button" {% if not car.vin %}disabled{% endif %}>Відстежити авто</button>
+        {% if car.vin %}
+        <span class="badge neutral">{{ car.vin }}</span>
+        {% endif %}
+      </div>
+      <div class="muted" id="track-vin-status">
+        {% if car.vin %}
+        Натисніть кнопку, щоб відкрити трекінг по VIN.
+        {% else %}
+        Для цього авто VIN не вказано.
+        {% endif %}
+      </div>
+      <div class="button-row hidden vin-tracking-links" id="track-vin-links"></div>
+    </div>
+
+    <div class="car-photo-panel">
+      <div class="car-photo-toolbar">
+        <div>
+          <div class="field-label">Фото авто</div>
+          <div class="muted">
+            {% if photos %}
+            {{ photos|length }} шт.
+            {% else %}
+            Нема фото
+            {% endif %}
+          </div>
+        </div>
+        {% if photos|length > 1 %}
+        <div class="button-row">
+          <button class="btn ghost small" type="button" id="car-photo-prev">Попереднє</button>
+          <button class="btn ghost small" type="button" id="car-photo-next">Наступне</button>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if photos %}
+      <button class="car-main-photo-button" type="button" id="car-main-photo-open" aria-label="Відкрити фото авто">
+        <img class="showcase-img" id="car-main-photo" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}" style="height:min(56vw,420px);border-radius:20px">
+      </button>
+      {% else %}
+      <div class="showcase-img placeholder" style="height:320px;border-radius:20px">Нема фото</div>
+      {% endif %}
+
+      {% if photos|length > 1 %}
+      <div class="warehouse-gallery-grid car-detail-gallery">
+        {% for photo in photos %}
+        <button
+          class="warehouse-gallery-card car-thumb-card{% if loop.first %} is-active{% endif %}"
+          type="button"
+          data-car-photo-thumb
+          data-index="{{ loop.index0 }}">
+          <img src="{{ photo }}" alt="{{ car.brand }} {{ car.model }} фото {{ loop.index }}">
+          <div class="muted">Фото {{ loop.index }}</div>
+        </button>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="stack">
+      <div class="field-label">Опис</div>
+      <div class="card car-description-card">{{ clean_text(car.description) or 'Опис не додано.' }}</div>
+    </div>
+
+    {% if video_url %}
+    <div class="stack">
+      <div class="field-label">Відео</div>
+      <iframe
+        width="100%"
+        height="320"
+        src="{{ video_url }}"
+        title="Відео авто"
+        style="border:0;border-radius:20px"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if photos %}
+<div class="image-preview-modal hidden" id="car-photo-modal" aria-hidden="true">
+  <div class="image-preview-backdrop" data-close-car-modal></div>
+  <div class="image-preview-dialog car-photo-modal-dialog">
+    <div class="image-preview-toolbar">
+      <div class="image-preview-meta">
+        <strong>{{ clean_text(car.brand) }} {{ clean_text(car.model) }}</strong>
+        <span class="muted" id="car-photo-modal-counter">Фото 1 / {{ photos|length }}</span>
+      </div>
+      <div class="button-row">
+        {% if photos|length > 1 %}
+        <button class="btn ghost small" type="button" id="car-photo-modal-prev">Попереднє</button>
+        <button class="btn ghost small" type="button" id="car-photo-modal-next">Наступне</button>
+        {% endif %}
+        <button class="btn ghost small" type="button" data-close-car-modal>Закрити</button>
+      </div>
+    </div>
+    <div class="car-photo-modal-body">
+      <img id="car-photo-modal-image" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}">
+    </div>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const photos = {{ photos|tojson }};
+    if (!Array.isArray(photos) || !photos.length) return;
+
+    let currentIndex = 0;
+
+    const mainPhoto = document.getElementById('car-main-photo');
+    const mainPhotoOpen = document.getElementById('car-main-photo-open');
+    const thumbs = Array.from(document.querySelectorAll('[data-car-photo-thumb]'));
+    const prevButtons = [
+      document.getElementById('car-photo-prev'),
+      document.getElementById('car-photo-modal-prev')
+    ].filter(Boolean);
+    const nextButtons = [
+      document.getElementById('car-photo-next'),
+      document.getElementById('car-photo-modal-next')
+    ].filter(Boolean);
+    const modal = document.getElementById('car-photo-modal');
+    const modalImage = document.getElementById('car-photo-modal-image');
+    const modalCounter = document.getElementById('car-photo-modal-counter');
+    const closeButtons = Array.from(document.querySelectorAll('[data-close-car-modal]'));
+
+    function renderPhoto(index) {
+      currentIndex = (index + photos.length) % photos.length;
+      const photo = photos[currentIndex];
+      if (mainPhoto) mainPhoto.src = photo;
+      if (modalImage) modalImage.src = photo;
+      if (modalCounter) modalCounter.textContent = `Фото ${currentIndex + 1} / ${photos.length}`;
+      thumbs.forEach((thumb) => {
+        thumb.classList.toggle('is-active', Number(thumb.dataset.index) === currentIndex);
+      });
+    }
+
+    function openModal() {
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('modal-open');
+    }
+
+    function closeModal() {
+      if (!modal) return;
+      modal.classList.remove('is-open');
+      modal.classList.add('hidden');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('modal-open');
+    }
+
+    thumbs.forEach((thumb) => {
+      thumb.addEventListener('click', () => renderPhoto(Number(thumb.dataset.index) || 0));
+    });
+    prevButtons.forEach((button) => {
+      button.addEventListener('click', () => renderPhoto(currentIndex - 1));
+    });
+    nextButtons.forEach((button) => {
+      button.addEventListener('click', () => renderPhoto(currentIndex + 1));
+    });
+    if (mainPhotoOpen) mainPhotoOpen.addEventListener('click', openModal);
+    closeButtons.forEach((button) => button.addEventListener('click', closeModal));
+
+    document.addEventListener('keydown', (event) => {
+      if (!modal || !modal.classList.contains('is-open')) return;
+      if (event.key === 'Escape') closeModal();
+      if (event.key === 'ArrowLeft') renderPhoto(currentIndex - 1);
+      if (event.key === 'ArrowRight') renderPhoto(currentIndex + 1);
+    });
+
+    renderPhoto(0);
+  })();
+</script>
+{% endif %}
+
+<script>
+  (() => {
+    const button = document.getElementById('track-vin-button');
+    const statusNode = document.getElementById('track-vin-status');
+    const linksNode = document.getElementById('track-vin-links');
+    const vin = {{ (car.vin or '')|tojson }};
+    if (!button || !vin) return;
+
+    function setStatus(text, tone) {
+      if (!statusNode) return;
+      statusNode.textContent = text;
+      statusNode.classList.remove('success-text', 'error-text');
+      if (tone === 'success') statusNode.classList.add('success-text');
+      if (tone === 'error') statusNode.classList.add('error-text');
+    }
+
+    function renderLinks(items) {
+      if (!linksNode) return;
+      linksNode.innerHTML = '';
+      if (!Array.isArray(items) || !items.length) {
+        linksNode.classList.add('hidden');
+        return;
+      }
+      items.forEach((item) => {
+        const link = document.createElement('a');
+        link.className = 'btn ghost small';
+        link.href = item.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = item.label;
+        linksNode.appendChild(link);
+      });
+      linksNode.classList.remove('hidden');
+    }
+
+    button.addEventListener('click', async () => {
+      const popup = window.open('about:blank', '_blank');
+      button.disabled = true;
+      setStatus('Шукаємо дані по VIN...', null);
+      renderLinks([]);
+      try {
+        const response = await fetch('{{ url_for("tracking_lookup") }}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vin }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          if (popup) popup.close();
+          throw new Error(data.error || 'Не вдалося знайти трекінг по VIN.');
+        }
+        if (data.url) {
+          if (popup) popup.location.href = data.url;
+          setStatus(`Відкрито трекінг через ${data.sourceLabel || data.source || 'сервіс'}.`, 'success');
+          renderLinks([{ label: data.sourceLabel || data.source || 'Трекінг', url: data.url }]);
+          return;
+        }
+        const urls = Array.isArray(data.urls) ? data.urls : [];
+        if (urls.length) {
+          if (popup) popup.location.href = urls[0].url;
+          setStatus('Прямий збіг не підтверджено. Відкрито доступні варіанти трекінгу.', 'success');
+          renderLinks(urls);
+          return;
+        }
+        if (popup) popup.close();
+        throw new Error('Доступних сервісів трекінгу не знайдено.');
+      } catch (error) {
+        if (popup) popup.close();
+        setStatus(error.message || 'Не вдалося відкрити трекінг по VIN.', 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <a class="backlink" href="{{ url_for('admin_products') }}">← До складів</a>
+    <h2>Імпорт CSV</h2>
+    <div class="muted">Показані тільки позиції, де змінилася ціна або кількість. Кількість з імпорту можна відредагувати перед застосуванням.</div>
+  </div>
+  <div class="badge neutral">Файл: {{ session.file_name }}</div>
+</div>
+
+<div class="card stack">
+  <div class="import-summary-grid">
+    <div class="summary-chip">Усього рядків: <strong>{{ summary.all }}</strong></div>
+    <div class="summary-chip">Нових: <strong>{{ summary.new }}</strong></div>
+    <div class="summary-chip">Змінених: <strong>{{ summary.changed }}</strong></div>
+    <div class="summary-chip">Буде застосовано: <strong>{{ summary.selected }}</strong></div>
+  </div>
+
+  <div class="filter-bar">
+    <a class="filter-chip {{ 'active' if only == 'diff' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='diff') }}">Розбіжності</a>
+    <a class="filter-chip {{ 'active' if only == 'new' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='new') }}">Нові</a>
+    <a class="filter-chip {{ 'active' if only == 'changed' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='changed') }}">Змінені</a>
+    <a class="filter-chip {{ 'active' if only == 'all' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='all') }}">Усі</a>
+  </div>
+
+  <form method="post" action="{{ url_for('confirm_import', session_id=session.id) }}" class="stack">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Застосувати</th>
+            <th>OEM номер</th>
+            <th>Було</th>
+            <th>Стало</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in changes %}
+          <tr class="{% if c.change_type == 'changed' %}row-diff{% elif c.change_type == 'new' %}row-new-strong{% endif %}">
+            <td>
+              <label class="choice">
+                <input type="checkbox" name="apply_{{ c.id }}" {% if c.apply_change %}checked{% endif %} disabled>
+                {{ 'Так' if c.apply_change else 'Ні' }}
+              </label>
+            </td>
+            <td><strong>{{ c.part_number }}</strong></td>
+            <td>
+              <div>Ціна: {{ c.before_price if c.before_price is not none else '—' }}</div>
+              <div>Кількість: {{ c.before_qty if c.before_qty is not none else '—' }}</div>
+            </td>
+            <td>
+              <div>Ціна: {{ c.after_price }}</div>
+              <label class="field-label" style="margin-top:8px;display:block">Кількість</label>
+              <input type="number" min="0" step="1" name="after_qty_{{ c.id }}" value="{{ c.after_qty }}">
+            </td>
+            <td>
+              {% if c.change_type == 'new' %}
+              <span class="badge success">Нова позиція</span>
+              {% elif c.change_type == 'changed' %}
+              <span class="badge warn">Зміна ціни / кількості</span>
+              {% else %}
+              <span class="badge neutral">Без змін</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="muted">Розбіжностей не знайдено.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="button-row">
+      <button class="btn danger" name="action" value="skip_all" type="submit">Скасувати імпорт</button>
+      <button class="btn primary" name="action" value="selected" type="submit">Прийняти зміни</button>
+      <button class="btn ghost" name="action" value="all" type="submit">Прийняти все з розбіжностями</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="container narrow">
+  <div class="card stack">
+    <div>
+      <h2>Зміна пароля</h2>
+      <div class="muted">Оновіть пароль для входу в адміністративний кабінет.</div>
+    </div>
+
+    <form method="post" class="stack">
+      <label class="field-label">Поточний пароль</label>
+      <input type="password" name="current_password" required>
+
+      <label class="field-label">Новий пароль</label>
+      <input type="password" name="new_password" minlength="6" required>
+
+      <label class="field-label">Підтвердження нового пароля</label>
+      <input type="password" name="confirm_password" minlength="6" required>
+
+      <button class="btn primary" type="submit">Зберегти новий пароль</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

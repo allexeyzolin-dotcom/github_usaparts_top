@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>USA AUTO PARTS • Кабінет</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="admin-theme">
+  <header class="topbar">
+    <a href="{{ url_for('home') }}" class="logo">USA AUTO PARTS</a>
+    <div></div>
+    <div class="header-right admin-header-links">
+      <a class="nav-link {% if request.endpoint == 'admin_cars' %}is-active{% endif %}" href="{{ url_for('admin_cars') }}">Авто</a>
+      <a class="nav-link {% if request.endpoint in ['admin_backup', 'admin_backup_settings', 'admin_backup_create', 'admin_backup_download'] %}is-active{% endif %}" href="{{ url_for('admin_backup') }}">Бекап</a>
+      <a class="nav-link {% if request.endpoint == 'admin_account' %}is-active{% endif %}" href="{{ url_for('admin_account') }}">Змінити пароль</a>
+      <a class="nav-link {% if request.endpoint == 'admin_api' %}is-active{% endif %}" href="{{ url_for('admin_api') }}">API</a>
+      <a class="cabinet" href="{{ url_for('admin_logout') }}">Вийти</a>
+    </div>
+  </header>
+
+  <main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="container flashes">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ clean_text(message) }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <div class="container admin-shell">
+      <aside class="admin-news">
+        <div class="card sticky">
+          <div class="news-card-head">
+            <h3>Стрічка новин</h3>
+            <form method="post" action="{{ url_for('admin_news_clear') }}" onsubmit="return confirm('Очистити стрічку новин?');">
+              <button class="btn ghost small" type="submit">Очистити</button>
+            </form>
+          </div>
+          <div class="top-list">
+            {% for item in news or [] %}
+            <div class="news-item">
+              <div class="news-source">{{ clean_text(item.source) }}</div>
+              <div class="news-title">{{ clean_text(item.title) }}</div>
+              <div class="muted">{{ clean_text(item.body) }}</div>
+            </div>
+            {% else %}
+            <div class="muted">Новин поки немає.</div>
+            {% endfor %}
+          </div>
+        </div>
+      </aside>
+
+      <section class="admin-main">
+        <nav class="admin-nav admin-nav-main">
+          <a class="nav-link {% if request.endpoint == 'admin_parts' %}is-active{% endif %}" href="{{ url_for('admin_parts') }}">Запчастини</a>
+          <a class="nav-link {% if request.endpoint == 'admin_products' %}is-active{% endif %}" href="{{ url_for('admin_products') }}">Склади</a>
+          <a class="nav-link {% if request.endpoint in ['admin_receiving', 'admin_receiving_import'] %}is-active{% endif %}" href="{{ url_for('admin_receiving') }}">
+            Прийом товару
+            {% if receiving_draft_count %}
+            <span class="cart-badge">{{ receiving_draft_count }}</span>
+            {% endif %}
+          </a>
+          <a class="nav-link {% if request.endpoint in ['admin_transit', 'admin_transit_create', 'admin_transit_update', 'admin_transit_delete', 'admin_transit_arrive', 'print_transit_barcodes'] %}is-active{% endif %}" href="{{ url_for('admin_transit') }}">
+            Товар в дорозі
+            {% if transit_open_count %}
+            <span class="cart-badge">{{ transit_open_count }}</span>
+            {% endif %}
+          </a>
+          <a class="nav-link {% if request.endpoint == 'admin_orders' %}is-active{% endif %}" href="{{ url_for('admin_orders') }}">
+            Замовлення / Видача
+            <span class="nav-split-badge" title="Нові / активні">
+              <span class="nav-count-green">{{ orders_new_count }}</span>
+              <span class="nav-count-separator">/</span>
+              <span class="nav-count-yellow">{{ orders_active_count }}</span>
+            </span>
+          </a>
+        </nav>
+        {% block admin_content %}{% endblock %}
+      </section>
+    </div>
+  </main>
+
+  <div class="image-preview-modal hidden" id="admin-image-preview" aria-hidden="true">
+    <div class="image-preview-backdrop" data-image-preview-close></div>
+    <div class="image-preview-dialog" role="dialog" aria-modal="true" aria-label="Перегляд фото">
+      <div class="image-preview-toolbar">
+        <div class="image-preview-meta">
+          <strong id="admin-image-preview-title">Фото</strong>
+          <span id="admin-image-preview-size" class="muted"></span>
+        </div>
+        <div class="button-row">
+          <a id="admin-image-preview-link" class="btn ghost small" href="#" target="_blank" rel="noopener">Відкрити окремо</a>
+          <button class="btn ghost small" type="button" data-image-preview-close>Закрити</button>
+        </div>
+      </div>
+      <div class="image-preview-scroll">
+        <img id="admin-image-preview-img" src="" alt="">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      if (!document.body.classList.contains('admin-theme')) return;
+
+      const modal = document.getElementById('admin-image-preview');
+      const image = document.getElementById('admin-image-preview-img');
+      const title = document.getElementById('admin-image-preview-title');
+      const size = document.getElementById('admin-image-preview-size');
+      const link = document.getElementById('admin-image-preview-link');
+      if (!modal || !image || !title || !size || !link) return;
+
+      const previewSelector = '.admin-shell img[src]:not([src=""]):not([data-no-preview])';
+
+      function closePreview() {
+        modal.classList.add('hidden');
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+        image.removeAttribute('src');
+        image.removeAttribute('alt');
+        size.textContent = '';
+        link.setAttribute('href', '#');
+      }
+
+      function openPreview(target) {
+        const src = target.currentSrc || target.getAttribute('src') || '';
+        if (!src) return;
+        title.textContent = target.getAttribute('alt') || 'Фото';
+        size.textContent = 'Завантаження...';
+        link.setAttribute('href', src);
+        image.onload = () => {
+          size.textContent = `${image.naturalWidth} × ${image.naturalHeight}px`;
+        };
+        image.setAttribute('src', src);
+        image.setAttribute('alt', target.getAttribute('alt') || 'Фото');
+        modal.classList.remove('hidden');
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+      }
+
+      document.addEventListener('click', (event) => {
+        const closeButton = event.target.closest('[data-image-preview-close]');
+        if (closeButton) {
+          event.preventDefault();
+          closePreview();
+          return;
+        }
+
+        const target = event.target.closest(previewSelector);
+        if (!target || target.offsetParent === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        openPreview(target);
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && modal.classList.contains('is-open')) {
+          closePreview();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

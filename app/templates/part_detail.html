@@ -1,0 +1,249 @@
+{% extends 'base_public.html' %}
+{% block content %}
+{% set gallery = part_gallery_urls(part) %}
+{% set video_url = youtube_embed_url(part.youtube_url) %}
+<div class="container">
+  <div class="detail-grid">
+    <div class="card stack part-photo-panel">
+      <div class="part-photo-toolbar">
+        <div>
+          <div class="field-label">Фото товару</div>
+          <div class="muted">
+            {% if gallery %}
+            {{ gallery|length }} шт.
+            {% else %}
+            Фото відсутнє
+            {% endif %}
+          </div>
+        </div>
+        {% if gallery|length > 1 %}
+        <div class="button-row">
+          <button class="btn ghost small" type="button" id="part-photo-prev">Попереднє</button>
+          <button class="btn ghost small" type="button" id="part-photo-next">Наступне</button>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if gallery %}
+      <button class="part-main-photo-button" type="button" id="part-main-photo-open" aria-label="Відкрити фото товару">
+        <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ part.name }}">
+      </button>
+      {% else %}
+      <div class="detail-img placeholder">Фото відсутнє</div>
+      {% endif %}
+
+      {% if gallery|length > 1 %}
+      <div class="part-thumb-grid">
+        {% for photo in gallery %}
+        <button
+          class="media-thumb part-thumb-card{% if loop.first %} is-active{% endif %}"
+          type="button"
+          data-part-photo-thumb
+          data-index="{{ loop.index0 }}"
+          aria-label="Фото {{ loop.index }}">
+          <img src="{{ photo }}" alt="{{ part.name }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
+        </button>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if video_url %}
+      <button class="btn ghost" type="button" onclick="openVideoModal('{{ video_url }}')">Відкрити відео</button>
+      {% endif %}
+    </div>
+
+    <div class="card stack">
+      <div class="showcase-code">{{ part.part_number }}</div>
+      <h2>{{ clean_text(part.name) }}</h2>
+      <div class="price-row big">${{ display_usd(part.price_usd, warehouse.markup_percent) }} <span>₴{{ display_uah(part.price_usd, warehouse.markup_percent) }}</span></div>
+      <div class="muted">Кількість: {{ part.qty }} | Наявність: {{ 'Так' if part.in_stock else 'Ні' }}</div>
+      <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
+        <button class="btn primary">Додати в кошик</button>
+      </form>
+      <button class="btn seller-request-toggle" type="button" id="seller-request-toggle">Запитати у продавця</button>
+      <div class="seller-request-card hidden" id="seller-request">
+        <div class="field-label">Запит у продавця</div>
+        <form method="post" action="{{ url_for('part_seller_request', part_id=part.id) }}" class="stack seller-request-form">
+          <div>
+            <label class="field-label">Номер запчастини</label>
+            <input type="text" value="{{ part.part_number }}" readonly>
+          </div>
+          <div>
+            <label class="field-label">Номер телефону</label>
+            <div class="phone-prefix-field">
+              <span class="phone-prefix">+380</span>
+              <input
+                type="text"
+                name="phone"
+                inputmode="numeric"
+                autocomplete="tel-national"
+                placeholder="67 123 45 67"
+                pattern="^(?:\D*\d){9}\D*$"
+                maxlength="16"
+                required>
+            </div>
+          </div>
+          <div class="helper-note">Введіть 9 цифр номера у довільному форматі. Після відправки продавець отримає повідомлення в Telegram-групу.</div>
+          <button class="btn primary" type="submit">Зв'яжіться зі мною</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if gallery %}
+<div class="image-preview-modal hidden" id="part-photo-modal" aria-hidden="true">
+  <div class="image-preview-backdrop" data-close-part-modal></div>
+  <div class="image-preview-dialog part-photo-modal-dialog">
+    <div class="image-preview-toolbar">
+      <div class="image-preview-meta">
+        <strong>{{ part.part_number }}</strong>
+        <span class="muted">{{ clean_text(part.name) }}</span>
+        <span class="muted" id="part-photo-modal-counter">Фото 1 / {{ gallery|length }}</span>
+      </div>
+      <div class="button-row">
+        {% if gallery|length > 1 %}
+        <button class="btn ghost small" type="button" id="part-photo-modal-prev">Попереднє</button>
+        <button class="btn ghost small" type="button" id="part-photo-modal-next">Наступне</button>
+        {% endif %}
+        <button class="btn ghost small" type="button" data-close-part-modal>Закрити</button>
+      </div>
+    </div>
+    <div class="part-photo-modal-body">
+      <img id="part-photo-modal-image" src="{{ gallery[0] }}" alt="{{ part.name }}">
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="drawer-backdrop hidden" id="videoBackdrop"></div>
+<div class="tracking-modal hidden" id="videoModal">
+  <div class="drawer-handle"></div>
+  <div class="drawer-header">
+    <h3>Відео товару</h3>
+    <button type="button" class="btn ghost small" onclick="closeVideoModal()">Закрити</button>
+  </div>
+  <div class="stack">
+    <iframe
+      id="partVideoFrame"
+      width="100%"
+      height="240"
+      src=""
+      title="Відео товару"
+      style="border:0;border-radius:18px"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen>
+    </iframe>
+  </div>
+</div>
+
+<script>
+function openVideoModal(url) {
+  document.getElementById('partVideoFrame').src = url;
+  document.getElementById('videoModal').classList.remove('hidden');
+  document.getElementById('videoBackdrop').classList.remove('hidden');
+  document.body.classList.add('drawer-open');
+}
+
+function closeVideoModal() {
+  document.getElementById('partVideoFrame').src = '';
+  document.getElementById('videoModal').classList.add('hidden');
+  document.getElementById('videoBackdrop').classList.add('hidden');
+  document.body.classList.remove('drawer-open');
+}
+
+document.getElementById('videoBackdrop')?.addEventListener('click', closeVideoModal);
+
+(() => {
+  const photos = {{ gallery|tojson }};
+  if (!Array.isArray(photos) || !photos.length) return;
+
+  let currentIndex = 0;
+
+  const mainPhoto = document.getElementById('part-main-photo');
+  const mainPhotoOpen = document.getElementById('part-main-photo-open');
+  const thumbs = Array.from(document.querySelectorAll('[data-part-photo-thumb]'));
+  const prevButtons = [
+    document.getElementById('part-photo-prev'),
+    document.getElementById('part-photo-modal-prev')
+  ].filter(Boolean);
+  const nextButtons = [
+    document.getElementById('part-photo-next'),
+    document.getElementById('part-photo-modal-next')
+  ].filter(Boolean);
+  const modal = document.getElementById('part-photo-modal');
+  const modalImage = document.getElementById('part-photo-modal-image');
+  const modalCounter = document.getElementById('part-photo-modal-counter');
+  const closeButtons = Array.from(document.querySelectorAll('[data-close-part-modal]'));
+
+  function renderPhoto(index) {
+    currentIndex = (index + photos.length) % photos.length;
+    const photo = photos[currentIndex];
+    if (mainPhoto) mainPhoto.src = photo;
+    if (modalImage) modalImage.src = photo;
+    if (modalCounter) modalCounter.textContent = `Фото ${currentIndex + 1} / ${photos.length}`;
+    thumbs.forEach((thumb) => {
+      thumb.classList.toggle('is-active', Number(thumb.dataset.index) === currentIndex);
+    });
+  }
+
+  function openModal() {
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+  }
+
+  function closeModal() {
+    if (!modal) return;
+    modal.classList.remove('is-open');
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-open');
+  }
+
+  thumbs.forEach((thumb) => {
+    thumb.addEventListener('click', () => renderPhoto(Number(thumb.dataset.index) || 0));
+  });
+  prevButtons.forEach((button) => button.addEventListener('click', () => renderPhoto(currentIndex - 1)));
+  nextButtons.forEach((button) => button.addEventListener('click', () => renderPhoto(currentIndex + 1)));
+  if (mainPhotoOpen) mainPhotoOpen.addEventListener('click', openModal);
+  closeButtons.forEach((button) => button.addEventListener('click', closeModal));
+
+  document.addEventListener('keydown', (event) => {
+    if (!modal || !modal.classList.contains('is-open')) return;
+    if (event.key === 'Escape') closeModal();
+    if (event.key === 'ArrowLeft') renderPhoto(currentIndex - 1);
+    if (event.key === 'ArrowRight') renderPhoto(currentIndex + 1);
+  });
+
+  renderPhoto(0);
+})();
+
+(() => {
+  const toggle = document.getElementById('seller-request-toggle');
+  const panel = document.getElementById('seller-request');
+  if (!toggle || !panel) return;
+
+  function openSellerRequest() {
+    panel.classList.remove('hidden');
+    panel.classList.add('is-open');
+  }
+
+  toggle.addEventListener('click', () => {
+    if (panel.classList.contains('hidden')) {
+      openSellerRequest();
+      return;
+    }
+    panel.classList.toggle('is-open');
+    panel.classList.toggle('hidden');
+  });
+
+  if (window.location.hash === '#seller-request') {
+    openSellerRequest();
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+})();
+</script>
+{% endblock %}

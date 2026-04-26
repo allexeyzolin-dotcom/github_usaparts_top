@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title> </title>
+  <style>
+    @page {
+      size: 58mm 30mm;
+      margin: 0;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 58mm;
+      background: #fff;
+      color: #111827;
+      font-family: Arial, sans-serif;
+    }
+
+    body {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      overflow: visible;
+    }
+
+    .sheet {
+      width: 58mm;
+      margin: 0;
+      padding: 0;
+    }
+
+    .label {
+      width: 58mm;
+      height: 30mm;
+      box-sizing: border-box;
+      padding: 0.55mm 0.65mm 0.45mm 2.25mm;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      overflow: hidden;
+      page-break-after: always;
+      break-after: page;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .label:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+
+    .details {
+      width: 100%;
+      min-width: 0;
+      min-height: 9.8mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 0.35mm;
+      overflow: hidden;
+    }
+
+    .code {
+      font-size: 8.7pt;
+      line-height: 1.02;
+      font-weight: 700;
+      letter-spacing: 0.02mm;
+      word-break: break-word;
+      overflow: hidden;
+    }
+
+    .summary {
+      font-size: 7.15pt;
+      line-height: 1.05;
+      font-weight: 700;
+      color: #111827;
+      word-break: break-word;
+      overflow: hidden;
+    }
+
+    .barcode-wrap {
+      width: 100%;
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      overflow: hidden;
+    }
+
+    .barcode {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    .barcode svg {
+      display: block;
+      width: 53.8mm;
+      height: 13.9mm;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .barcode-number {
+      margin-top: 0.15mm;
+      text-align: center;
+      font-size: 6.9pt;
+      line-height: 1;
+      font-family: monospace;
+      letter-spacing: 0.62mm;
+      white-space: nowrap;
+    }
+
+    @media print {
+      @page {
+        size: 58mm 30mm;
+        margin: 0;
+      }
+
+      html, body {
+        width: 58mm;
+        height: auto;
+        overflow: visible;
+      }
+    }
+  </style>
+</head>
+<body onload="document.title=' '; window.print()">
+  <div class="sheet">
+    {% for item in labels %}
+    <section class="label">
+      <div class="details">
+        <div class="code">{{ item.headline }}</div>
+        {% if item.summary %}
+        <div class="summary">{{ item.summary }}</div>
+        {% endif %}
+      </div>
+      <div class="barcode-wrap">
+        <div class="barcode">
+          {{ item.barcodeSvg|safe }}
+        </div>
+        {% if item.barcode %}
+        <div class="barcode-number">{{ item.barcode }}</div>
+        {% endif %}
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+</body>
+</html>

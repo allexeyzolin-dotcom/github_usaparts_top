@@ -1,0 +1,45 @@
+{% extends 'base_public.html' %}
+{% block content %}
+<div class="container">
+  <div class="panel-header">
+    <div>
+      <h2>{% if status == 'in_transit' %}Авто в дорозі{% else %}Авто в наявності{% endif %}</h2>
+      <div class="muted">Каталог автомобілів, які вже на майданчику або ще прямують в Україну.</div>
+    </div>
+  </div>
+
+  <div class="showcase-grid cars-grid">
+    {% for car in cars %}
+    {% set photos = parse_media_urls(car.image_urls) %}
+    <a class="showcase-card" href="{{ url_for('car_detail_public', car_id=car.id) }}">
+      {% if photos %}
+      <img class="showcase-img" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}">
+      {% else %}
+      <div class="showcase-img placeholder">Авто</div>
+      {% endif %}
+      <div class="showcase-body">
+        <div class="showcase-code">{{ car.vin or 'VIN не вказано' }}</div>
+        <h3>{{ clean_text(car.brand) }} {{ clean_text(car.model) }}</h3>
+        <div class="muted">{{ car.year or '-' }} • {{ car.mileage or '-' }} км • {{ 'в дорозі' if car.status == 'in_transit' else 'в наявності' }}</div>
+        <div class="price-row">${{ '%.2f'|format(car.price_usd|float) }}</div>
+        <div class="button-row" style="margin-top:10px">
+          {% if photos|length > 1 %}
+          <span class="badge neutral">Фото: {{ photos|length }}</span>
+          {% endif %}
+          {% if car.vin %}
+          <span class="badge neutral">VIN трекінг</span>
+          {% endif %}
+          {% if youtube_embed_url(car.youtube_url) %}
+          <span class="btn ghost small">Відео</span>
+          {% endif %}
+        </div>
+      </div>
+    </a>
+    {% else %}
+    <div class="card">
+      <div class="muted">Поки що авто в цій категорії немає.</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

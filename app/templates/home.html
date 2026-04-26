@@ -1,0 +1,71 @@
+{% extends 'base_public.html' %}
+{% block content %}
+<section class="hero premium-hero home-shot-layout">
+  <div class="container home-shot-container">
+    {% if cars_random %}
+    <div class="cars-ribbon">
+      {% for car in cars_random %}
+      <a class="mini-car-card" href="{{ url_for('car_detail_public', car_id=car.id) }}">
+        {% if primary_car_photo(car) %}
+        <img class="mini-car-image" src="{{ primary_car_photo(car) }}" alt="{{ car.brand }} {{ car.model }}">
+        {% else %}
+        <div class="mini-car-image placeholder">Авто</div>
+        {% endif %}
+        <div class="mini-car-body">
+          <div class="mini-car-name">{{ clean_text(car.brand) }} {{ clean_text(car.model) }}</div>
+          <div class="muted mini-car-meta">{{ car.year or '—' }} • {{ car.mileage or '—' }} км • {{ 'в дорозі' if car.status == 'in_transit' else 'в наявності' }}</div>
+          <div class="mini-car-price">${{ '%.2f'|format(car.price_usd|float) }}</div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="home-title-block">
+      <span class="eyebrow">USA авторозбірка • запчастини • поставки</span>
+      <h1 class="home-main-title">Запчастини для авто з США</h1>
+    </div>
+
+    <form class="search-row hero-search-centered" method="get" action="{{ url_for('home') }}">
+      <input name="q" value="{{ q }}" placeholder="Пошук по номеру, назві або бренду">
+      <button class="btn primary" type="submit">Знайти</button>
+    </form>
+
+    <div class="showcase-grid showcase-grid-home">
+      {% for part in featured %}
+      <div class="showcase-card home-product-card">
+        <a href="{{ url_for('part_detail', part_id=part.id) }}">
+          {% if primary_part_photo(part) %}
+          <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.name }}">
+          {% else %}
+          <div class="showcase-img placeholder">Фото</div>
+          {% endif %}
+        </a>
+        <div class="showcase-body">
+          <div class="showcase-code">{{ part.part_number }}</div>
+          <h3>{{ clean_text(part.name) }}</h3>
+          <div class="price-row">${{ display_usd(part.price_usd, part.warehouse.markup_percent) }} <span>₴{{ display_uah(part.price_usd, part.warehouse.markup_percent) }}</span></div>
+          <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}" class="home-buy-form">
+            <button class="btn primary full" type="submit">Додати в кошик</button>
+          </form>
+        </div>
+      </div>
+      {% else %}
+      <div class="card">
+        {% if q and search_found_without_photo %}
+        <div class="muted">Товар знайдено в базі, але для нього ще не додано фото, тому на вітрині він поки не показується.</div>
+        {% else %}
+        <div class="muted">Поки немає товарів для вітрини за поточним запитом.</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if has_more %}
+    <div class="showcase-more-row">
+      <a class="btn ghost" href="{{ url_for('home', q=q, page=page + 1) }}">Показати ще</a>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

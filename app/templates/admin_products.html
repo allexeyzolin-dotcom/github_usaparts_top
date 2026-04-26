@@ -1,0 +1,142 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <h2>Склади</h2>
+    <div class="muted">Тут залишилися тільки базові дії по складах: створення, видалення, імпорт і експорт CSV.</div>
+  </div>
+</div>
+
+<div class="admin-simple-grid">
+  <section class="card stack">
+    <h3>Створити склад</h3>
+    <form method="post" action="{{ url_for('create_warehouse') }}" class="stack">
+      <input name="name" placeholder="Назва складу" required>
+      <input name="markup_percent" type="number" step="0.01" value="0" placeholder="Націнка, %">
+      <button class="btn primary" type="submit">Створити склад</button>
+    </form>
+  </section>
+
+  <section class="card stack danger-card">
+    <h3>Видалити склад</h3>
+    <form method="post" action="{{ url_for('delete_warehouse_review') }}" class="stack" onsubmit="return confirmWarehouseDelete(this)">
+      <select name="warehouse_id" required>
+        <option value="">Оберіть склад</option>
+        {% for warehouse, stats in warehouse_cards %}
+        <option value="{{ warehouse.id }}">{{ warehouse.name }} • {{ stats.total }} позицій</option>
+        {% endfor %}
+      </select>
+      <select name="delete_mode" required>
+        <option value="inventory_only">Видалити тільки наявність товару</option>
+        <option value="warehouse_with_goods">Склад з товаром</option>
+      </select>
+      <input type="hidden" name="confirm_text">
+      <div class="helper-note">
+        Режим <strong>Видалити тільки наявність товару</strong> прибирає тільки ярлики та кількість у вибраному складі.
+        Режим <strong>Склад з товаром</strong> відкриє перегляд дублюючих позицій і дозволить вирішити, що робити з master-картками.
+      </div>
+      <button class="btn danger" type="submit">Перейти до перевірки видалення</button>
+    </form>
+  </section>
+
+  <section class="card stack">
+    <h3>Імпорт CSV</h3>
+    <form method="post" action="{{ url_for('import_preview') }}" enctype="multipart/form-data" class="stack">
+      <select name="warehouse_id" required>
+        <option value="">Оберіть склад</option>
+        {% for warehouse, stats in warehouse_cards %}
+        <option value="{{ warehouse.id }}">{{ warehouse.name }}</option>
+        {% endfor %}
+      </select>
+      <input type="file" name="file" accept=".csv" required>
+      <button class="btn primary" type="submit">Завантажити CSV</button>
+    </form>
+  </section>
+
+  <section class="card stack">
+    <h3>Експорт CSV</h3>
+    <form method="get" action="" class="stack" onsubmit="return submitWarehouseExport(this)">
+      <select name="warehouse_id" required>
+        <option value="">Оберіть склад</option>
+        {% for warehouse, stats in warehouse_cards %}
+        <option value="{{ warehouse.id }}">{{ warehouse.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn ghost" type="submit">Експортувати CSV</button>
+    </form>
+  </section>
+
+  <section class="card stack">
+    <h3>Друк складу</h3>
+    <div class="helper-note">Відкрийте вікно друку, оберіть склад або `Всі товари`, знайдіть потрібні позиції та надрукуйте тільки вибране.</div>
+    <a class="btn ghost" href="{{ url_for('admin_warehouse_print') }}">Відкрити друк складу</a>
+  </section>
+</div>
+
+<section class="card stack" style="margin-top:18px">
+  <h3>Список складів</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Склад</th>
+          <th>Позицій</th>
+          <th>Фото</th>
+          <th>Опис</th>
+          <th>Ревізія</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for warehouse, stats in warehouse_cards %}
+        <tr>
+          <td><a class="text-link" href="{{ url_for('admin_parts', warehouse_id=warehouse.id) }}">{{ warehouse.name }}</a></td>
+          <td>{{ stats.total }}</td>
+          <td>{{ stats.with_photo_pct }}%</td>
+          <td>{{ stats.with_desc_pct }}%</td>
+          <td>
+            {% if warehouse.revision_status == 'completed' %}
+            Завершено{% if warehouse.revision_date %} • {{ warehouse.revision_date.strftime('%d.%m.%Y') }}{% endif %}
+            {% elif warehouse.revision_status == 'in_progress' %}
+            {{ warehouse.revision_percent }}%
+            {% else %}
+            Не розпочато
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">Складів поки немає.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+function confirmWarehouseDelete(form) {
+  const select = form.querySelector('select[name="warehouse_id"]');
+  if (!select.value) {
+    window.alert('Оберіть склад для видалення.');
+    return false;
+  }
+  const answer = window.prompt(`Щоб видалити склад "${select.options[select.selectedIndex].text}", введіть "так".`);
+  if (answer === null) return false;
+  form.querySelector('input[name="confirm_text"]').value = answer.trim();
+  if (answer.trim().toLowerCase() !== 'так') {
+    window.alert('Видалення скасовано.');
+    return false;
+  }
+  return true;
+}
+
+function submitWarehouseExport(form) {
+  const select = form.querySelector('select[name="warehouse_id"]');
+  if (!select.value) {
+    window.alert('Оберіть склад для експорту.');
+    return false;
+  }
+  window.location.href = `/admin/export/${select.value}`;
+  return false;
+}
+
+</script>
+{% endblock %}

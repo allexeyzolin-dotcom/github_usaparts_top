@@ -1,0 +1,1036 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<style>
+  .payment-modal{
+    position:fixed;
+    inset:0;
+    z-index:140;
+    display:none;
+    place-items:center;
+    padding:24px;
+  }
+  .payment-modal.is-open{display:grid}
+  .payment-modal.hidden{display:none!important}
+  .payment-modal__backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(15,23,42,.5);
+    backdrop-filter:blur(6px);
+  }
+  .payment-modal__dialog{
+    position:relative;
+    width:min(100%,420px);
+    border-radius:24px;
+    padding:22px;
+    background:#fff;
+    border:1px solid #d6e0ea;
+    box-shadow:0 28px 70px rgba(15,23,42,.28);
+    display:grid;
+    gap:14px;
+  }
+  .payment-modal__dialog h3{
+    margin:0;
+    color:#14202d;
+  }
+  .payment-modal__dialog p{
+    margin:0;
+  }
+  .payment-modal__input.is-invalid{
+    border-color:#dc2626!important;
+    box-shadow:0 0 0 3px rgba(220,38,38,.12)!important;
+  }
+</style>
+<div class="orders-workspace">
+  <section class="orders-sidebar-stack">
+    <div class="panel-header orders-column-head">
+      <div>
+        <h2>Замовлення / Видача</h2>
+        <div class="muted">Ліва колонка для ручної видачі й заявок, які вже стоять на видачі в додатку.</div>
+      </div>
+    </div>
+
+    <div class="import-summary-grid orders-summary-grid">
+      <div class="summary-chip">
+        <div class="muted">Ручних заявок</div>
+        <strong>{{ packing_requests|length }}</strong>
+      </div>
+      <div class="summary-chip">
+        <div class="muted">Проблемних</div>
+        <strong>{{ packing_requests | selectattr('status', 'equalto', 'issue') | list | length }}</strong>
+      </div>
+    </div>
+
+    <section id="manual-packing-create" class="card stack orders-manual-card">
+      <div>
+        <h3>Поставити на видачу вручну</h3>
+        <div class="muted">Пошук починає працювати з 3 символів. Додайте товари в кошик і сформуйте список на видачу.</div>
+      </div>
+      <form method="post" action="{{ url_for('admin_packing_create') }}" class="stack" data-picker="parts" data-search-url="{{ url_for('admin_parts_search') }}" data-initial-items="[]" data-delivery-form>
+        <div class="grid-2">
+          <label class="choice"><input type="radio" name="delivery_type" value="pickup" checked> Самовивіз</label>
+          <label class="choice"><input type="radio" name="delivery_type" value="nova_poshta"> Нова пошта</label>
+        </div>
+
+        <div class="grid-2">
+          <input name="customer_name" placeholder="Клієнт">
+          <input name="phone" placeholder="Телефон">
+        </div>
+
+        <div class="stack hidden" data-role="np-block">
+          <div class="np-grid compact-fields">
+            <div class="autocomplete-wrap">
+              <input name="city_name" data-role="city-input" placeholder="Місто" autocomplete="off">
+              <input type="hidden" name="city_ref" data-role="city-ref">
+              <div class="autocomplete-list hidden" data-role="city-list"></div>
+            </div>
+            <select name="np_service_type" data-role="np-service-type">
+              <option value="warehouse">Склад / відділення</option>
+              <option value="postomat">Поштомат</option>
+              <option value="address">Адреса</option>
+            </select>
+          </div>
+
+          <div class="autocomplete-wrap" data-role="warehouse-block">
+            <input type="hidden" name="warehouse_ref" data-role="warehouse-ref">
+            <input name="warehouse_label" data-role="warehouse-input" placeholder="Оберіть відділення або поштомат" autocomplete="off">
+            <div class="autocomplete-list hidden" data-role="warehouse-list"></div>
+            <div class="muted" data-role="warehouse-help"></div>
+          </div>
+
+          <div class="hidden stack compact-fields" data-role="address-block">
+            <div class="autocomplete-wrap">
+              <input type="hidden" name="street_ref" data-role="street-ref">
+              <input name="street_name" data-role="street-input" placeholder="Вулиця" autocomplete="off">
+              <div class="autocomplete-list hidden" data-role="street-list"></div>
+            </div>
+            <input name="house" data-role="house-input" placeholder="Будинок">
+          </div>
+          <input name="control_payment_uah" type="number" step="0.01" min="0" placeholder="РљРѕРЅС‚СЂРѕР»СЊ РѕРїР»Р°С‚Рё, РіСЂРЅ">
+          <div class="control-payment-block" data-control-payment-block>
+            <span class="field-label">&#1050;&#1086;&#1085;&#1090;&#1088;&#1086;&#1083;&#1100; &#1086;&#1087;&#1083;&#1072;&#1090;&#1080;, &#1075;&#1088;&#1085;</span>
+            <input
+              name="control_payment_uah"
+              type="number"
+              step="0.01"
+              min="0"
+              inputmode="decimal"
+              data-control-payment-input
+              placeholder="&#1050;&#1086;&#1085;&#1090;&#1088;&#1086;&#1083;&#1100; &#1086;&#1087;&#1083;&#1072;&#1090;&#1080;, &#1075;&#1088;&#1085;"
+            >
+          </div>
+        </div>
+
+        <input name="comment" placeholder="Коментар або назва списку">
+        <input data-role="search" placeholder="Пошук по OEM номеру, опису або штрихкоду">
+        <div data-role="hint" class="muted">Додавайте позиції в кошик для відправки у додаток.</div>
+        <div data-role="results" class="top-list"></div>
+
+        <div class="card inner-card">
+          <strong>Кошик</strong>
+          <div data-role="selected" class="top-list" style="margin-top:10px"></div>
+          <div data-role="empty" class="muted">Позицій поки немає.</div>
+        </div>
+
+        <input type="hidden" name="items_json" data-role="items-json">
+        <button class="btn primary" type="submit" data-control-payment-submit>Поставити на видачу</button>
+      </form>
+    </section>
+
+    {% if packing_requests %}
+    <section class="card stack orders-manual-list">
+      <div class="panel-header">
+        <div>
+          <h3>Стоїть на видачі</h3>
+          <div class="muted">Ручні позиції на видачу, які ще не перетворені у звичайне замовлення.</div>
+        </div>
+      </div>
+
+      <div class="orders-list">
+        {% for req in packing_requests %}
+        <article class="order-card {% if req.status == 'issue' %}status-alert{% elif req.status in ['ready', 'packed', 'awaiting_shipment'] %}status-packed{% endif %}">
+          <div class="order-body" style="padding-top:18px">
+            <div class="order-line">
+              <strong>#{{ req.id }}</strong>
+              <span>{{ clean_text(req.title) }}</span>
+              <span class="badge {% if req.status == 'issue' %}danger{% elif req.status in ['ready', 'packed', 'awaiting_shipment'] %}success{% else %}warn{% endif %}">{{ req.statusLabel }}</span>
+            </div>
+
+            <div class="muted" style="margin-top:6px">
+              {{ req.customerName or ('Видано вручну' if req.sourceType == 'manual' else 'Без імені клієнта') }}
+              {% if req.phone %} • {{ req.phone }}{% endif %}
+              {% if req.deliverySummary %} • {{ req.deliverySummary }}{% endif %}
+              • {{ req.deliveryLabel }}
+            </div>
+
+            {% if req.deliveryType == 'nova_poshta' %}
+            <div class="choice" style="margin-top:10px"><strong>Контроль оплати:</strong> {{ '%.2f'|format(req.controlPaymentUah or 0) }} грн</div>
+            {% endif %}
+            <div class="top-list" style="margin-top:14px">
+              {% for item in req['items'] %}
+              <div class="top-item {% if item.status in ['partial', 'missing'] %}row-problem{% endif %}">
+                <div class="news-title">{{ item.partNumber }} — {{ clean_text(item.title) }}</div>
+                <div class="muted">Потрібно: {{ item.expectedQty }} • Знайдено: {{ item.foundQty }}</div>
+              </div>
+              {% endfor %}
+            </div>
+
+            <div class="button-row" style="margin-top:14px">
+              {% if req.status == 'issue' %}
+              <form method="post" action="{{ url_for('admin_packing_apply_stock', request_id=req.id) }}">
+                <button class="btn primary" type="submit">Зберегти наявність в складі</button>
+              </form>
+              {% endif %}
+              <form method="post" action="{{ url_for('admin_packing_writeoff', request_id=req.id) }}" onsubmit="return confirmPackingWriteoff(this, {{ req.foundQty or 0 }}, {{ req.totalQty or 0 }})">
+                <input type="hidden" name="confirm_text">
+                <button class="btn primary" type="submit">Списати</button>
+              </form>
+              {% if req.status == 'packed' %}
+              <form id="packing-send-form-{{ req.id }}" method="post" action="{{ url_for('admin_packing_send_to_order', request_id=req.id) }}" class="{% if req.deliveryType == 'nova_poshta' %}control-payment-submit{% endif %}" data-control-payment-form>
+                {% if req.deliveryType == 'nova_poshta' %}
+                <input
+                  name="control_payment_uah"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputmode="decimal"
+                  value="{{ '' if not req.controlPaymentUah else req.controlPaymentUah }}"
+                  placeholder="Контроль оплати, грн"
+                  data-control-payment-input
+                >
+                <button class="btn primary" type="submit" data-control-payment-submit>Відправити в замовлення</button>
+                {% else %}
+                <button class="btn primary" type="submit">Відправити в замовлення</button>
+                {% endif %}
+              </form>
+              {% endif %}
+              {% if req.status in ['open', 'in_progress', 'ready', 'issue'] %}
+              <button class="btn ghost" type="button" onclick="togglePanel('packing-edit-{{ req.id }}')">Редагувати</button>
+              {% endif %}
+              <form method="post" action="{{ url_for('admin_packing_delete', request_id=req.id) }}" onsubmit="return confirm('Видалити цю заявку?');">
+                <button class="btn danger" type="submit">Видалити</button>
+              </form>
+            </div>
+
+            {% if req.status in ['open', 'in_progress', 'ready', 'issue'] %}
+            <div id="packing-edit-{{ req.id }}" class="hidden" style="margin-top:16px">
+              <form method="post" action="{{ url_for('admin_packing_edit', request_id=req.id) }}" class="stack" data-picker="parts" data-search-url="{{ url_for('admin_parts_search') }}" data-initial-items='{{ req["items"] | tojson }}' data-delivery-form>
+                <div class="grid-2">
+                  <label class="choice"><input type="radio" name="delivery_type" value="pickup" {% if req.deliveryType == 'pickup' %}checked{% endif %}> Самовивіз</label>
+                  <label class="choice"><input type="radio" name="delivery_type" value="nova_poshta" {% if req.deliveryType == 'nova_poshta' %}checked{% endif %}> Нова пошта</label>
+                </div>
+
+                <div class="grid-2">
+                  <input name="customer_name" placeholder="Клієнт" value="{{ req.customerName or '' }}">
+                  <input name="phone" placeholder="Телефон" value="{{ req.phone or '' }}">
+                </div>
+
+                <div class="stack {% if req.deliveryType != 'nova_poshta' %}hidden{% endif %}" data-role="np-block">
+                  <div class="np-grid compact-fields">
+                    <div class="autocomplete-wrap">
+                      <input name="city_name" data-role="city-input" placeholder="Місто" autocomplete="off" value="{{ req.city or '' }}">
+                      <input type="hidden" name="city_ref" data-role="city-ref" value="{{ req.npCityRef or '' }}">
+                      <div class="autocomplete-list hidden" data-role="city-list"></div>
+                    </div>
+                    <select name="np_service_type" data-role="np-service-type">
+                      <option value="warehouse" {% if req.npServiceType == 'warehouse' %}selected{% endif %}>Склад / відділення</option>
+                      <option value="postomat" {% if req.npServiceType == 'postomat' %}selected{% endif %}>Поштомат</option>
+                      <option value="address" {% if req.npServiceType == 'address' %}selected{% endif %}>Адреса</option>
+                    </select>
+                  </div>
+                  
+                  <div class="autocomplete-wrap {% if req.npServiceType == 'address' %}hidden{% endif %}" data-role="warehouse-block">
+                    <input type="hidden" name="warehouse_ref" data-role="warehouse-ref" value="{{ req.npWarehouseRef or '' }}">
+                    <input name="warehouse_label" data-role="warehouse-input" placeholder="Оберіть відділення або поштомат" autocomplete="off" value="{{ req.npWarehouseLabel or '' }}">
+                    <div class="autocomplete-list hidden" data-role="warehouse-list"></div>
+                    <div class="muted" data-role="warehouse-help"></div>
+                  </div>
+
+                  <div class="{% if req.npServiceType != 'address' %}hidden {% endif %}stack compact-fields" data-role="address-block">
+                    <div class="autocomplete-wrap">
+                      <input type="hidden" name="street_ref" data-role="street-ref" value="{{ req.npStreetRef or '' }}">
+                      <input name="street_name" data-role="street-input" placeholder="Вулиця" autocomplete="off" value="{{ req.npStreetName or '' }}">
+                      <div class="autocomplete-list hidden" data-role="street-list"></div>
+                    </div>
+                    <input name="house" data-role="house-input" placeholder="Будинок" value="{{ req.npHouse or '' }}">
+                  </div>
+                  <input name="control_payment_uah" type="number" step="0.01" min="0" value="{{ req.controlPaymentUah or 0 }}" placeholder="РљРѕРЅС‚СЂРѕР»СЊ РѕРїР»Р°С‚Рё, РіСЂРЅ">
+                  <div class="control-payment-block" data-control-payment-block>
+                    <span class="field-label">&#1050;&#1086;&#1085;&#1090;&#1088;&#1086;&#1083;&#1100; &#1086;&#1087;&#1083;&#1072;&#1090;&#1080;, &#1075;&#1088;&#1085;</span>
+                    <input
+                      name="control_payment_uah"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      inputmode="decimal"
+                      data-control-payment-input
+                      value="{{ '' if not req.controlPaymentUah else req.controlPaymentUah }}"
+                      placeholder="&#1050;&#1086;&#1085;&#1090;&#1088;&#1086;&#1083;&#1100; &#1086;&#1087;&#1083;&#1072;&#1090;&#1080;, &#1075;&#1088;&#1085;"
+                    >
+                  </div>
+                </div>
+
+                <input name="comment" placeholder="Коментар або назва списку" value="{{ req.title or '' }}">
+                <input data-role="search" placeholder="Додати позицію по OEM номеру, опису або штрихкоду">
+                <div data-role="hint" class="muted">Після збереження запит у додатку оновиться.</div>
+                <div data-role="results" class="top-list"></div>
+
+                <div class="card inner-card">
+                  <strong>Позиції</strong>
+                  <div data-role="selected" class="top-list" style="margin-top:10px"></div>
+                  <div data-role="empty" class="muted">Позицій немає.</div>
+                </div>
+
+                <input type="hidden" name="items_json" data-role="items-json">
+                <button class="btn primary" type="submit" data-control-payment-submit>Зберегти зміни</button>
+              </form>
+            </div>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% else %}
+    <section class="card orders-empty-card">
+      <h3>Стоїть на видачі</h3>
+      <div class="muted">Ручних заявок поки немає. Нова заявка з'явиться тут одразу після створення.</div>
+    </section>
+    {% endif %}
+  </section>
+
+  <section class="orders-main-stack">
+    <section class="panel-header orders-column-head orders-main-head">
+      <div>
+        <h3>Список замовлень</h3>
+        <div class="muted">Права колонка для контролю замовлень, фільтрів, відправки на видачу та фінального завершення.</div>
+      </div>
+    </section>
+
+    <div class="import-summary-grid orders-summary-grid orders-main-summary">
+      <div class="summary-chip">
+        <div class="muted">Нові</div>
+        <strong>{{ order_counts.new }}</strong>
+      </div>
+      <div class="summary-chip">
+        <div class="muted">Активні</div>
+        <strong>{{ order_counts.active }}</strong>
+      </div>
+      <div class="summary-chip">
+        <div class="muted">У поточній вкладці</div>
+        <strong>{{ orders|length }}</strong>
+      </div>
+    </div>
+
+    <div class="order-group-tabs">
+      <a class="order-group-tab green {% if selected_group == 'new' %}active{% endif %}" href="{{ url_for('admin_orders', group='new') }}">Нові <span class="cart-badge">{{ order_counts.new }}</span></a>
+      <a class="order-group-tab yellow {% if selected_group == 'active' %}active{% endif %}" href="{{ url_for('admin_orders', group='active') }}">Активні <span class="cart-badge">{{ order_counts.active }}</span></a>
+      <a class="order-group-tab red {% if selected_group == 'history' %}active{% endif %}" href="{{ url_for('admin_orders', group='history') }}">Виконані / скасовані</a>
+    </div>
+
+    <div class="orders-list orders-main-list">
+      {% for order in orders %}
+      <article class="order-card status-{{ order.status }}">
+        <div class="order-body" style="padding-top:18px">
+          <div class="order-line">
+            <strong>#{{ order.id }}</strong>
+            <span>{{ order.customerName or 'Без імені клієнта' }}</span>
+            {% if order.city %}<span>{{ order.city }}</span>{% endif %}
+            <span>${{ '%.2f'|format(order.totalUsd) }}</span>
+            <span class="badge {% if order.status == 'done' %}success{% elif order.status == 'cancelled' %}cancelled{% elif order.status == 'new' %}neutral{% else %}warn{% endif %}">{{ order.statusLabel }}</span>
+            {% if order.packingStatusLabel %}
+            <span class="badge {% if order.packingStatus in ['packed', 'shipped'] %}success{% elif order.packingStatus == 'awaiting_shipment' %}warn{% else %}neutral{% endif %}">{{ order.packingStatusLabel }}</span>
+            {% endif %}
+            {% if order.externalSource %}
+            <span class="badge neutral">{{ order.externalSource|upper }}</span>
+            {% endif %}
+          </div>
+
+          <div class="muted" style="margin-top:8px">
+            {{ order.phone or 'Телефон не вказано' }}
+            {% if order.comment %} • {{ order.comment }}{% endif %}
+            • Створено: {{ order.createdAt }}
+          </div>
+
+          {% if (order.packingControlPaymentUah or 0) > 0 and (order.prepaymentUsd or 0) <= 0 %}
+          <div class="choice" style="margin-top:12px"><strong>Контроль оплати:</strong> {{ '%.2f'|format(order.packingControlPaymentUah or 0) }} грн</div>
+          {% endif %}
+          {% if (order.prepaymentUsd or 0) > 0 %}
+          <div class="choice" style="margin-top:12px"><strong>Контроль оплати:</strong> {{ '%.2f'|format(order.prepaymentUsd or 0) }} грн</div>
+          {% endif %}
+          {% if order.cancelReason %}
+          <div class="choice" style="margin-top:12px"><strong>Причина скасування:</strong> {{ order.cancelReason }}</div>
+          {% endif %}
+
+          <div class="card inner-card" style="margin-top:14px">
+            <strong>Позиції замовлення</strong>
+            <div class="top-list" style="margin-top:10px">
+              {% for item in order["items"] %}
+              <div class="top-item {% if item.issue %}row-problem{% endif %}">
+                <div class="news-title">{{ item.partNumber }} — {{ item.name }}</div>
+                <div class="muted">
+                  {{ item.qty }} шт. • ${{ '%.2f'|format(item.priceUsd) }}
+                  {% if item.hasPackingState %}
+                  • {{ item.statusLabel or 'Очікує' }}: {{ item.foundQty }} з {{ item.expectedQty }}
+                  {% endif %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          {% if order.status not in ['done', 'cancelled'] %}
+          <div class="button-row" style="margin-top:14px">
+            <form id="order-packing-form-{{ order.id }}" method="post" action="{% if order.packingButton.action == 'send_to_order' and order.packingRequestId %}{{ url_for('admin_packing_send_to_order', request_id=order.packingRequestId) }}{% else %}{{ url_for('admin_order_send_to_packing', order_id=order.id) }}{% endif %}" class="{% if order.packingButton.action == 'send_to_order' and order.packingRequestId and order.packingDeliveryType == 'nova_poshta' %}control-payment-submit{% endif %}" data-control-payment-form>
+              {% if order.packingButton.action == 'send_to_order' and order.packingRequestId and order.packingDeliveryType == 'nova_poshta' %}
+              <input
+                name="control_payment_uah"
+                type="number"
+                step="0.01"
+                min="0"
+                inputmode="decimal"
+                value="{{ '' if not (order.packingControlPaymentUah or order.prepaymentUsd) else (order.packingControlPaymentUah or order.prepaymentUsd) }}"
+                placeholder="Контроль оплати, грн"
+                data-control-payment-input
+              >
+              <button class="btn packing-btn {{ order.packingButton.tone }}" type="submit" {% if order.packingButton.disabled %}disabled data-force-disabled="1"{% endif %} data-control-payment-submit>{{ order.packingButton.label }}</button>
+              {% else %}
+              <button class="btn packing-btn {{ order.packingButton.tone }}" type="submit" {% if order.packingButton.disabled %}disabled{% endif %}>{{ order.packingButton.label }}</button>
+              {% endif %}
+            </form>
+          </div>
+          {% endif %}
+
+          {% if order.canDirectTtnEdit or order.ttn %}
+          <form method="post" action="{{ url_for('admin_order_update', order_id=order.id) }}" class="stack" style="margin-top:14px">
+            <input type="hidden" name="prepayment_usd" value="{{ order.prepaymentUsd or 0 }}">
+            <div>
+              <input name="ttn" value="{{ order.ttn or '' }}" placeholder="ТТН Нової пошти">
+            </div>
+            {% if order.ttnStatus %}
+            <div class="muted">Статус ТТН: {{ order.ttnStatus }}</div>
+            {% endif %}
+            <div class="button-row">
+              <button class="btn ghost" type="submit">Зберегти ТТН</button>
+              {% if order.ttn %}
+              <button class="btn ghost" type="submit" formaction="{{ url_for('admin_order_refresh_ttn', order_id=order.id) }}" formmethod="post">Оновити статус ТТН</button>
+              {% endif %}
+            </div>
+          </form>
+          {% endif %}
+
+          {% if order.status not in ['done', 'cancelled'] %}
+          <div class="button-row" style="margin-top:14px">
+            {% if order.canComplete %}
+            <form method="post" action="{{ url_for('admin_order_complete', order_id=order.id) }}" onsubmit="return confirmOrderComplete(this)">
+              <input type="hidden" name="confirm_text">
+              <button class="btn primary" type="submit">Виконано</button>
+            </form>{% endif %}
+            <button class="btn ghost" type="button" onclick="togglePanel('order-edit-{{ order.id }}')">Редагувати замовлення</button>
+            <form id="cancel-order-form-{{ order.id }}" method="post" action="{{ url_for('admin_order_cancel', order_id=order.id) }}">
+              <input type="hidden" name="cancel_reason">
+              <button class="btn danger" type="button" onclick="cancelOrder({{ order.id }})">Скасувати замовлення</button>
+            </form>
+          </div>
+          {% endif %}
+
+          {% if order.canEditItems %}
+          <div id="order-edit-{{ order.id }}" class="hidden" style="margin-top:16px">
+            <form method="post" action="{{ url_for('admin_order_edit', order_id=order.id) }}" class="stack" data-picker="parts" data-search-url="{{ url_for('admin_parts_search') }}" data-include-price="1" data-initial-items='{{ order["items"] | tojson }}'>
+              <input data-role="search" placeholder="Додати позицію по OEM номеру, опису або штрихкоду">
+              <div data-role="hint" class="muted">Тут можна додати позиції, змінити кількість і ціну. Якщо замовлення вже в додатку, туди піде повторний запит.</div>
+              <div data-role="results" class="top-list"></div>
+              <div class="card inner-card">
+                <strong>Позиції для редагування</strong>
+                <div data-role="selected" class="top-list" style="margin-top:10px"></div>
+                <div data-role="empty" class="muted">Позицій немає.</div>
+              </div>
+              <input type="hidden" name="items_json" data-role="items-json">
+              <button class="btn primary" type="submit">Зберегти замовлення</button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+      </article>
+      {% else %}
+      <div class="card orders-empty-card">
+        <h3>Список замовлень</h3>
+        <div class="muted">У цій вкладці поки немає замовлень.</div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<div class="payment-modal hidden" id="control-payment-modal" aria-hidden="true">
+  <div class="payment-modal__backdrop" data-control-payment-close></div>
+  <div class="payment-modal__dialog" role="dialog" aria-modal="true" aria-label="Контроль оплати">
+    <div>
+      <h3 data-role="payment-title">Контроль оплати</h3>
+      <p class="muted" data-role="payment-subtitle">Вкажіть суму для відправки Новою поштою.</p>
+    </div>
+    <input
+      class="payment-modal__input"
+      data-role="payment-input"
+      type="number"
+      step="0.01"
+      min="0"
+      inputmode="decimal"
+      placeholder="Контроль оплати, грн"
+    >
+    <div class="button-row">
+      <button class="btn ghost" type="button" data-role="payment-close">Відміна</button>
+      <button class="btn primary" type="button" data-role="payment-confirm" disabled>Відправити</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePanel(id) {
+  const node = document.getElementById(id);
+  if (node) node.classList.toggle('hidden');
+}
+
+function confirmOrderComplete(form) {
+  const answer = window.prompt('Ви впевнені? Товари спишуться зі складу. Для підтвердження введіть "так".');
+  if (answer === null) return false;
+  form.querySelector('input[name="confirm_text"]').value = answer.trim();
+  if (answer.trim().toLowerCase() !== 'так') {
+    window.alert('Операцію скасовано.');
+    return false;
+  }
+  return true;
+}
+
+function confirmPackingWriteoff(form, scannedQty, totalQty) {
+  const hiddenInput = form.querySelector('input[name="confirm_text"]');
+  if (hiddenInput) hiddenInput.value = '';
+  if ((scannedQty || 0) > 0) {
+    return window.confirm(`Списати ${scannedQty}/${totalQty || scannedQty} шт. з "Всі товари" і перенести заявку в історію?`);
+  }
+  const answer = window.prompt('Товар не скановано. Для списання введіть "так".');
+  if (answer === null) return false;
+  if (hiddenInput) hiddenInput.value = answer.trim();
+  if (answer.trim().toLowerCase() !== 'так') {
+    window.alert('Операцію скасовано.');
+    return false;
+  }
+  return true;
+}
+
+function cancelOrder(orderId) {
+  const reason = window.prompt('Вкажіть причину скасування замовлення:');
+  if (reason === null) return;
+  if (!reason.trim()) {
+    window.alert('Потрібно вказати причину.');
+    return;
+  }
+  const form = document.getElementById(`cancel-order-form-${orderId}`);
+  form.querySelector('input[name="cancel_reason"]').value = reason.trim();
+  form.submit();
+}
+
+(() => {
+  function normalizeControlPaymentValue(rawValue) {
+    return (rawValue || '').trim().replace(/\s+/g, '').replace(',', '.');
+  }
+
+  function syncStandaloneControlPaymentForm(form) {
+    const input = form.querySelector('[data-control-payment-input]');
+    const button = form.querySelector('[data-control-payment-submit]');
+    if (!input || !button || form.hasAttribute('data-delivery-form')) return;
+
+    const normalized = normalizeControlPaymentValue(input.value);
+    const numeric = Number(normalized);
+    const isValid = normalized !== '' && Number.isFinite(numeric) && numeric >= 0;
+    const forceDisabled = button.dataset.forceDisabled === '1';
+
+    input.classList.toggle('is-invalid', normalized !== '' && !isValid);
+    button.disabled = forceDisabled || !isValid;
+  }
+
+  function initStandaloneControlPaymentForm(form) {
+    const input = form.querySelector('[data-control-payment-input]');
+    const button = form.querySelector('[data-control-payment-submit]');
+    if (!input || !button || form.hasAttribute('data-delivery-form')) return;
+
+    const syncState = () => syncStandaloneControlPaymentForm(form);
+    input.addEventListener('input', syncState);
+    input.addEventListener('change', syncState);
+    syncState();
+  }
+
+  window.normalizeControlPaymentValue = normalizeControlPaymentValue;
+  window.syncStandaloneControlPaymentForm = syncStandaloneControlPaymentForm;
+  document.querySelectorAll('[data-control-payment-form]').forEach(initStandaloneControlPaymentForm);
+})();
+
+(() => {
+  const modal = document.getElementById('control-payment-modal');
+  if (!modal) return;
+
+  document.querySelectorAll('input[name="control_payment_uah"]').forEach((node) => {
+    node.setAttribute('placeholder', '\u041a\u043e\u043d\u0442\u0440\u043e\u043b\u044c \u043e\u043f\u043b\u0430\u0442\u0438, \u0433\u0440\u043d');
+  });
+
+  const titleNode = modal.querySelector('[data-role="payment-title"]');
+  const subtitleNode = modal.querySelector('[data-role="payment-subtitle"]');
+  const inputNode = modal.querySelector('[data-role="payment-input"]');
+  const confirmButton = modal.querySelector('[data-role="payment-confirm"]');
+  const closeButtons = modal.querySelectorAll('[data-control-payment-close], [data-role="payment-close"]');
+  let activeForm = null;
+  let activeHiddenInput = null;
+
+  function normalizeValue(rawValue) {
+    return (rawValue || '').trim().replace(/\s+/g, '').replace(',', '.');
+  }
+
+  function syncConfirmState() {
+    const normalized = normalizeValue(inputNode.value);
+    const numeric = Number(normalized);
+    const isValid = normalized !== '' && Number.isFinite(numeric) && numeric >= 0;
+    confirmButton.disabled = !isValid;
+    inputNode.classList.toggle('is-invalid', normalized !== '' && !isValid);
+  }
+
+  function closeModal() {
+    modal.classList.add('hidden');
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-open');
+    inputNode.value = '';
+    inputNode.classList.remove('is-invalid');
+    activeForm = null;
+    activeHiddenInput = null;
+  }
+
+  function openModal(button) {
+    const formId = button.dataset.formId;
+    activeForm = formId ? document.getElementById(formId) : null;
+    activeHiddenInput = activeForm?.querySelector('input[name="control_payment_uah"]') || null;
+    if (!activeForm || !activeHiddenInput) return;
+
+    titleNode.textContent = button.dataset.paymentTitle || 'Контроль оплати';
+    subtitleNode.textContent = button.dataset.paymentSubtitle || 'Вкажіть суму для відправки Новою поштою.';
+    inputNode.value = activeHiddenInput.value || '';
+    syncConfirmState();
+    modal.classList.remove('hidden');
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+    window.setTimeout(() => inputNode.focus(), 20);
+  }
+
+  document.querySelectorAll('[data-control-payment-trigger]').forEach((button) => {
+    button.addEventListener('click', () => openModal(button));
+  });
+
+  inputNode.addEventListener('input', syncConfirmState);
+  inputNode.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !confirmButton.disabled) {
+      event.preventDefault();
+      confirmButton.click();
+    }
+  });
+
+  confirmButton.addEventListener('click', () => {
+    if (!activeForm || !activeHiddenInput || confirmButton.disabled) return;
+    activeHiddenInput.value = normalizeValue(inputNode.value);
+    activeForm.submit();
+    closeModal();
+  });
+
+  closeButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      closeModal();
+    });
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && modal.classList.contains('is-open')) {
+      closeModal();
+    }
+  });
+})();
+
+document.querySelectorAll('button[onclick^="togglePanel(\'order-edit-"]').forEach((button) => {
+  const match = button.getAttribute('onclick')?.match(/togglePanel\('([^']+)'\)/);
+  if (!match) return;
+  if (!document.getElementById(match[1])) {
+    button.classList.add('hidden');
+  }
+});
+
+(() => {
+  function renderAutocompleteList(container, items, onPick) {
+    container.innerHTML = '';
+    if (!items.length) {
+      container.classList.add('hidden');
+      return;
+    }
+    items.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'autocomplete-item';
+      button.textContent = item.name || item.label || '';
+      button.addEventListener('click', () => onPick(item));
+      container.appendChild(button);
+    });
+    container.classList.remove('hidden');
+  }
+
+  function initDeliveryForm(form) {
+    const npBlock = form.querySelector('[data-role="np-block"]');
+    if (!npBlock) return;
+
+    const deliveryRadios = Array.from(form.querySelectorAll('input[name="delivery_type"]'));
+    const cityInput = form.querySelector('[data-role="city-input"]');
+    const cityRef = form.querySelector('[data-role="city-ref"]');
+    const cityList = form.querySelector('[data-role="city-list"]');
+    const serviceType = form.querySelector('[data-role="np-service-type"]');
+    const warehouseBlock = form.querySelector('[data-role="warehouse-block"]');
+    const warehouseInput = form.querySelector('[data-role="warehouse-input"]');
+    const warehouseRef = form.querySelector('[data-role="warehouse-ref"]');
+    const warehouseList = form.querySelector('[data-role="warehouse-list"]');
+    const warehouseHelp = form.querySelector('[data-role="warehouse-help"]');
+    const addressBlock = form.querySelector('[data-role="address-block"]');
+    const streetInput = form.querySelector('[data-role="street-input"]');
+    const streetRef = form.querySelector('[data-role="street-ref"]');
+    const streetList = form.querySelector('[data-role="street-list"]');
+    const houseInput = form.querySelector('[data-role="house-input"]');
+    const legacyControlPaymentInput = form.querySelector('[data-role="np-block"] > input[name="control_payment_uah"]');
+    const controlPaymentInput = form.querySelector('[data-control-payment-block] [data-control-payment-input]');
+    const controlPaymentButtons = Array.from(form.querySelectorAll('[data-control-payment-submit]'));
+
+    if (legacyControlPaymentInput) {
+      legacyControlPaymentInput.disabled = true;
+    }
+
+    function currentDeliveryType() {
+      return deliveryRadios.find((item) => item.checked)?.value || 'pickup';
+    }
+
+    function syncControlPaymentState(isNovaPoshta) {
+      if (!controlPaymentInput) return;
+
+      controlPaymentInput.disabled = !isNovaPoshta;
+      if (!isNovaPoshta) {
+        controlPaymentInput.classList.remove('is-invalid');
+      }
+
+      const normalized = window.normalizeControlPaymentValue
+        ? window.normalizeControlPaymentValue(controlPaymentInput.value)
+        : (controlPaymentInput.value || '').trim().replace(/\s+/g, '').replace(',', '.');
+      const numeric = Number(normalized);
+      const isValid = normalized !== '' && Number.isFinite(numeric) && numeric >= 0;
+
+      controlPaymentInput.classList.toggle('is-invalid', isNovaPoshta && normalized !== '' && !isValid);
+      controlPaymentButtons.forEach((button) => {
+        if (button.dataset.forceDisabled === '1') {
+          button.disabled = true;
+          return;
+        }
+        button.disabled = isNovaPoshta ? !isValid : false;
+      });
+    }
+
+    function syncVisibility() {
+      const isNovaPoshta = currentDeliveryType() === 'nova_poshta';
+      const isAddress = serviceType?.value === 'address';
+      npBlock.classList.toggle('hidden', !isNovaPoshta);
+      warehouseBlock?.classList.toggle('hidden', !isNovaPoshta || isAddress);
+      addressBlock?.classList.toggle('hidden', !isNovaPoshta || !isAddress);
+      if (cityInput) cityInput.required = isNovaPoshta;
+      if (warehouseInput) warehouseInput.required = isNovaPoshta && !isAddress;
+      if (streetInput) streetInput.required = isNovaPoshta && isAddress;
+      if (houseInput) houseInput.required = isNovaPoshta && isAddress;
+      syncControlPaymentState(isNovaPoshta);
+    }
+
+    async function loadWarehouses(showList = false) {
+      if (!warehouseInput || !warehouseRef || !warehouseHelp) return;
+      warehouseInput.dataset.items = '[]';
+      warehouseHelp.textContent = 'Завантаження списку...';
+      if (!cityRef?.value || serviceType?.value === 'address') {
+        warehouseHelp.textContent = '';
+        return;
+      }
+      try {
+        const response = await fetch(`/api/np/warehouses?city_ref=${encodeURIComponent(cityRef.value)}&delivery_type=${encodeURIComponent(serviceType.value)}`);
+        const data = await response.json();
+        const items = data.items || [];
+        warehouseInput.dataset.items = JSON.stringify(items);
+        warehouseHelp.textContent = items.length ? `Доступно точок: ${items.length}` : (data.error ? `Помилка API: ${data.error}` : 'Список порожній або API ключ не вказано');
+        if (showList) {
+          renderAutocompleteList(warehouseList, items.map((item) => ({ ...item, name: item.label })), (item) => {
+            warehouseInput.value = item.label || '';
+            warehouseRef.value = item.ref || '';
+            warehouseList.classList.add('hidden');
+          });
+        }
+      } catch (error) {
+        warehouseHelp.textContent = 'Не вдалося завантажити список';
+      }
+    }
+
+    let cityTimer = null;
+    cityInput?.addEventListener('input', () => {
+      if (cityRef) cityRef.value = '';
+      if (warehouseInput) {
+        warehouseInput.value = '';
+        warehouseInput.dataset.items = '[]';
+      }
+      if (warehouseRef) warehouseRef.value = '';
+      if (warehouseHelp) warehouseHelp.textContent = '';
+      clearTimeout(cityTimer);
+      cityTimer = setTimeout(async () => {
+        const q = cityInput.value.trim();
+        if (q.length < 2) {
+          cityList?.classList.add('hidden');
+          return;
+        }
+        try {
+          const response = await fetch(`/api/np/cities?q=${encodeURIComponent(q)}`);
+          const data = await response.json();
+          renderAutocompleteList(cityList, (data.items || []).map((item) => ({ ...item, name: item.name })), async (item) => {
+            cityInput.value = item.name || '';
+            if (cityRef) cityRef.value = item.ref || '';
+            cityList.classList.add('hidden');
+            await loadWarehouses(true);
+          });
+        } catch (error) {
+          cityList?.classList.add('hidden');
+        }
+      }, 300);
+    });
+
+    serviceType?.addEventListener('change', async () => {
+      syncVisibility();
+      if (currentDeliveryType() === 'nova_poshta' && serviceType.value !== 'address' && cityRef?.value) {
+        await loadWarehouses(true);
+      }
+    });
+
+    deliveryRadios.forEach((radio) => {
+      radio.addEventListener('change', async () => {
+        syncVisibility();
+        if (currentDeliveryType() === 'nova_poshta' && serviceType?.value !== 'address' && cityRef?.value) {
+          await loadWarehouses(false);
+        }
+      });
+    });
+
+    warehouseInput?.addEventListener('input', async () => {
+      let items = JSON.parse(warehouseInput.dataset.items || '[]');
+      if ((!items || items.length === 0) && cityRef?.value) {
+        await loadWarehouses(false);
+        items = JSON.parse(warehouseInput.dataset.items || '[]');
+      }
+      const q = warehouseInput.value.trim().toLowerCase();
+      items = items.filter((item) => !q || (item.label || '').toLowerCase().includes(q)).map((item) => ({ ...item, name: item.label }));
+      renderAutocompleteList(warehouseList, items, (item) => {
+        warehouseInput.value = item.label || item.name || '';
+        warehouseRef.value = item.ref || '';
+        warehouseList.classList.add('hidden');
+      });
+    });
+
+    warehouseInput?.addEventListener('focus', async () => {
+      let items = JSON.parse(warehouseInput.dataset.items || '[]');
+      if ((!items || items.length === 0) && cityRef?.value) {
+        await loadWarehouses(false);
+        items = JSON.parse(warehouseInput.dataset.items || '[]');
+      }
+      renderAutocompleteList(warehouseList, items.map((item) => ({ ...item, name: item.label })), (item) => {
+        warehouseInput.value = item.label || item.name || '';
+        warehouseRef.value = item.ref || '';
+        warehouseList.classList.add('hidden');
+      });
+    });
+
+    let streetTimer = null;
+    streetInput?.addEventListener('input', () => {
+      if (streetRef) streetRef.value = '';
+      clearTimeout(streetTimer);
+      streetTimer = setTimeout(async () => {
+        const q = streetInput.value.trim();
+        if (q.length < 2 || !cityRef?.value) {
+          streetList?.classList.add('hidden');
+          return;
+        }
+        try {
+          const response = await fetch(`/api/np/streets?city_ref=${encodeURIComponent(cityRef.value)}&q=${encodeURIComponent(q)}`);
+          const data = await response.json();
+          renderAutocompleteList(streetList, (data.items || []).map((item) => ({ ...item, name: item.label })), (item) => {
+            streetInput.value = item.label || '';
+            if (streetRef) streetRef.value = item.ref || '';
+            streetList.classList.add('hidden');
+          });
+        } catch (error) {
+          streetList?.classList.add('hidden');
+        }
+      }, 300);
+    });
+
+    controlPaymentInput?.addEventListener('input', () => syncControlPaymentState(currentDeliveryType() === 'nova_poshta'));
+    controlPaymentInput?.addEventListener('change', () => syncControlPaymentState(currentDeliveryType() === 'nova_poshta'));
+
+    syncVisibility();
+  }
+
+  function initPicker(form) {
+    const searchUrl = form.dataset.searchUrl;
+    const searchInput = form.querySelector('[data-role="search"]');
+    const hint = form.querySelector('[data-role="hint"]');
+    const results = form.querySelector('[data-role="results"]');
+    const selected = form.querySelector('[data-role="selected"]');
+    const empty = form.querySelector('[data-role="empty"]');
+    const hidden = form.querySelector('[data-role="items-json"]');
+    const includePrice = form.dataset.includePrice === '1';
+    let timer = null;
+    let items = JSON.parse(form.dataset.initialItems || '[]').map((item) => ({
+      partId: item.partId,
+      partNumber: item.partNumber,
+      title: item.title || item.name || '',
+      barcode: item.barcode || '',
+      warehouseName: item.warehouseName || '',
+      qtyOnStock: item.qty || item.expectedQty || 0,
+      qty: item.expectedQty || item.qty || 1,
+      priceUsd: item.priceUsd || 0
+    }));
+
+    function sync() {
+      hidden.value = JSON.stringify(items.map((item) => ({
+        partId: item.partId,
+        qty: Number(item.qty || 0),
+        priceUsd: Number(item.priceUsd || 0)
+      })));
+      selected.innerHTML = '';
+      empty.style.display = items.length ? 'none' : 'block';
+
+      items.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = 'top-item';
+        row.innerHTML = `
+          <div>
+            <div class="news-title">${item.partNumber} — ${item.title}</div>
+            <div class="muted">${item.warehouseName || 'Склад не вказано'} • Залишок: ${item.qtyOnStock} • Штрихкод: ${item.barcode || '—'}</div>
+          </div>
+        `;
+
+        const controls = document.createElement('div');
+        controls.className = 'picker-controls';
+
+        const qty = document.createElement('input');
+        qty.type = 'number';
+        qty.min = '1';
+        qty.value = item.qty;
+        qty.addEventListener('input', () => {
+          items[index].qty = Math.max(Number(qty.value || 1), 1);
+          sync();
+        });
+        controls.appendChild(qty);
+
+        if (includePrice) {
+          const price = document.createElement('input');
+          price.type = 'number';
+          price.step = '0.01';
+          price.min = '0';
+          price.value = item.priceUsd || 0;
+          price.addEventListener('input', () => {
+            items[index].priceUsd = Math.max(Number(price.value || 0), 0);
+            sync();
+          });
+          controls.appendChild(price);
+        }
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn danger small';
+        remove.textContent = 'Прибрати';
+        remove.addEventListener('click', () => {
+          items = items.filter((entry) => entry.partId !== item.partId);
+          sync();
+        });
+        controls.appendChild(remove);
+        row.appendChild(controls);
+        selected.appendChild(row);
+      });
+    }
+
+    function addItem(item) {
+      if (items.some((entry) => entry.partId === item.partId)) {
+        hint.textContent = 'Цю позицію вже додано.';
+        return;
+      }
+      items.push({
+        partId: item.partId,
+        partNumber: item.partNumber,
+        title: item.title,
+        barcode: item.barcode || '',
+        warehouseName: item.warehouseName || '',
+        qtyOnStock: item.qty || 0,
+        qty: 1,
+        priceUsd: item.priceUsd || 0
+      });
+      sync();
+      hint.textContent = 'Позицію додано.';
+    }
+
+    function renderResults(found) {
+      results.innerHTML = '';
+      if (!found.length) return;
+      found.forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'top-item';
+        row.innerHTML = `
+          <div>
+            <div class="news-title">${item.partNumber} — ${item.title}</div>
+            <div class="muted">${item.warehouseName} • Залишок: ${item.qty} • Штрихкод: ${item.barcode || '—'}</div>
+          </div>
+        `;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn ghost small';
+        button.textContent = 'Додати';
+        button.addEventListener('click', () => addItem(item));
+        row.appendChild(button);
+        results.appendChild(row);
+      });
+    }
+
+    searchInput?.addEventListener('input', () => {
+      clearTimeout(timer);
+      results.innerHTML = '';
+      timer = setTimeout(async () => {
+        const q = searchInput.value.trim();
+        if (q.length < 3) {
+          hint.textContent = 'Введіть мінімум 3 символи для пошуку.';
+          return;
+        }
+        try {
+          const response = await fetch(`${searchUrl}?q=${encodeURIComponent(q)}`);
+          const data = await response.json();
+          renderResults(data.items || []);
+          hint.textContent = data.items?.length ? 'Оберіть позицію зі списку.' : 'Нічого не знайдено.';
+        } catch (error) {
+          hint.textContent = 'Не вдалося виконати пошук.';
+        }
+      }, 250);
+    });
+
+    form.addEventListener('submit', (event) => {
+      if (!items.length) {
+        event.preventDefault();
+        window.alert('Додайте хоча б одну позицію.');
+      }
+    });
+
+    sync();
+  }
+
+  document.querySelectorAll('[data-picker="parts"]').forEach(initPicker);
+  document.querySelectorAll('[data-delivery-form]').forEach(initDeliveryForm);
+})();
+</script>
+{% endblock %}

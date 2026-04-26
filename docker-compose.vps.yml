@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-usa_auto_parts}
+      POSTGRES_USER: ${POSTGRES_USER:-usa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-usa} -d ${POSTGRES_DB:-usa_auto_parts}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  web:
+    image: ${WEB_IMAGE:-usa-auto-parts-site:vps-latest}
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-usa}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-usa_auto_parts}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      FLASK_ENV: production
+      BACKUP_DIR: /app/backups
+      BACKUP_SCHEDULER_ENABLED: ${BACKUP_SCHEDULER_ENABLED:-1}
+      BACKUP_AUTO_ENABLED: ${BACKUP_AUTO_ENABLED:-1}
+      BACKUP_SCHEDULE_HOUR: ${BACKUP_SCHEDULE_HOUR:-3}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_RCLONE_REMOTE: ${BACKUP_RCLONE_REMOTE:-}
+      BACKUP_SYNC_ENABLED: ${BACKUP_SYNC_ENABLED:-0}
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - uploads:/app/app/uploads
+      - backups:/app/backups
+      - rclone_config:/config/rclone
+
+volumes:
+  pgdata:
+  uploads:
+  backups:
+  rclone_config:

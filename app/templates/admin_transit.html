@@ -1,0 +1,610 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <h2>Товар в дорозі</h2>
+    <div class="muted">Тут працівник фіксує замовлений товар, який ще їде поштою. Після збереження статус автоматично стає <strong>В дорозі</strong>. Коли додаток просканує всі товари з цієї картки, статус зможе змінитися на <strong>На складі</strong>.</div>
+  </div>
+</div>
+
+<div class="transit-layout">
+  <aside class="card stack transit-create-card">
+    <div>
+      <h3>Додати товар в дорозі</h3>
+      <div class="muted">Якщо OEM номер уже є в базі, опис і фото підтягнуться автоматично. Якщо ні, після збереження буде створено шаблон товару з позначкою, що його ще не додано до складу.</div>
+    </div>
+
+    <form method="post" action="{{ url_for('admin_transit_create') }}" enctype="multipart/form-data" class="stack part-form-vertical" data-transit-form data-prefill-url="{{ url_for('admin_part_prefill') }}">
+      <label class="field-label">Короткий опис замовлення</label>
+      <input name="short_description" value="{{ transit_form['shortDescription'] }}" placeholder="Наприклад: Посилка від постачальника №1">
+
+      <label class="field-label">Повний опис замовлення</label>
+      <textarea name="full_description" placeholder="Деталі замовлення, коментар або примітки">{{ transit_form['fullDescription'] }}</textarea>
+
+      <label class="field-label">OEM номер</label>
+      <div class="transit-oem-row">
+        <input name="part_number" data-role="part-number" value="{{ transit_form['partNumber'] }}" placeholder="Номер виробника">
+        <button
+          class="btn ghost transit-add-btn"
+          type="submit"
+          formaction="{{ url_for('admin_transit_draft_add') }}"
+          formmethod="post"
+          title="Додати позицію до списку"
+        >+</button>
+      </div>
+
+      <div data-role="status" class="helper-note">Після введення OEM номера система перевірить базу товарів і шаблонів.</div>
+
+      <div data-role="prefill-card" class="card inner-card hidden">
+        <strong data-role="prefill-title"></strong>
+        <div data-role="prefill-meta" class="muted"></div>
+        <img data-role="prefill-photo" class="rev-photo" alt="" style="display:none;margin-top:10px">
+      </div>
+
+      <input type="hidden" name="existing_photo_url" value="{{ transit_form['existingPhotoUrl'] }}" data-role="existing-photo-url">
+
+      <label class="field-label">Опис товару</label>
+      <input name="title" data-role="title" value="{{ transit_form['title'] }}" placeholder="Короткий опис запчастини">
+
+      <label class="field-label">Службова інформація</label>
+      <textarea name="service_info" data-role="service-info" placeholder="Внутрішні нотатки або розширений опис">{{ transit_form['serviceInfo'] }}</textarea>
+
+      <div class="grid-2">
+        <div class="stack">
+          <label class="field-label">Кількість, шт.</label>
+          <input type="number" min="1" name="qty" value="{{ transit_form['qty'] }}">
+        </div>
+        <div class="stack">
+          <label class="field-label">Ціна в USD</label>
+          <input type="number" min="0" step="0.01" name="price_usd" data-role="price" value="{{ transit_form['priceUsd'] }}">
+        </div>
+      </div>
+
+      <label class="field-label">Фото</label>
+      <input type="file" name="photo" accept="image/*">
+
+      {% if transit_draft_items %}
+      <div class="card inner-card stack transit-draft-box">
+        <div class="news-card-head">
+          <strong>Список до збереження</strong>
+          <span class="badge neutral">{{ transit_draft_items|length }}</span>
+        </div>
+        <div class="muted">Кнопка `+` додає позицію сюди та очищає поля товару для наступного OEM номера.</div>
+        <div class="transit-draft-meta">
+          <div class="card inner-card">
+            <strong>Короткий опис замовлення</strong>
+            <div class="muted" style="margin-top:8px">{{ transit_form['shortDescription'] or 'Не вказано' }}</div>
+          </div>
+          <div class="card inner-card">
+            <strong>Повний опис замовлення</strong>
+            <div class="muted" style="margin-top:8px">{{ transit_form['fullDescription'] or 'Не вказано' }}</div>
+          </div>
+        </div>
+        <div class="stack transit-draft-list">
+          {% for item in transit_draft_items %}
+          <div class="transit-draft-item">
+            {% if item.photoUrl %}
+            <img class="transit-draft-thumb" src="{{ item.photoUrl }}" alt="{{ item.title }}">
+            {% else %}
+            <div class="transit-draft-thumb placeholder">Фото</div>
+            {% endif %}
+            <div class="stack transit-draft-copy">
+              <div class="news-title">{{ item.partNumber }}</div>
+              <div>{{ item.title }}</div>
+              <div class="muted">{{ item.qty }} шт. • ${{ '%.2f'|format(item.priceUsd|float) }}</div>
+              {% if item.serviceInfo %}
+              <div class="muted">{{ item.serviceInfo }}</div>
+              {% endif %}
+              {% if item.sourceNote %}
+              <div class="muted">{{ item.sourceNote }}</div>
+              {% endif %}
+            </div>
+            <button
+              class="btn danger small"
+              type="submit"
+              form="transit-draft-delete-{{ item.draftId }}"
+            >Видалити</button>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="helper-note">Статус після збереження: <strong>В дорозі</strong>.</div>
+      <button class="btn primary" type="submit">
+        {% if transit_draft_items %}
+        Зберегти список товарів в дорозі ({{ transit_draft_items|length }})
+        {% else %}
+        Зберегти товар в дорозі
+        {% endif %}
+      </button>
+    </form>
+
+    {% if transit_draft_items %}
+      {% for item in transit_draft_items %}
+      <form
+        id="transit-draft-delete-{{ item.draftId }}"
+        method="post"
+        action="{{ url_for('admin_transit_draft_delete', draft_id=item.draftId) }}"
+        class="hidden"
+      ></form>
+      {% endfor %}
+    {% endif %}
+  </aside>
+
+  <section class="stack">
+    <div class="transit-tabs">
+      <button class="order-group-tab yellow active" type="button" data-transit-tab-trigger="active">
+        В дорозі <span class="cart-badge">{{ transit_active_count }}</span>
+      </button>
+      <button class="order-group-tab red" type="button" data-transit-tab-trigger="archive">
+        Архів <span class="cart-badge">{{ transit_archive_count }}</span>
+      </button>
+    </div>
+
+    <div data-transit-tab="active">
+      {% for group in transit_groups %}
+      <section class="card stack">
+        <div class="panel-header">
+          <div>
+            <h3>{{ group["label"] }}</h3>
+            <div class="muted">Список активних замовлень у дорозі, згрупований за датою додавання.</div>
+          </div>
+        </div>
+
+        <div class="top-list transit-group-list">
+          {% for batch in group["items"] %}
+          <details class="card inner-card transit-item-card transit-batch-card">
+            <summary class="transit-summary">
+              <div class="transit-summary-main">
+                <div class="transit-summary-title">{{ batch["shortDescription"] or 'Замовлення в дорозі' }}</div>
+                <div class="transit-summary-meta">{{ batch["createdAt"] }} • {{ batch["itemCount"] }} позицій • {{ batch["totalQty"] }} шт.</div>
+              </div>
+              <div class="transit-summary-badges">
+                <span class="badge {% if batch['status'] == 'in_stock' %}success{% else %}warn{% endif %}">{{ batch["statusLabel"] }}</span>
+              </div>
+            </summary>
+
+            <div class="stack transit-batch-body">
+              <div class="card inner-card">
+                <strong>Повний опис замовлення</strong>
+                <div class="muted" style="margin-top:8px">{{ batch["fullDescription"] or 'Не вказано' }}</div>
+              </div>
+
+              <div class="card inner-card transit-batch-meta-card">
+                <div class="transit-batch-meta-row">
+                  <div>
+                    <strong>Дата створення</strong>
+                    <div class="muted" style="margin-top:8px">{{ batch["createdAt"] or 'Не вказано' }}</div>
+                  </div>
+                  <div>
+                    <strong>Статус</strong>
+                    <div class="muted" style="margin-top:8px">{{ batch["statusLabel"] }}</div>
+                  </div>
+                  <div>
+                    <strong>Етикеток до друку</strong>
+                    <div class="muted" style="margin-top:8px">{{ batch["totalQty"] }} шт.</div>
+                  </div>
+                </div>
+                <form id="print-transit-batch-form-{{ batch['batchId'] }}" method="post" action="{{ url_for('print_transit_batch_barcodes', batch_id=batch['batchId']) }}" class="transit-batch-actions">
+                  <input type="hidden" name="label_qty" value="">
+                  <button class="btn ghost small" type="button" onclick="promptTransitBatchLabels('{{ batch['batchId'] }}')">Роздрукувати штрихкод на все замовлення</button>
+                </form>
+              </div>
+
+              <div class="stack transit-position-list">
+                {% for order in batch["items"] %}
+                <div class="card inner-card stack transit-position-card">
+                  <div class="transit-position-head">
+                    <div>
+                      <div class="news-title">{{ order.partNumber }}</div>
+                      <div class="muted">{{ order.title }} • {{ order.qty }} шт.</div>
+                    </div>
+                    <span class="badge {% if order.status == 'in_stock' %}success{% else %}warn{% endif %}">{{ order.statusLabel }}</span>
+                  </div>
+
+                  <div class="transit-order-grid transit-order-details">
+                    {% if order.photoUrl %}
+                    <img class="transit-photo" src="{{ order.photoUrl }}" alt="{{ order.title }}">
+                    {% else %}
+                    <div class="transit-photo placeholder">Фото</div>
+                    {% endif %}
+
+                    <div class="stack">
+                      <div class="card inner-card">
+                        <strong>Товар</strong>
+                        <div class="news-title" style="margin-top:8px">{{ order.title }}</div>
+                        <div class="muted">Штрихкод: {{ order.barcode or 'ще не згенеровано' }}</div>
+                        {% if order.serviceInfo %}
+                        <div class="muted" style="margin-top:8px">{{ order.serviceInfo }}</div>
+                        {% endif %}
+                        {% if order.sourceNote %}
+                        <div class="muted" style="margin-top:8px">{{ order.sourceNote }}</div>
+                        {% endif %}
+                      </div>
+
+                      <div class="button-row">
+                        <form id="print-transit-form-{{ order.id }}" method="post" action="{{ url_for('print_transit_barcodes', order_id=order.id) }}">
+                          <input type="hidden" name="label_qty" value="{{ order.qty }}">
+                          <button class="btn ghost small" type="button" onclick="promptTransitLabels({{ order.id }}, {{ order.qty }})">Друкувати штрихкод</button>
+                        </form>
+
+                        <form id="arrive-transit-form-{{ order.id }}" method="post" action="{{ url_for('admin_transit_arrive', order_id=order.id) }}">
+                          <input type="hidden" name="label_qty" value="{{ order.qty }}">
+                          <input type="hidden" name="print_labels" value="0">
+                          <button
+                            class="btn {% if order.acceptedQty > 0 %}primary{% else %}ghost{% endif %} small"
+                            type="button"
+                            {% if order.acceptedQty > 0 %}
+                            onclick="markTransitArrived({{ order.id }}, {{ 1 if order.labelsPrinted else 0 }}, {{ order.qty }})"
+                            {% else %}
+                            disabled
+                            title="Спочатку потрібно відсканувати хоча б один товар у додатку"
+                            {% endif %}
+                          >Товар прибув</button>
+                        </form>
+
+                        <button class="btn ghost small transit-state-btn" type="button" disabled>Статус: {{ order.statusLabel }}</button>
+                        <button class="btn ghost small" type="button" onclick="togglePanel('transit-editor-{{ order.id }}')">Редагувати</button>
+
+                        <form method="post" action="{{ url_for('admin_transit_delete', order_id=order.id) }}" onsubmit="return confirmTransitDelete(this, '{{ order.partNumber }}')">
+                          <input type="hidden" name="confirm_text">
+                          <button class="btn danger small" type="submit">Видалити</button>
+                        </form>
+                      </div>
+
+                      {% if order.labelsPrintedAt %}
+                      <div class="helper-note success">Штрихкоди друкувались: {{ order.labelsPrintedAt }}</div>
+                      {% endif %}
+                      {% if order.acceptedQty <= 0 %}
+                      <div class="helper-note">Кнопка `Товар прибув` стане активною після першого сканування в додатку.</div>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <div id="transit-editor-{{ order.id }}" class="hidden part-editor-block">
+                    <form method="post" action="{{ url_for('admin_transit_update', order_id=order.id) }}" enctype="multipart/form-data" class="stack part-form-vertical" data-transit-form data-prefill-url="{{ url_for('admin_part_prefill') }}">
+                      <label class="field-label">Короткий опис замовлення</label>
+                      <input name="short_description" value="{{ order.shortDescription }}">
+
+                      <label class="field-label">Повний опис замовлення</label>
+                      <textarea name="full_description">{{ order.fullDescription }}</textarea>
+
+                      <label class="field-label">OEM номер</label>
+                      <input name="part_number" data-role="part-number" value="{{ order.partNumber }}" required>
+
+                      <div data-role="status" class="helper-note">Змініть OEM номер, якщо потрібно підвантажити іншу картку або шаблон.</div>
+
+                      <div data-role="prefill-card" class="card inner-card hidden">
+                        <strong data-role="prefill-title"></strong>
+                        <div data-role="prefill-meta" class="muted"></div>
+                        <img data-role="prefill-photo" class="rev-photo" alt="" style="display:none;margin-top:10px">
+                      </div>
+
+                      <input type="hidden" name="existing_photo_url" value="{{ order.photoUrl or '' }}" data-role="existing-photo-url">
+
+                      <label class="field-label">Опис товару</label>
+                      <input name="title" data-role="title" value="{{ order.title }}" required>
+
+                      <label class="field-label">Службова інформація</label>
+                      <textarea name="service_info" data-role="service-info">{{ order.serviceInfo }}</textarea>
+
+                      <div class="grid-2">
+                        <div class="stack">
+                          <label class="field-label">Кількість, шт.</label>
+                          <input type="number" min="1" name="qty" value="{{ order.qty }}" required>
+                        </div>
+                        <div class="stack">
+                          <label class="field-label">Ціна в USD</label>
+                          <input type="number" min="0" step="0.01" name="price_usd" data-role="price" value="{{ '%.2f'|format(order.priceUsd|float) }}">
+                        </div>
+                      </div>
+
+                      <label class="field-label">Оновити фото</label>
+                      <input type="file" name="photo" accept="image/*">
+
+                      <div class="button-row">
+                        <button class="btn primary" type="submit">Зберегти зміни</button>
+                        <button class="btn ghost" type="button" onclick="togglePanel('transit-editor-{{ order.id }}')">Закрити</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+      </section>
+      {% else %}
+      <div class="card"><div class="muted">Поки немає активних товарів у дорозі.</div></div>
+      {% endfor %}
+    </div>
+
+    <div data-transit-tab="archive" class="hidden">
+      {% for group in transit_archive_groups %}
+      <section class="card stack">
+        <div class="panel-header">
+          <div>
+            <h3>{{ group["label"] }}</h3>
+            <div class="muted">Архів завершених замовлень у дорозі, згрупований за датою додавання.</div>
+          </div>
+        </div>
+
+        <div class="top-list transit-group-list">
+          {% for batch in group["items"] %}
+          <details class="card inner-card transit-item-card transit-batch-card">
+            <summary class="transit-summary">
+              <div class="transit-summary-main">
+                <div class="transit-summary-title">{{ batch["shortDescription"] or 'Замовлення в архіві' }}</div>
+                <div class="transit-summary-meta">{{ batch["createdAt"] }} • {{ batch["itemCount"] }} позицій • {{ batch["totalQty"] }} шт.</div>
+              </div>
+              <div class="transit-summary-badges">
+                <span class="badge {% if batch['status'] == 'in_stock' %}success{% else %}warn{% endif %}">{{ batch["statusLabel"] }}</span>
+                {% if batch["archivedAt"] %}
+                <span class="badge neutral">Архів: {{ batch["archivedAt"] }}</span>
+                {% endif %}
+              </div>
+            </summary>
+
+            <div class="stack transit-batch-body">
+              <div class="card inner-card">
+                <strong>Повний опис замовлення</strong>
+                <div class="muted" style="margin-top:8px">{{ batch["fullDescription"] or 'Не вказано' }}</div>
+              </div>
+
+              <div class="stack transit-position-list">
+                {% for order in batch["items"] %}
+                <div class="card inner-card stack transit-position-card">
+                  <div class="transit-position-head">
+                    <div>
+                      <div class="news-title">{{ order.partNumber }}</div>
+                      <div class="muted">{{ order.title }}, {{ order.qty }} шт.</div>
+                    </div>
+                    <span class="badge {% if order.status == 'in_stock' %}success{% else %}warn{% endif %}">{{ order.statusLabel }}</span>
+                  </div>
+
+                  <div class="transit-order-grid transit-order-details">
+                    {% if order.photoUrl %}
+                    <img class="transit-photo" src="{{ order.photoUrl }}" alt="{{ order.title }}">
+                    {% else %}
+                    <div class="transit-photo placeholder">Фото</div>
+                    {% endif %}
+
+                    <div class="stack">
+                      <div class="card inner-card">
+                        <strong>Товар</strong>
+                        <div class="news-title" style="margin-top:8px">{{ order.title }}</div>
+                        <div class="muted">Штрихкод: {{ order.barcode or 'ще не згенеровано' }}</div>
+                        {% if order.serviceInfo %}
+                        <div class="muted" style="margin-top:8px">{{ order.serviceInfo }}</div>
+                        {% endif %}
+                        {% if order.sourceNote %}
+                        <div class="muted" style="margin-top:8px">{{ order.sourceNote }}</div>
+                        {% endif %}
+                      </div>
+
+                      <div class="button-row">
+                        <form id="print-transit-archive-form-{{ order.id }}" method="post" action="{{ url_for('print_transit_barcodes', order_id=order.id) }}">
+                          <input type="hidden" name="label_qty" value="{{ order.qty }}">
+                          <button class="btn ghost small" type="button" onclick="promptArchiveTransitLabels({{ order.id }}, {{ order.qty }})">Друкувати штрихкод</button>
+                        </form>
+                        <button class="btn ghost small transit-state-btn" type="button" disabled>Статус: {{ order.statusLabel }}</button>
+                      </div>
+
+                      {% if order.labelsPrintedAt %}
+                      <div class="helper-note success">Штрихкоди друкувались: {{ order.labelsPrintedAt }}</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+      </section>
+      {% else %}
+      <div class="card"><div class="muted">Архів поки порожній.</div></div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<script>
+function togglePanel(id) {
+  const node = document.getElementById(id);
+  if (node) node.classList.toggle('hidden');
+}
+
+function promptTransitLabels(orderId, defaultQty) {
+  const answer = window.prompt('Кількість етикеток?', String(defaultQty || 0));
+  if (answer === null) return;
+  const qty = Number(answer);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    window.alert('Вкажіть кількість більше нуля.');
+    return;
+  }
+  const form = document.getElementById(`print-transit-form-${orderId}`);
+  form.querySelector('input[name="label_qty"]').value = String(Math.floor(qty));
+  form.submit();
+}
+
+function promptArchiveTransitLabels(orderId, defaultQty) {
+  const answer = window.prompt('Кількість етикеток?', String(defaultQty || 0));
+  if (answer === null) return;
+  const qty = Number(answer);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    window.alert('Вкажіть кількість більше нуля.');
+    return;
+  }
+  const form = document.getElementById(`print-transit-archive-form-${orderId}`);
+  form.querySelector('input[name="label_qty"]').value = String(Math.floor(qty));
+  form.submit();
+}
+
+function confirmTransitDelete(form, partNumber) {
+  const answer = window.prompt(`Щоб видалити ${partNumber}, введіть "так".`);
+  if (answer === null) return false;
+  form.querySelector('input[name="confirm_text"]').value = answer.trim();
+  if (answer.trim().toLowerCase() !== 'так') {
+    window.alert('Видалення скасовано.');
+    return false;
+  }
+  return true;
+}
+
+function promptTransitBatchLabels(batchId) {
+  const form = document.getElementById(`print-transit-batch-form-${batchId}`);
+  if (!form) return;
+  const answer = window.prompt('Кількість етикеток на кожну позицію? Залиште порожнім, щоб друкувати за кількістю товару.', '');
+  if (answer === null) return;
+  const trimmed = String(answer).trim();
+  const qtyField = form.querySelector('input[name="label_qty"]');
+  if (!trimmed) {
+    qtyField.value = '';
+    form.submit();
+    return;
+  }
+  const qty = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    window.alert('Вкажіть кількість більше нуля.');
+    return;
+  }
+  qtyField.value = String(Math.floor(qty));
+  form.submit();
+}
+
+function markTransitArrived(orderId, labelsPrinted, defaultQty) {
+  const form = document.getElementById(`arrive-transit-form-${orderId}`);
+  if (!form) return;
+  const shouldPrint = labelsPrinted
+    ? false
+    : window.confirm('Штрихкоди ще не друкувались. Натисніть OK, щоб роздрукувати їх зараз, або Cancel, щоб просто перенести картку в архів.');
+  if (shouldPrint) {
+    const answer = window.prompt('Кількість етикеток?', String(defaultQty || 0));
+    if (answer === null) return;
+    const qty = Number(answer);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      window.alert('Вкажіть кількість більше нуля.');
+      return;
+    }
+    form.querySelector('input[name="label_qty"]').value = String(Math.floor(qty));
+  }
+  form.querySelector('input[name="print_labels"]').value = shouldPrint ? '1' : '0';
+  form.submit();
+}
+
+(() => {
+  const triggers = document.querySelectorAll('[data-transit-tab-trigger]');
+  const tabs = document.querySelectorAll('[data-transit-tab]');
+  triggers.forEach((button) => {
+    button.addEventListener('click', () => {
+      const tabName = button.dataset.transitTabTrigger;
+      triggers.forEach((node) => node.classList.toggle('active', node === button));
+      tabs.forEach((node) => {
+        node.classList.toggle('hidden', node.dataset.transitTab !== tabName);
+      });
+    });
+  });
+})();
+
+(() => {
+  document.querySelectorAll('[data-transit-form]').forEach((form) => {
+    const prefillUrl = form.dataset.prefillUrl;
+    const partNumberInput = form.querySelector('[data-role="part-number"]');
+    const titleInput = form.querySelector('[data-role="title"]');
+    const serviceInput = form.querySelector('[data-role="service-info"]');
+    const priceInput = form.querySelector('[data-role="price"]');
+    const existingPhotoInput = form.querySelector('[data-role="existing-photo-url"]');
+    const statusBox = form.querySelector('[data-role="status"]');
+    const infoCard = form.querySelector('[data-role="prefill-card"]');
+    const infoTitle = form.querySelector('[data-role="prefill-title"]');
+    const infoMeta = form.querySelector('[data-role="prefill-meta"]');
+    const photo = form.querySelector('[data-role="prefill-photo"]');
+    let timer = null;
+
+    if (!partNumberInput || !statusBox || !infoCard || !infoTitle || !infoMeta || !photo) return;
+
+    function clearPreview() {
+      if (existingPhotoInput && !existingPhotoInput.value) {
+        existingPhotoInput.value = '';
+      }
+      infoCard.classList.add('hidden');
+      infoTitle.textContent = '';
+      infoMeta.textContent = '';
+      photo.style.display = 'none';
+      photo.src = '';
+    }
+
+    function setStatus(text, tone) {
+      statusBox.textContent = text || '';
+      statusBox.className = `helper-note ${tone || ''}`.trim();
+    }
+
+    async function lookupPart() {
+      const partNumber = (partNumberInput.value || '').trim().toUpperCase();
+      partNumberInput.value = partNumber;
+      if (partNumber.length < 3) {
+        clearPreview();
+        setStatus('Введіть мінімум 3 символи для автоматичної перевірки.', '');
+        return;
+      }
+      try {
+        const response = await fetch(`${prefillUrl}?part_number=${encodeURIComponent(partNumber)}`);
+        const data = await response.json();
+        if (!data.found) {
+          clearPreview();
+          setStatus('Позицію не знайдено. Після збереження буде створено шаблон, який ще не додано до складу.', 'warn');
+          return;
+        }
+        const part = data.part || {};
+        if (titleInput && !titleInput.value.trim()) {
+          titleInput.value = part.name || '';
+        }
+        if (serviceInput && !serviceInput.value.trim()) {
+          serviceInput.value = part.description || '';
+        }
+        if (priceInput && (!priceInput.value || Number(priceInput.value) === 0)) {
+          priceInput.value = part.priceUsd ?? '';
+        }
+        if (existingPhotoInput) {
+          existingPhotoInput.value = part.photoUrl || existingPhotoInput.value || '';
+        }
+        infoCard.classList.remove('hidden');
+        infoTitle.textContent = `${part.partNumber || ''} ${part.name || ''}`.trim();
+        infoMeta.textContent = [
+          part.warehouseName ? `Склад: ${part.warehouseName}` : '',
+          part.barcode ? `Штрихкод: ${part.barcode}` : '',
+          part.note ? part.note : '',
+        ].filter(Boolean).join(' • ');
+        if (part.photoUrl) {
+          photo.src = part.photoUrl;
+          photo.style.display = 'block';
+        } else {
+          photo.style.display = 'none';
+          photo.src = '';
+        }
+        if (part.isTemplate) {
+          setStatus('Знайдено шаблон товару. Він ще не доданий до складу, але дані вже можна використати.', 'warn');
+        } else if (part.isDeleted) {
+          setStatus('Знайдено прихований шаблон товару. Його дані можна використати для нового замовлення в дорозі.', 'warn');
+        } else {
+          setStatus('Знайдено картку товару в базі. Дані підтягнуто у форму.', 'success');
+        }
+      } catch (error) {
+        clearPreview();
+        setStatus('Не вдалося перевірити OEM номер по базі сайту.', 'error');
+      }
+    }
+
+    partNumberInput.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(lookupPart, 280);
+    });
+  });
+})();
+</script>
+{% endblock %}

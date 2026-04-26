@@ -1,0 +1,46 @@
+name: usa_auto_parts_v3_8_5_mobile_api
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: usa_auto_parts_v3_db
+    environment:
+      POSTGRES_DB: usa_auto_parts
+      POSTGRES_USER: usa
+      POSTGRES_PASSWORD: usa123
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U usa -d usa_auto_parts"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  web:
+    image: ${WEB_IMAGE:-usa-auto-parts-site:vps-latest}
+    build: .
+    container_name: usa_auto_parts_v3_web
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://usa:usa123@db:5432/usa_auto_parts
+      SECRET_KEY: usa-auto-parts-v3-secret
+      FLASK_ENV: production
+      BACKUP_DIR: /app/backups
+      BACKUP_SCHEDULER_ENABLED: "1"
+      BACKUP_AUTO_ENABLED: "1"
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./app/uploads:/app/app/uploads
+      - ./backups:/app/backups
+      - ./rclone:/config/rclone
+    restart: unless-stopped
+
+volumes:
+  pgdata:

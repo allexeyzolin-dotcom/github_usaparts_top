@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>USA AUTO PARTS</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <header class="topbar topbar-salvage">
+    <div class="header-left">
+      <a href="{{ url_for('home') }}" class="logo">USA AUTO PARTS</a>
+    </div>
+    <nav class="header-center">
+      <a class="nav-link" href="{{ url_for('cars_public', status='in_stock') }}">Авто в наявності</a>
+      <a class="nav-link" href="{{ url_for('cars_public', status='in_transit') }}">Авто в дорозі</a>
+    </nav>
+    <div class="header-right">
+      <button type="button" class="tracking-btn" id="openTracking">Трекінг</button>
+      <a class="nav-link cart-link" href="{{ url_for('cart_view') }}">Кошик {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
+      <a class="cabinet" href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}">Кабінет</a>
+    </div>
+  </header>
+
+  <main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="container flashes">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ clean_text(message) }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <div class="drawer-backdrop hidden" id="trackingBackdrop"></div>
+  <div class="tracking-modal hidden" id="trackingModal">
+    <div class="drawer-handle"></div>
+    <div class="drawer-header">
+      <h3>Трекінг авто по VIN</h3>
+      <button type="button" class="btn ghost small" id="closeTracking">Закрити</button>
+    </div>
+    <div class="stack compact-checkout-form">
+      <input id="trackingVin" placeholder="Введіть VIN номер">
+      <div class="button-row">
+        <button type="button" class="btn primary" id="runTracking">Знайти</button>
+      </div>
+      <div class="muted" id="trackingHelp">Система спробує знайти VIN на OliCargo, YO Auto або W8 Shipping і відкриє відповідну сторінку в новій вкладці.</div>
+      <div class="button-row tracking-direct-links">
+        <a id="olicargoDirect" class="btn ghost small" href="#" target="_blank" rel="noopener">OliCargo</a>
+        <a id="yoautoDirect" class="btn ghost small" href="#" target="_blank" rel="noopener">YO Auto</a>
+        <a id="w8Direct" class="btn ghost small" href="#" target="_blank" rel="noopener">W8 Shipping</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    const openBtn = document.getElementById('openTracking');
+    const closeBtn = document.getElementById('closeTracking');
+    const modal = document.getElementById('trackingModal');
+    const backdrop = document.getElementById('trackingBackdrop');
+    const vinInput = document.getElementById('trackingVin');
+    const runBtn = document.getElementById('runTracking');
+    const help = document.getElementById('trackingHelp');
+    const olicargoDirect = document.getElementById('olicargoDirect');
+    const yoautoDirect = document.getElementById('yoautoDirect');
+    const w8Direct = document.getElementById('w8Direct');
+
+    function openModal(){ modal.classList.remove('hidden'); backdrop.classList.remove('hidden'); document.body.classList.add('drawer-open'); }
+    function closeModal(){ modal.classList.add('hidden'); backdrop.classList.add('hidden'); document.body.classList.remove('drawer-open'); }
+    function updateDirectLinks(vin){
+      const clean = (vin || '').trim().toUpperCase();
+      olicargoDirect.href = `https://tracking.olicargo.lt/public/search?code=${encodeURIComponent(clean)}`;
+      yoautoDirect.href = `https://yoauto.net/tracking/${encodeURIComponent(clean)}`;
+      w8Direct.href = `https://w8shipping.com/en/cargo?q=${encodeURIComponent(clean)}`;
+    }
+
+    openBtn?.addEventListener('click', openModal);
+    closeBtn?.addEventListener('click', closeModal);
+    backdrop?.addEventListener('click', closeModal);
+    vinInput?.addEventListener('input', () => updateDirectLinks(vinInput.value));
+    vinInput?.addEventListener('keydown', (event) => {
+      if(event.key === 'Enter'){
+        event.preventDefault();
+        runBtn?.click();
+      }
+    });
+
+    runBtn?.addEventListener('click', async () => {
+      const vin = (vinInput.value || '').trim().toUpperCase();
+      if(vin.length < 6){
+        help.textContent = 'Введіть коректний VIN.';
+        return;
+      }
+      updateDirectLinks(vin);
+      help.textContent = 'Пошук...';
+      try{
+        const response = await fetch('/api/tracking/lookup', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({vin})
+        });
+        const data = await response.json();
+        if(data.ok && data.url){
+          window.open(data.url, '_blank', 'noopener');
+          help.textContent = data.needsBrowserVerification
+            ? 'W8 відкрито. Якщо сервіс попросить перевірку, підтвердіть її у відкритій вкладці.'
+            : 'Знайдено. Відкриваю нову вкладку.';
+        }else if(data.ok && data.fallback && data.urls && data.urls.length){
+          yoautoDirect.href = data.urls[0] || yoautoDirect.href;
+          if(data.urls[1]) w8Direct.href = data.urls[1];
+          window.open(data.urls[0], '_blank', 'noopener');
+          help.textContent = 'Точного збігу не знайдено. Відкрито найбільш ймовірну сторінку.';
+        }else{
+          help.textContent = data.error || 'Не вдалося знайти VIN.';
+        }
+      }catch(error){
+        help.textContent = 'Помилка пошуку VIN.';
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

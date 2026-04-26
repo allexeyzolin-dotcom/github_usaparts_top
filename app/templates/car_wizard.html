@@ -1,0 +1,73 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+{% set car_images = parse_media_urls(car_draft.get('image_urls', '')) %}
+<div class="container narrow">
+  <div class="card">
+    <div class="panel-header">
+      <div>
+        <a class="backlink" href="{{ url_for('admin_cars') }}">← До каталогу авто</a>
+        <h2>Додавання авто • Крок {{ step }} / 4</h2>
+      </div>
+      <div class="badge neutral">Покроковий режим</div>
+    </div>
+
+    {% if step == 1 %}
+    <form method="post" class="stack">
+      <input name="brand" placeholder="Бренд" value="{{ car_draft.get('brand','') }}" required>
+      <input name="model" placeholder="Модель" value="{{ car_draft.get('model','') }}" required>
+      <input name="vin" placeholder="VIN" value="{{ car_draft.get('vin','') }}">
+      <button class="btn primary" type="submit">Далі</button>
+    </form>
+    {% elif step == 2 %}
+    <form method="post" class="stack">
+      <input name="year" type="number" placeholder="Рік" value="{{ car_draft.get('year','') }}">
+      <input name="mileage" type="number" placeholder="Пробіг" value="{{ car_draft.get('mileage','') }}">
+      <select name="status">
+        <option value="in_stock" {% if car_draft.get('status') == 'in_stock' %}selected{% endif %}>Авто в наявності</option>
+        <option value="in_transit" {% if car_draft.get('status') == 'in_transit' %}selected{% endif %}>Авто в дорозі</option>
+      </select>
+      <input name="price_usd" type="number" step="0.01" placeholder="Ціна USD" value="{{ car_draft.get('price_usd','') }}">
+      <button class="btn primary" type="submit">Далі</button>
+    </form>
+    {% elif step == 3 %}
+    <form method="post" enctype="multipart/form-data" class="stack">
+      <textarea name="description" placeholder="Опис авто">{{ car_draft.get('description','') }}</textarea>
+      <input name="youtube_url" placeholder="YouTube посилання" value="{{ car_draft.get('youtube_url','') }}">
+      <input type="file" name="images" accept="image/*" multiple>
+      <div class="muted">Можна завантажити декілька фото гарної якості для вітрини.</div>
+      {% if car_images %}
+      <div class="button-row">
+        {% for photo in car_images %}
+        <img src="{{ photo }}" alt="Фото авто" style="width:88px;height:88px;border-radius:14px;object-fit:cover">
+        {% endfor %}
+      </div>
+      {% endif %}
+      <button class="btn primary" type="submit">Далі</button>
+    </form>
+    {% else %}
+    <form method="post" class="stack">
+      <div class="card inner-card">
+        <div><strong>Бренд:</strong> {{ car_draft.get('brand','') }}</div>
+        <div><strong>Модель:</strong> {{ car_draft.get('model','') }}</div>
+        <div><strong>VIN:</strong> {{ car_draft.get('vin','') }}</div>
+        <div><strong>Рік:</strong> {{ car_draft.get('year','') }}</div>
+        <div><strong>Пробіг:</strong> {{ car_draft.get('mileage','') }}</div>
+        <div><strong>Статус:</strong> {{ 'Авто в дорозі' if car_draft.get('status') == 'in_transit' else 'Авто в наявності' }}</div>
+        <div><strong>Ціна:</strong> ${{ car_draft.get('price_usd','') }}</div>
+        {% if car_draft.get('youtube_url') %}
+        <div><strong>YouTube:</strong> {{ car_draft.get('youtube_url') }}</div>
+        {% endif %}
+      </div>
+      {% if car_images %}
+      <div class="button-row">
+        {% for photo in car_images %}
+        <img src="{{ photo }}" alt="Фото авто" style="width:88px;height:88px;border-radius:14px;object-fit:cover">
+        {% endfor %}
+      </div>
+      {% endif %}
+      <button class="btn primary" type="submit">Підтвердити і додати авто</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

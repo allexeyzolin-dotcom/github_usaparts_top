@@ -1,0 +1,226 @@
+{% extends 'base_public.html' %}
+{% block content %}
+<div class="container narrow">
+  <div class="card compact-card">
+    <h2>Кошик</h2>
+    {% if items %}
+    <div class="top-list compact-list">
+      {% for item in items %}
+      <div class="top-item cart-item compact-item">
+        <div>
+          <div class="showcase-code">{{ item.part.part_number }}</div>
+          <div>{{ item.part.name }}</div>
+          <div class="muted">Кількість: {{ item.qty }} • Ціна: ${{ '%.2f'|format(item.part.price_usd|float) }}</div>
+        </div>
+        <form method="post" action="{{ url_for('cart_remove', part_id=item.part.id) }}">
+          <button class="btn danger small" type="submit">Видалити</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="panel-header compact-header">
+      <h3>Разом</h3>
+      <div class="price-row">${{ '%.2f'|format(total) }}</div>
+    </div>
+    <button class="btn primary compact-order-btn" id="openCheckout">Оформити замовлення</button>
+    {% else %}
+    <div class="muted">Кошик порожній.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if items %}
+<div class="drawer-backdrop hidden" id="checkoutBackdrop"></div>
+<div class="checkout-drawer hidden" id="checkoutDrawer">
+  <div class="drawer-handle"></div>
+  <div class="drawer-header">
+    <h3>Оформлення замовлення</h3>
+    <button type="button" class="btn ghost small" id="closeCheckout">Закрити</button>
+  </div>
+  <form method="post" action="{{ url_for('checkout') }}" class="stack compact-checkout-form" id="checkoutForm">
+    <div class="grid-2 compact-fields">
+      <input name="customer_name" placeholder="Ім'я" required>
+      <input name="phone" placeholder="Телефон" required>
+    </div>
+
+    <div class="np-grid compact-fields">
+      <div class="autocomplete-wrap">
+        <input name="city_name" id="cityInput" placeholder="Місто" autocomplete="off" required>
+        <input type="hidden" name="city_ref" id="cityRef">
+        <div class="autocomplete-list hidden" id="cityList"></div>
+      </div>
+      <select name="delivery_type" id="deliveryType" required>
+        <option value="warehouse">Склад / відділення</option>
+        <option value="postomat">Поштомат</option>
+        <option value="address">Адреса</option>
+      </select>
+    </div>
+
+    <div id="warehouseBlock" class="autocomplete-wrap">
+      <input type="hidden" name="warehouse_ref" id="warehouseRef">
+      <input name="warehouse_label" id="warehouseInput" placeholder="Оберіть відділення або поштомат" autocomplete="off" required>
+      <div class="autocomplete-list hidden" id="warehouseList"></div>
+      <div class="muted" id="warehouseHelp"></div>
+    </div>
+
+    <div id="addressBlock" class="hidden stack compact-fields">
+      <div class="autocomplete-wrap">
+        <input type="hidden" name="street_ref" id="streetRef">
+        <input name="street_name" id="streetInput" placeholder="Вулиця" autocomplete="off">
+        <div class="autocomplete-list hidden" id="streetList"></div>
+      </div>
+      <input name="house" placeholder="Будинок">
+    </div>
+
+    <textarea name="comment" placeholder="Коментар до замовлення"></textarea>
+    <div class="price-row big">Разом: ${{ '%.2f'|format(total) }}</div>
+    <button class="btn primary" type="submit">Підтвердити замовлення</button>
+  </form>
+</div>
+
+<script>
+(function(){
+  const openBtn = document.getElementById('openCheckout');
+  const closeBtn = document.getElementById('closeCheckout');
+  const drawer = document.getElementById('checkoutDrawer');
+  const backdrop = document.getElementById('checkoutBackdrop');
+  const cityInput = document.getElementById('cityInput');
+  const cityRef = document.getElementById('cityRef');
+  const cityList = document.getElementById('cityList');
+  const deliveryType = document.getElementById('deliveryType');
+  const warehouseBlock = document.getElementById('warehouseBlock');
+  const warehouseInput = document.getElementById('warehouseInput');
+  const warehouseRef = document.getElementById('warehouseRef');
+  const warehouseList = document.getElementById('warehouseList');
+  const warehouseHelp = document.getElementById('warehouseHelp');
+  const addressBlock = document.getElementById('addressBlock');
+  const streetInput = document.getElementById('streetInput');
+  const streetRef = document.getElementById('streetRef');
+  const streetList = document.getElementById('streetList');
+
+  function openDrawer(){ drawer.classList.remove('hidden'); backdrop.classList.remove('hidden'); document.body.classList.add('drawer-open'); }
+  function closeDrawer(){ drawer.classList.add('hidden'); backdrop.classList.add('hidden'); document.body.classList.remove('drawer-open'); }
+  openBtn?.addEventListener('click', openDrawer);
+  closeBtn?.addEventListener('click', closeDrawer);
+  backdrop?.addEventListener('click', closeDrawer);
+
+  function renderList(container, items, onPick){
+    container.innerHTML = '';
+    if(!items.length){ container.classList.add('hidden'); return; }
+    items.forEach((item) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'autocomplete-item';
+      btn.textContent = item.name || item.label || '';
+      btn.addEventListener('click', () => onPick(item));
+      container.appendChild(btn);
+    });
+    container.classList.remove('hidden');
+  }
+
+  let cityTimer = null;
+  cityInput?.addEventListener('input', () => {
+    cityRef.value = '';
+    warehouseInput.value = '';
+    warehouseRef.value = '';
+    warehouseInput.dataset.items = '[]';
+    warehouseHelp.textContent = '';
+    clearTimeout(cityTimer);
+    cityTimer = setTimeout(async () => {
+      const q = cityInput.value.trim();
+      if(q.length < 2){ cityList.classList.add('hidden'); return; }
+      const res = await fetch(`/api/np/cities?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      renderList(cityList, (data.items || []).map(x => ({...x, name: x.name})), async (item) => {
+        cityInput.value = item.name || '';
+        cityRef.value = item.ref || '';
+        cityList.classList.add('hidden');
+        await loadWarehouses(true);
+      });
+    }, 300);
+  });
+
+  async function loadWarehouses(showList=false){
+    warehouseInput.value = '';
+    warehouseRef.value = '';
+    warehouseInput.dataset.items = '[]';
+    warehouseHelp.textContent = 'Завантаження списку...';
+    if(!cityRef.value || deliveryType.value === 'address'){
+      warehouseHelp.textContent = '';
+      return;
+    }
+    try{
+      const res = await fetch(`/api/np/warehouses?city_ref=${encodeURIComponent(cityRef.value)}&delivery_type=${encodeURIComponent(deliveryType.value)}`);
+      const data = await res.json();
+      const items = data.items || [];
+      warehouseInput.dataset.items = JSON.stringify(items);
+      warehouseHelp.textContent = items.length ? `Доступно точок: ${items.length}` : (data.error ? `Помилка API: ${data.error}` : 'Список порожній або API ключ не вказано');
+      if(showList){
+        renderList(warehouseList, items.map(x => ({...x, name: x.label})), (item) => {
+          warehouseInput.value = item.label;
+          warehouseRef.value = item.ref || '';
+          warehouseList.classList.add('hidden');
+        });
+      }
+    }catch(error){
+      warehouseHelp.textContent = 'Не вдалося завантажити список';
+    }
+  }
+
+  deliveryType?.addEventListener('change', async () => {
+    const isAddress = deliveryType.value === 'address';
+    warehouseBlock.classList.toggle('hidden', isAddress);
+    addressBlock.classList.toggle('hidden', !isAddress);
+    warehouseInput.required = !isAddress;
+    streetInput.required = isAddress;
+    if(!isAddress && cityRef.value){ await loadWarehouses(true); }
+  });
+
+  function attachWarehousePicker(items){
+    renderList(warehouseList, items, (item) => {
+      warehouseInput.value = item.label || item.name || '';
+      warehouseRef.value = item.ref || '';
+      warehouseList.classList.add('hidden');
+    });
+  }
+
+  warehouseInput?.addEventListener('input', async () => {
+    let items = JSON.parse(warehouseInput.dataset.items || '[]');
+    if((!items || items.length === 0) && cityRef.value){
+      await loadWarehouses(false);
+      items = JSON.parse(warehouseInput.dataset.items || '[]');
+    }
+    const q = warehouseInput.value.trim().toLowerCase();
+    items = items.filter(x => !q || (x.label || '').toLowerCase().includes(q)).map(x => ({...x, name: x.label}));
+    attachWarehousePicker(items);
+  });
+
+  warehouseInput?.addEventListener('focus', async () => {
+    let items = JSON.parse(warehouseInput.dataset.items || '[]');
+    if((!items || items.length === 0) && cityRef.value){
+      await loadWarehouses(false);
+      items = JSON.parse(warehouseInput.dataset.items || '[]');
+    }
+    attachWarehousePicker(items.map(x => ({...x, name: x.label})));
+  });
+
+  let streetTimer = null;
+  streetInput?.addEventListener('input', () => {
+    streetRef.value = '';
+    clearTimeout(streetTimer);
+    streetTimer = setTimeout(async () => {
+      const q = streetInput.value.trim();
+      if(q.length < 2 || !cityRef.value){ streetList.classList.add('hidden'); return; }
+      const res = await fetch(`/api/np/streets?city_ref=${encodeURIComponent(cityRef.value)}&q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      renderList(streetList, (data.items || []).map(x => ({...x, name: x.label})), (item) => {
+        streetInput.value = item.label;
+        streetRef.value = item.ref || '';
+        streetList.classList.add('hidden');
+      });
+    }, 300);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

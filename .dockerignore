@@ -1,0 +1,12 @@
+backups/
+rclone/
+app/uploads/
+app/__pycache__/
+app/**/__pycache__/
+*.pyc
+*.pyo
+*.log
+*.tmp
+public_home_*.png
+admin_*_cookies.txt
+admin_verify*_cookies.txt

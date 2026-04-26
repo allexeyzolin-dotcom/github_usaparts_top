@@ -1,0 +1,97 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="container narrow">
+  {% if show_resume_prompt %}
+  <div class="card">
+    <h3>Незавершена ревізія</h3>
+    <div class="muted">
+      Для складу {{ warehouse.name }} вже є незавершена ревізія: {{ warehouse.revision_percent }}%
+      {% if warehouse.revision_date %} • {{ warehouse.revision_date.strftime('%d.%m.%Y') }}{% endif %}.
+    </div>
+    <div class="button-row" style="margin-top:12px">
+      <a class="btn primary" href="{{ url_for('revision', warehouse_id=warehouse.id, action='continue') }}">Продовжити ревізію</a>
+      <a class="btn danger" href="{{ url_for('revision', warehouse_id=warehouse.id, action='restart') }}">Почати спочатку</a>
+    </div>
+  </div>
+  {% else %}
+  <div class="card mobile-card">
+    <div class="panel-header">
+      <div>
+        <a class="backlink" href="{{ url_for('warehouse_detail', warehouse_id=warehouse.id) }}">← До складу</a>
+        <h2>Ревізія складу: {{ warehouse.name }}</h2>
+        <div class="muted">Позиція {{ idx + 1 }} з {{ total }} • прогрес {{ progress }}%</div>
+      </div>
+      <div class="button-row">
+        <form id="revision-print-form" method="post" action="{{ url_for('print_warehouse_barcodes', warehouse_id=warehouse.id) }}">
+          <input type="hidden" name="label_qty" value="">
+          <button class="btn ghost" type="button" onclick="promptRevisionLabels()">Друк етикеток складу</button>
+        </form>
+        <div class="badge {% if warehouse.revision_status == 'completed' %}success{% elif warehouse.revision_status == 'in_progress' %}warn{% else %}neutral{% endif %}">
+          {% if warehouse.revision_status == 'completed' %}
+          Ревізію завершено
+          {% elif warehouse.revision_status == 'in_progress' %}
+          Ревізія в процесі
+          {% else %}
+          Ревізію ще не почато
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="revision-item">
+      <div class="part-code">{{ part.part_number }}</div>
+      <div class="part-name">{{ part.name }}</div>
+      <div class="muted">{{ part.brand }} / {{ part.producer_type }}</div>
+      <div class="muted">Штрихкод: {{ part.barcode }}</div>
+      <div class="price-row big">${{ display_usd(part.price_usd, warehouse.markup_percent) }} <span>₴{{ display_uah(part.price_usd, warehouse.markup_percent) }}</span></div>
+      {% if safe_photo(part.photo_urls) %}
+      <img class="rev-photo" src="{{ safe_photo(part.photo_urls) }}" alt="{{ part.name }}">
+      {% else %}
+      <div class="no-photo">Фото відсутнє</div>
+      {% endif %}
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="stack">
+      <label class="field-label">Наявність</label>
+      <div class="button-row">
+        <label class="choice"><input type="radio" name="availability" value="yes" checked> Є в наявності</label>
+        <label class="choice"><input type="radio" name="availability" value="no"> Немає</label>
+      </div>
+
+      <label class="field-label">Фактична кількість</label>
+      <input type="number" min="0" name="qty" value="{{ part.qty }}">
+
+      <label class="field-label">Додати або замінити фото</label>
+      <input type="file" name="photo" accept="image/*" capture="environment">
+
+      <div class="button-row">
+        <button class="btn primary">Зберегти і перейти далі</button>
+        <a class="btn ghost" href="{{ url_for('warehouse_detail', warehouse_id=warehouse.id) }}">Перервати ревізію</a>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</div>
+<script>
+function promptRevisionLabels() {
+  const form = document.getElementById('revision-print-form');
+  if (!form) return;
+  const answer = window.prompt('Кількість етикеток на кожну позицію? Залиште порожнім, щоб друкувати за кількістю товару.', '');
+  if (answer === null) return;
+  const trimmed = String(answer).trim();
+  const qtyField = form.querySelector('input[name="label_qty"]');
+  if (!trimmed) {
+    qtyField.value = '';
+    form.submit();
+    return;
+  }
+  const qty = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    window.alert('Вкажіть кількість більше нуля.');
+    return;
+  }
+  qtyField.value = String(Math.floor(qty));
+  form.submit();
+}
+</script>
+{% endblock %}

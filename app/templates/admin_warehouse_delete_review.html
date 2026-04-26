@@ -1,0 +1,92 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <h2>Перевірка видалення складу</h2>
+    <div class="muted">
+      Склад: <strong>{{ warehouse.name }}</strong>.
+      Режим:
+      <strong>
+        {{ 'Склад з товаром' if delete_mode == 'warehouse_with_goods' else 'Видалити тільки наявність товару' }}
+      </strong>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('delete_warehouse') }}" class="stack">
+  <input type="hidden" name="warehouse_id" value="{{ warehouse.id }}">
+  <input type="hidden" name="delete_mode" value="{{ delete_mode }}">
+
+  <section class="card stack">
+    <h3>Що буде зроблено</h3>
+    {% if delete_mode == 'warehouse_with_goods' %}
+    <div class="helper-note">
+      Для позицій без інших прив'язок master-картка буде видалена разом зі складом.
+      Для позицій, які ще мають інші ярлики або залишок у <strong>Всі товари</strong>, нижче можна окремо вибрати:
+      <strong>видалити</strong>, <strong>корегувати</strong> або <strong>залишити</strong>.
+    </div>
+    {% else %}
+    <div class="helper-note">
+      Буде видалено тільки наявність у цьому складі. Master-картки у <strong>Всі товари</strong> залишаться без змін.
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card stack">
+    <h3>Позиції складу</h3>
+    {% for row in review_rows %}
+    <article class="card inner-card stack">
+      <div class="order-line" style="justify-content:space-between;gap:14px;flex-wrap:wrap">
+        <div class="stack" style="gap:4px">
+          <strong>{{ row.partNumber }}</strong>
+          <div>{{ row.title }}</div>
+        </div>
+        <div class="muted">У складі: {{ row.warehouseQty }} шт.</div>
+      </div>
+
+      {% if row.otherWarehouses %}
+      <div class="muted">Інші склади: {{ row.otherWarehouses|join(', ') }}</div>
+      {% endif %}
+      {% if row.templateQty %}
+      <div class="muted">Залишок у "Всі товари": {{ row.templateQty }} шт.</div>
+      {% endif %}
+      {% if not row.otherWarehouses and not row.templateQty %}
+      <div class="muted">Після видалення цього складу для позиції не залишиться інших прив'язок.</div>
+      {% endif %}
+
+      {% if delete_mode == 'warehouse_with_goods' and row.needsReview %}
+      <div class="stack">
+        <label class="field-label">Що робити з дублюючою позицією</label>
+        <select name="action_{{ row.actionKey }}">
+          <option value="leave" {% if row.defaultAction == 'leave' %}selected{% endif %}>Залишити</option>
+          <option value="adjust">Корегувати master-залишок</option>
+          <option value="delete">Видалити повністю</option>
+        </select>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          name="adjust_qty_{{ row.actionKey }}"
+          value="{{ row.templateQty }}"
+          placeholder="Кількість у Всі товари після корекції">
+        <div class="helper-note">
+          <strong>Залишити</strong> прибере тільки ярлики цього складу.
+          <strong>Корегувати</strong> залишить master-картку та встановить новий залишок у "Всі товари".
+          <strong>Видалити</strong> прибере master-картку і всі ярлики цього OEM по всіх складах.
+        </div>
+      </div>
+      {% elif delete_mode == 'warehouse_with_goods' %}
+      <div class="badge success">Позиція буде видалена разом зі складом без додаткових рішень</div>
+      {% endif %}
+    </article>
+    {% else %}
+    <div class="muted">У складі поки немає позицій.</div>
+    {% endfor %}
+  </section>
+
+  <div class="button-row">
+    <a class="btn ghost" href="{{ url_for('admin_products') }}">Відміна</a>
+    <button class="btn danger" type="submit">Підтвердити видалення складу</button>
+  </div>
+</form>
+{% endblock %}

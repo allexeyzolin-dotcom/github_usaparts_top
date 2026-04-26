@@ -1,0 +1,49 @@
+{% extends 'base_public.html' %}
+{% block content %}
+<div class="container">
+  <div class="panel-header">
+    <div>
+      <h2>Каталог запчастин</h2>
+      <div class="muted">Пошук, перегляд галереї і швидке оформлення замовлення.</div>
+    </div>
+  </div>
+  <form class="search-row card" method="get">
+    <input name="q" value="{{ q }}" placeholder="Пошук по номеру, назві або бренду">
+    <select name="condition">
+      <option value="">Усі</option>
+      <option value="used" {% if condition=='used' %}selected{% endif %}>Запчастини Б/У</option>
+      <option value="new" {% if condition=='new' %}selected{% endif %}>Запчастини нові</option>
+    </select>
+    <button class="btn primary" type="submit">Пошук</button>
+  </form>
+  <div class="showcase-grid">
+    {% for part in parts %}
+    <div class="showcase-card">
+      <a href="{{ url_for('part_detail', part_id=part.id) }}">
+        {% if primary_part_photo(part) %}
+        <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.name }}">
+        {% else %}
+        <div class="showcase-img placeholder">Фото</div>
+        {% endif %}
+      </a>
+      <div class="showcase-body">
+        <div class="showcase-code">{{ part.part_number }}</div>
+        <h3>{{ clean_text(part.name) }}</h3>
+        <div class="price-row">${{ display_usd(part.price_usd, part.warehouse.markup_percent) }} <span>₴{{ display_uah(part.price_usd, part.warehouse.markup_percent) }}</span></div>
+        <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
+          <button class="btn primary full" type="submit">Додати в кошик</button>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      {% if q and search_found_without_photo %}
+      <div class="muted">Товар знайдено в базі, але для нього ще не додано фото, тому на вітрині він поки не показується.</div>
+      {% else %}
+      <div class="muted">Товари за поточним пошуком не знайдені.</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+# Local/runtime data
+backups/
+rclone/
+app/uploads/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local env/secrets
+.env
+.env.*
+!.env.vps.example
+!stack.env.example
+
+# Temporary files
+*.log
+*.tmp
+public_home_*.png
+admin_*_cookies.txt
+admin_verify*_cookies.txt
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

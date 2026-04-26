@@ -1,0 +1,75 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <h2>API</h2>
+    <div class="muted">Налаштування Nova Poshta, Telegram і mobile API додатка.</div>
+  </div>
+</div>
+
+<div class="card stack">
+  <form method="post" class="stack">
+    <h3>Nova Poshta</h3>
+    <label class="field-label">Nova Poshta API key</label>
+    <input name="nova_poshta_api_key" value="{{ settings.get('nova_poshta_api_key','') }}" placeholder="Введіть ключ Nova Poshta">
+    <div class="helper-note">Потрібен для підказок і перевірки відправлень Нової пошти.</div>
+
+    <h3>Telegram</h3>
+    <label class="field-label">Telegram bot token</label>
+    <input name="telegram_bot_token" value="{{ settings.get('telegram_bot_token','') }}" placeholder="123456789:AA...">
+
+    <label class="field-label">Telegram group chat ID</label>
+    <input name="telegram_chat_id" value="{{ settings.get('telegram_chat_id','') }}" placeholder="-1001234567890">
+
+    <div class="helper-note">
+      Для групи chat ID зазвичай починається з <strong>-100</strong>.
+      Якщо бот не надсилає повідомлення, додайте його в групу і надішліть у групу команду <strong>/start</strong> або згадайте бота, після чого оновіть сторінку.
+    </div>
+
+    <button class="btn primary">Зберегти налаштування</button>
+  </form>
+
+  <div class="card inner-card">
+    <div class="field-label">Статус Telegram</div>
+    {% if telegram_status.configured %}
+      <div class="helper-note {% if telegram_status.chat_ok %}success{% else %}error{% endif %}">
+        Бот: {% if telegram_status.bot_username %}@{{ telegram_status.bot_username }}{% else %}невідомо{% endif %}.
+        {% if telegram_status.chat_ok %}
+          Чат знайдено: {{ telegram_status.chat_title }} ({{ telegram_status.chat_type }}) • {{ telegram_status.chat_id }}
+        {% else %}
+          {{ telegram_status.error or 'Не вдалося перевірити chat ID.' }}
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="helper-note warn">Telegram bot token ще не заповнений.</div>
+    {% endif %}
+  </div>
+
+  <div class="card inner-card">
+    <div class="field-label">Останні чати, які бачить бот</div>
+    {% if recent_telegram_chats %}
+      <div class="stack">
+        {% for chat in recent_telegram_chats %}
+          <form method="post" class="choice stack">
+            <input type="hidden" name="nova_poshta_api_key" value="{{ settings.get('nova_poshta_api_key','') }}">
+            <input type="hidden" name="telegram_bot_token" value="{{ settings.get('telegram_bot_token','') }}">
+            <input type="hidden" name="telegram_chat_id" value="{{ chat.id }}">
+            <div><strong>{{ chat.title }}</strong></div>
+            <div class="muted">{{ chat.type }} • {{ chat.id }}</div>
+            <button class="btn ghost small" type="submit">Використати цей chat ID</button>
+          </form>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="helper-note warn">
+        Бот ще не бачить жодного чату. Додайте його в групу Telegram і надішліть <strong>/start</strong> або згадайте бота в повідомленні.
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="muted">
+    Android-додаток використовує <code>API_BASE_URL</code> або локально змінений URL у налаштуваннях самого додатка.
+    Для зеленої позначки <code>API</code> має відповідати endpoint <code>/api/mobile/status</code>.
+  </div>
+</div>
+{% endblock %}

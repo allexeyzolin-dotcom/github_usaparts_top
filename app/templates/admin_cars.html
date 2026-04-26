@@ -1,0 +1,179 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <h2>Авто</h2>
+    <div class="muted">Авто в наявності та в дорозі. Для кожної картки доступне окреме редагування і трекінг по VIN.</div>
+  </div>
+  <div class="button-row">
+    <a class="btn primary" href="{{ url_for('car_wizard', step=1) }}">Додати авто</a>
+    <button class="btn danger" type="button" onclick="togglePanel('car-delete-panel')">Видалити авто</button>
+  </div>
+</div>
+
+<section id="car-delete-panel" class="card stack hidden danger-card" style="margin-bottom:18px">
+  <h3>Видалити авто</h3>
+  <form method="post" action="{{ url_for('delete_car') }}" class="stack" onsubmit="return confirmCarDelete(this)">
+    <select name="car_id" required>
+      <option value="">Оберіть авто</option>
+      {% for car in cars %}
+      <option value="{{ car.id }}">{{ car.brand }} {{ car.model }}{% if car.vin %} • {{ car.vin }}{% endif %}</option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="confirm_text">
+    <button class="btn danger" type="submit">Видалити авто</button>
+  </form>
+</section>
+
+<div class="cars-admin-grid">
+  {% for car in cars %}
+  {% set photos = parse_media_urls(car.image_urls) %}
+  <article class="card car-admin-card">
+    <div class="part-admin-head">
+      <div class="part-admin-main">
+        {% if photos %}
+        <img class="part-admin-thumb" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}">
+        {% else %}
+        <div class="part-admin-thumb placeholder">Авто</div>
+        {% endif %}
+        <div class="stack" style="gap:6px">
+          <div class="part-admin-code">{{ car.vin or 'VIN не вказано' }}</div>
+          <h3>{{ car.brand }} {{ car.model }}</h3>
+          <div class="muted">{{ car.year or '—' }} • {{ car.mileage or '—' }} км • {{ 'В наявності' if car.status == 'in_stock' else 'В дорозі' }}</div>
+          {% if car.description %}
+          <div class="muted">{{ clean_text(car.description) }}</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="part-admin-side">
+        <div><strong>${{ '%.2f'|format(car.price_usd|float) }}</strong></div>
+        <div class="muted">Фото: {{ photos|length }}</div>
+        {% if car.youtube_url %}
+        <a class="text-link" href="{{ car.youtube_url }}" target="_blank" rel="noopener">YouTube</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="button-row">
+      {% if car.vin %}
+      <button class="btn ghost small" type="button" onclick="trackCarVin('{{ car.vin|e }}')">Трекінг VIN</button>
+      {% endif %}
+      <button class="btn ghost small" type="button" onclick="togglePanel('car-editor-{{ car.id }}')">Редагувати</button>
+    </div>
+
+    <div id="car-editor-{{ car.id }}" class="hidden part-editor-block">
+      <form method="post" action="{{ url_for('update_car', car_id=car.id) }}" enctype="multipart/form-data" class="stack part-form-vertical">
+        <label class="field-label">Бренд</label>
+        <input name="brand" value="{{ car.brand }}" required>
+
+        <label class="field-label">Модель</label>
+        <input name="model" value="{{ car.model }}" required>
+
+        <label class="field-label">VIN</label>
+        <input name="vin" value="{{ car.vin or '' }}">
+
+        <label class="field-label">Рік</label>
+        <input type="number" name="year" value="{{ car.year or '' }}">
+
+        <label class="field-label">Пробіг</label>
+        <input type="number" name="mileage" value="{{ car.mileage or '' }}">
+
+        <label class="field-label">Статус</label>
+        <select name="status">
+          <option value="in_stock" {% if car.status == 'in_stock' %}selected{% endif %}>В наявності</option>
+          <option value="in_transit" {% if car.status == 'in_transit' %}selected{% endif %}>В дорозі</option>
+        </select>
+
+        <label class="field-label">Ціна в USD</label>
+        <input type="number" step="0.01" min="0" name="price_usd" value="{{ car.price_usd }}">
+
+        <label class="field-label">Опис</label>
+        <textarea name="description">{{ clean_text(car.description) }}</textarea>
+
+        <label class="field-label">YouTube посилання</label>
+        <input name="youtube_url" value="{{ car.youtube_url or '' }}">
+
+        <label class="field-label">Фото</label>
+        {% if photos %}
+        <div class="existing-photo-grid">
+          {% for photo in photos %}
+          <label class="existing-photo-card">
+            <img src="{{ photo }}" alt="Фото авто">
+            <span class="choice">
+              <input type="checkbox" name="remove_image_urls" value="{{ photo }}">
+              Прибрати фото
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <input type="file" name="images" accept="image/*" multiple>
+
+        <div class="button-row">
+          <button class="btn primary" type="submit">Зберегти</button>
+          <button class="btn ghost" type="button" onclick="togglePanel('car-editor-{{ car.id }}')">Закрити</button>
+        </div>
+      </form>
+    </div>
+  </article>
+  {% else %}
+  <div class="card"><div class="muted">Авто поки не додані.</div></div>
+  {% endfor %}
+</div>
+
+<script>
+function togglePanel(id) {
+  const node = document.getElementById(id);
+  if (node) node.classList.toggle('hidden');
+}
+
+function confirmCarDelete(form) {
+  const select = form.querySelector('select[name="car_id"]');
+  if (!select.value) {
+    window.alert('Оберіть авто для видалення.');
+    return false;
+  }
+  const answer = window.prompt(`Щоб видалити "${select.options[select.selectedIndex].text}", введіть "так".`);
+  if (answer === null) return false;
+  form.querySelector('input[name="confirm_text"]').value = answer.trim();
+  if (answer.trim().toLowerCase() !== 'так') {
+    window.alert('Видалення скасовано.');
+    return false;
+  }
+  return true;
+}
+
+async function trackCarVin(vin) {
+  if (!vin) {
+    window.alert('Для цього авто VIN не вказано.');
+    return;
+  }
+  const popup = window.open('about:blank', '_blank');
+  try {
+    const response = await fetch('{{ url_for("tracking_lookup") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vin })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      if (popup) popup.close();
+      throw new Error(data.error || 'Не вдалося знайти трекінг по VIN.');
+    }
+    if (data.url) {
+      if (popup) popup.location.href = data.url;
+      return;
+    }
+    if (Array.isArray(data.urls) && data.urls.length) {
+      if (popup) popup.location.href = data.urls[0].url;
+      return;
+    }
+    if (popup) popup.close();
+    throw new Error('Доступних сервісів трекінгу не знайдено.');
+  } catch (error) {
+    if (popup) popup.close();
+    window.alert(error.message || 'Не вдалося відкрити трекінг по VIN.');
+  }
+}
+</script>
+{% endblock %}

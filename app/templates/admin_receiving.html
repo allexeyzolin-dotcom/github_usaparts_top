@@ -1,0 +1,181 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <h2>Прийом товару</h2>
+    <div class="muted">Усі нові позиції спочатку зберігаються в базі <strong>Всі товари</strong>. Уже після цього склад бере з неї фото, опис і дані для експорту.</div>
+  </div>
+  <div class="badge {% if draft %}warn{% else %}neutral{% endif %}">
+    Позицій у прийомці: {{ draft|length }}
+  </div>
+</div>
+
+<div class="card stack">
+  <form method="get" class="stack">
+    <label class="field-label">Показати позиції</label>
+    <select name="warehouse_id">
+      <option value="all" {% if selected_scope == 'all' %}selected{% endif %}>Усі позиції</option>
+      <option value="unassigned" {% if selected_scope == 'unassigned' %}selected{% endif %}>Без складу</option>
+      {% for warehouse in warehouses %}
+      <option value="{{ warehouse.id }}" {% if selected_scope == warehouse.id|string %}selected{% endif %}>{{ warehouse.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn ghost" type="submit">Оновити</button>
+  </form>
+
+  <form method="post" action="{{ url_for('admin_receiving_import') }}" class="stack">
+    <input type="hidden" name="draft_scope" value="{{ selected_scope }}">
+    <label class="field-label">Куди зберегти поточний список</label>
+    <select name="warehouse_id" required>
+      <option value="all" style="color:#b91c1c;font-weight:700">Всі товари</option>
+      {% for warehouse in warehouses %}
+      <option value="{{ warehouse.id }}" {% if selected_scope == warehouse.id|string %}selected{% endif %}>{{ warehouse.name }}</option>
+      {% endfor %}
+    </select>
+    <div class="helper-note">Якщо вибрати <strong>Всі товари</strong>, картки оновляться в базі без прив'язки до складу. Прив'язати товар до складу можна пізніше.</div>
+    <button class="btn primary" {% if not draft %}disabled{% endif %}>Зберегти поточний список</button>
+  </form>
+</div>
+
+<div class="card stack" style="margin-top:16px">
+  <form id="print-receiving-form" method="post" action="{{ url_for('print_receiving_barcodes') }}" class="stack">
+    <input type="hidden" name="label_qty" value="">
+    <div class="button-row">
+      <button class="btn ghost" type="button" onclick="promptReceivingLabels(false)" {% if not draft %}disabled{% endif %}>Друк усієї прийомки</button>
+      <button class="btn primary" type="button" onclick="promptReceivingLabels(true)" {% if not draft %}disabled{% endif %}>Друк вибраних позицій</button>
+    </div>
+    <div class="muted">Позначте чекбокси біля потрібних позицій, якщо треба друкувати не весь список, а лише окремі товари.</div>
+  </form>
+</div>
+
+<div class="orders-list" style="margin-top:16px">
+  {% for item in draft %}
+  <div class="order-card">
+    <div class="order-body" style="padding-top:18px">
+      <div class="stack">
+        <div class="order-line">
+          <label style="display:flex;align-items:center;gap:10px">
+            <input type="checkbox" name="item_ids" value="{{ item.id }}" form="print-receiving-form">
+            <strong>#{{ item.id }}</strong>
+          </label>
+          <span><strong>{{ item.partNumber }}</strong></span>
+          <span>{{ item.warehouseName }}</span>
+          <span class="badge neutral">{{ item.barcode }}</span>
+          <span class="badge {% if item.photoCount %}success{% else %}neutral{% endif %}">Фото: {{ item.photoCount }}</span>
+          {% if item.existingStocks %}
+          <span class="badge warn">Є на складах</span>
+          {% endif %}
+        </div>
+
+        <div class="muted">
+          {{ item.title or 'Без назви' }} • {{ item.qty }} шт. • ${{ '%.2f'|format(item.priceUsd|float) }}
+        </div>
+
+        <form method="post" action="{{ url_for('admin_receiving_update', item_id=item.id) }}" enctype="multipart/form-data" class="stack part-form-vertical">
+          <input type="hidden" name="return_scope" value="{{ selected_scope }}">
+
+          <label class="field-label">Зберегти як</label>
+          <select name="warehouse_id" required>
+            <option value="all" style="color:#b91c1c;font-weight:700" {% if not item.warehouseId %}selected{% endif %}>Всі товари</option>
+            {% for warehouse in warehouses %}
+            <option value="{{ warehouse.id }}" {% if item.warehouseId == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+            {% endfor %}
+          </select>
+
+          <label class="field-label">OEM номер</label>
+          <input name="part_number" value="{{ item.partNumber }}" required>
+
+          <label class="field-label">Назва</label>
+          <input name="title" value="{{ item.title }}">
+
+          <div class="button-row">
+            <div style="flex:1">
+              <label class="field-label">Кількість</label>
+              <input name="qty" type="number" min="1" value="{{ item.qty }}">
+            </div>
+            <div style="flex:1">
+              <label class="field-label">Ціна USD</label>
+              <input name="price_usd" type="number" step="0.01" value="{{ '%.2f'|format(item.priceUsd|float) }}">
+            </div>
+          </div>
+
+          <label class="field-label">Опис</label>
+          <textarea name="description" rows="3">{{ item.description }}</textarea>
+
+          {% if item.photoUrls %}
+          <div class="stack">
+            <label class="field-label">Поточні фото</label>
+            <div class="existing-photo-grid">
+              {% for photo in item.photoUrls %}
+              <label class="existing-photo-card">
+                <img src="{{ photo }}" alt="Фото товару">
+                <span class="choice">
+                  <input type="radio" name="export_photo_existing" value="{{ photo }}" {% if item.photoUrl == photo or (not item.photoUrl and loop.first) %}checked{% endif %}>
+                  Основне фото
+                </span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          <input type="hidden" name="export_photo_upload_index" value="0">
+
+          <label class="field-label">Додати фото</label>
+          <input type="file" name="photos" accept="image/*" multiple>
+          <div class="helper-note">Можна додати кілька фото. Якщо нове основне фото не вибране, система візьме перше у списку.</div>
+
+          {% if item.existingStocks %}
+          <div class="card inner-card">
+            <strong>Поточні залишки по складах:</strong>
+            {% for stock in item.existingStocks %}
+            <div class="muted">• {{ stock.warehouseName }}: {{ stock.qty }} шт.</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <div class="button-row">
+            <button class="btn primary" type="submit">Зберегти</button>
+            <button class="btn danger" formaction="{{ url_for('admin_receiving_delete', item_id=item.id) }}" formmethod="post">Видалити</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="card"><div class="muted">Чернетка прийому товару порожня.</div></div>
+  {% endfor %}
+</div>
+<script>
+function promptReceivingLabels(requireSelection) {
+  const form = document.getElementById("print-receiving-form");
+  if (!form) return;
+
+  const selected = document.querySelectorAll("input[name='item_ids'][form='print-receiving-form']:checked");
+  if (requireSelection && selected.length === 0) {
+    window.alert("Позначте позиції для друку.");
+    return;
+  }
+
+  const answer = window.prompt("Кількість етикеток на кожну позицію? Залиште порожнім, щоб друкувати за кількістю товару.", "");
+  if (answer === null) return;
+
+  const qtyField = form.querySelector("input[name='label_qty']");
+  const trimmed = String(answer).trim();
+  if (!trimmed) {
+    qtyField.value = "";
+    form.submit();
+    return;
+  }
+
+  const qty = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    window.alert("Вкажіть коректну кількість етикеток.");
+    return;
+  }
+
+  qtyField.value = String(qty);
+  form.submit();
+}
+</script>
+{% endblock %}

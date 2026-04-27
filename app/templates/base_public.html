@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  {% set meta_title = seo_title|default('Запчастини для авто з США | USA AUTO PARTS', true) %}
-  {% set meta_description = seo_description|default('USA AUTO PARTS: запчастини для авто з США, авто в наявності та авто в дорозі. Пошук по OEM номеру, назві або VIN.', true) %}
+  {% set meta_title = seo_title|default('USAparts.top | Запчастини для авто з США', true) %}
+  {% set meta_description = seo_description|default('USAparts.top: запчастини для авто з США, авто в наявності та авто в дорозі. Пошук по OEM номеру, назві або VIN.', true) %}
   <title>{{ meta_title }}</title>
   <meta name="description" content="{{ meta_description }}">
   <meta name="robots" content="{{ 'noindex,follow' if seo_noindex|default(false) else 'index,follow' }}">
   {% if canonical_url|default('') %}
   <link rel="canonical" href="{{ canonical_url }}">
   {% endif %}
-  <meta property="og:site_name" content="USA AUTO PARTS">
+  <meta property="og:site_name" content="USAparts.top">
   <meta property="og:title" content="{{ meta_title }}">
   <meta property="og:description" content="{{ meta_description }}">
   {% if canonical_url|default('') %}

@@ -5173,7 +5173,7 @@ def create_site_backup(sync_to_drive=False, triggered_by="manual"):
                 "restore_hint": "pg_restore database/*.dump у PostgreSQL, потім повернути uploads у app/uploads.",
             }
             restore_readme = (
-                "USA AUTO PARTS backup\n\n"
+                "USAparts.top backup\n\n"
                 "1. Database dump: database/*.dump\n"
                 "   Restore example:\n"
                 "   pg_restore --clean --if-exists --no-owner --no-privileges -U usa -d usa_auto_parts database/usa_auto_parts_YYYYMMDD_HHMMSS.dump\n\n"
@@ -5702,7 +5702,7 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
         "mpn": normalize_text(part.part_number or "").strip(),
         "brand": {
             "@type": "Brand",
-            "name": normalize_text(part.brand or part.producer_type or "USA Auto Parts").strip(),
+            "name": normalize_text(part.brand or part.producer_type or "USAparts.top").strip(),
         },
         "description": compact_meta_text(part.description or part.name, part.part_number, limit=300),
         "image": gallery,
@@ -5716,7 +5716,7 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
         },
     }
     if warehouse:
-        payload["offers"]["seller"] = {"@type": "Organization", "name": "USA AUTO PARTS"}
+        payload["offers"]["seller"] = {"@type": "Organization", "name": "USAparts.top"}
     return seo_json_dumps(payload)
 
 
@@ -6323,7 +6323,7 @@ def home():
             display_uah=display_uah,
             cars_random=cars_random,
             vehicle_warehouses=vehicle_warehouses,
-            seo_title="Авторозбірка USAparts.top | Запчастини для авто з США",
+            seo_title="USAparts.top | Запчастини для авто з США",
             seo_description="USAparts.top - авторозбірка та автошрот в Україні. Б/у запчастини для авто зі США, пошук по OEM номеру, склади в Україні та поставки зі США.",
             canonical_url=public_url_for("home"),
             seo_noindex=bool(q) or page > 1,
@@ -6587,7 +6587,7 @@ def catalog():
             safe_photo=safe_photo,
             display_usd=display_usd,
             display_uah=display_uah,
-            seo_title="Каталог запчастин | USA AUTO PARTS",
+            seo_title="Каталог запчастин | USAparts.top",
             seo_description="Каталог запчастин для авто з США. Пошук по OEM номеру, назві, бренду та швидке оформлення замовлення.",
             canonical_url=public_url_for("catalog"),
             seo_noindex=bool(q) or bool(condition),
@@ -6618,7 +6618,7 @@ def part_detail(part_id):
             safe_photo=safe_photo,
             display_usd=display_usd,
             display_uah=display_uah,
-            seo_title=f"{part_title} | USA AUTO PARTS",
+            seo_title=f"{part_title} | USAparts.top",
             seo_description=compact_meta_text(
                 "Купити запчастину",
                 part.part_number,
@@ -6697,7 +6697,7 @@ def cars_public():
             cars=cars,
             status=status,
             safe_photo=safe_photo,
-            seo_title=f"{status_label} | USA AUTO PARTS",
+            seo_title=f"{status_label} | USAparts.top",
             seo_description="Авто з США: перегляд фото, опису, VIN та статусу авто в наявності або в дорозі.",
             canonical_url=public_url_for("cars_public"),
             seo_noindex=bool(status),
@@ -6722,7 +6722,7 @@ def car_detail_public(car_id):
             car=car,
             photos=photos,
             video_url=video_url,
-            seo_title=f"{car_title} | USA AUTO PARTS",
+            seo_title=f"{car_title} | USAparts.top",
             seo_description=compact_meta_text(
                 car.brand,
                 car.model,

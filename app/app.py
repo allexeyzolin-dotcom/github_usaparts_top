@@ -5687,6 +5687,25 @@ def compact_meta_text(*parts, limit: int = 160) -> str:
     return text[: max(limit - 1, 0)].rstrip(" ,.;:-") + "…"
 
 
+def part_seo_slug_from_values(part_number: str = "", name: str = "") -> str:
+    text = normalize_text(f"{part_number or ''} {name or ''}").strip().lower()
+    text = re.sub(r"[^a-z0-9а-яіїєґё]+", "-", text, flags=re.IGNORECASE)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text[:120].strip("-") or "part"
+
+
+def part_seo_slug(part: Part) -> str:
+    return part_seo_slug_from_values(part.part_number, part.name)
+
+
+def part_detail_url(part: Part, **values) -> str:
+    return url_for("part_detail", part_id=part.id, slug=part_seo_slug(part), **values)
+
+
+def public_part_url(part: Part) -> str:
+    return absolute_public_url(part_detail_url(part))
+
+
 def seo_json_dumps(payload) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
@@ -5708,7 +5727,7 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
         "image": gallery,
         "offers": {
             "@type": "Offer",
-            "url": public_url_for("part_detail", part_id=part.id),
+            "url": public_part_url(part),
             "priceCurrency": "USD",
             "price": price,
             "availability": "https://schema.org/InStock" if part.in_stock and int(part.qty or 0) > 0 else "https://schema.org/OutOfStock",
@@ -6196,6 +6215,7 @@ def inject_globals():
         "parse_media_urls": parse_media_urls,
         "youtube_embed_url": youtube_embed_url,
         "part_gallery_urls": part_gallery_urls,
+        "part_detail_url": part_detail_url,
         "primary_part_photo": primary_part_photo,
         "primary_car_photo": primary_car_photo,
         "primary_template_photo": primary_template_photo,
@@ -6246,15 +6266,19 @@ def sitemap_xml():
             sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
         ]
         parts = (
-            db.query(Part.id, Part.updated_at)
+            db.query(Part.id, Part.part_number, Part.name, Part.updated_at)
             .filter(Part.is_deleted == False, Part.in_stock == True, Part.qty > 0)
             .order_by(desc(Part.updated_at), desc(Part.id))
             .all()
         )
-        for part_id, updated_at in parts:
+        for part_id, part_number, part_name, updated_at in parts:
             nodes.append(
                 sitemap_url_node(
-                    public_url_for("part_detail", part_id=part_id),
+                    public_url_for(
+                        "part_detail",
+                        part_id=part_id,
+                        slug=part_seo_slug_from_values(part_number, part_name),
+                    ),
                     lastmod=sitemap_lastmod(updated_at),
                     changefreq="weekly",
                     priority="0.8",
@@ -6597,13 +6621,17 @@ def catalog():
 
 
 @app.route("/part/<int:part_id>")
-def part_detail(part_id):
+@app.route("/part/<int:part_id>/<slug>")
+def part_detail(part_id, slug=None):
     db = SessionLocal()
     try:
         part = db.get(Part, part_id)
         if not part or part.is_deleted:
             flash("Товар не знайдено", "error")
             return redirect(url_for("catalog"))
+        canonical_slug = part_seo_slug(part)
+        if slug != canonical_slug:
+            return redirect(url_for("part_detail", part_id=part.id, slug=canonical_slug), code=301)
         warehouse = db.get(Warehouse, part.warehouse_id)
         part.views_24h += 1
         part.views_168h += 1
@@ -6626,7 +6654,7 @@ def part_detail(part_id):
                 f"ціна ${part_price}",
                 f"наявність {int(part.qty or 0)} шт.",
             ),
-            canonical_url=public_url_for("part_detail", part_id=part.id),
+            canonical_url=public_part_url(part),
             og_type="product",
             json_ld=build_part_product_schema(part, warehouse),
         )
@@ -6646,7 +6674,7 @@ def part_seller_request(part_id):
         phone = normalize_ua_phone(request.form.get("phone", ""))
         if not phone:
             flash("Вкажіть 9 цифр номера телефону після +380.", "error")
-            return redirect(f"{url_for('part_detail', part_id=part.id)}#seller-request")
+            return redirect(f"{part_detail_url(part)}#seller-request")
 
         warehouse = db.get(Warehouse, part.warehouse_id)
         part_name = normalize_text(part.name or "")
@@ -6658,7 +6686,7 @@ def part_seller_request(part_id):
                 f"Опис: {part_name or 'Без опису'}",
                 f"Телефон: {phone}",
                 f"Склад: {(warehouse.name if warehouse else 'Без складу')}",
-                f"Посилання: {url_for('part_detail', part_id=part.id, _external=True)}",
+                f"Посилання: {public_part_url(part)}",
                 f"Час: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
             ]
         )
@@ -6673,7 +6701,7 @@ def part_seller_request(part_id):
         track_stats_event(db, "seller_request", part=part, meta={"warehouse": warehouse.name if warehouse else ""})
         db.commit()
         flash("Дякуємо з вами зв'яжуться в самий короткий термін", "success")
-        return redirect(url_for("part_detail", part_id=part.id))
+        return redirect(part_detail_url(part))
     except Exception as exc:
         db.rollback()
         flash(f"Не вдалося відправити запит: {exc}", "error")

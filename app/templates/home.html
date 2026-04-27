@@ -35,7 +35,7 @@
     <div class="showcase-grid showcase-grid-home">
       {% for part in featured %}
       <div class="showcase-card home-product-card">
-        <a href="{{ url_for('part_detail', part_id=part.id) }}">
+        <a href="{{ part_detail_url(part) }}">
           {% if primary_part_photo(part) %}
           <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.name }}">
           {% else %}

@@ -6270,6 +6270,21 @@ def favicon_ico():
     return send_file(BASE_DIR / "static" / "favicon.ico", mimetype="image/x-icon")
 
 
+@app.route("/favicon-48.png")
+def favicon_png_48():
+    return send_file(BASE_DIR / "static" / "favicon-48.png", mimetype="image/png")
+
+
+@app.route("/favicon-96.png")
+def favicon_png_96():
+    return send_file(BASE_DIR / "static" / "favicon-96.png", mimetype="image/png")
+
+
+@app.route("/apple-touch-icon.png")
+def apple_touch_icon():
+    return send_file(BASE_DIR / "static" / "favicon-180.png", mimetype="image/png")
+
+
 @app.route("/sitemap.xml")
 def sitemap_xml():
     db = SessionLocal()

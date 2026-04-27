@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>USAparts.top • Кабінет</title>
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="icon" href="{{ url_for('favicon_ico') }}" sizes="any">
+  <link rel="icon" type="image/png" sizes="48x48" href="{{ url_for('favicon_png_48') }}">
+  <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('favicon_png_96') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('apple_touch_icon') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body class="admin-theme">

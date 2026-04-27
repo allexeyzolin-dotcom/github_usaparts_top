@@ -5687,9 +5687,23 @@ def compact_meta_text(*parts, limit: int = 160) -> str:
     return text[: max(limit - 1, 0)].rstrip(" ,.;:-") + "…"
 
 
+CYRILLIC_SLUG_MAP = str.maketrans({
+    "а": "a", "б": "b", "в": "v", "г": "g", "ґ": "g", "д": "d", "е": "e", "є": "ye",
+    "ё": "yo", "ж": "zh", "з": "z", "и": "i", "і": "i", "ї": "yi", "й": "y", "к": "k",
+    "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
+    "у": "u", "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch",
+    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+})
+
+
+def transliterate_slug_text(value: str) -> str:
+    text = normalize_text(value or "").strip().lower()
+    return text.translate(CYRILLIC_SLUG_MAP)
+
+
 def part_seo_slug_from_values(part_number: str = "", name: str = "") -> str:
-    text = normalize_text(f"{part_number or ''} {name or ''}").strip().lower()
-    text = re.sub(r"[^a-z0-9а-яіїєґё]+", "-", text, flags=re.IGNORECASE)
+    text = transliterate_slug_text(f"{part_number or ''} {name or ''}")
+    text = re.sub(r"[^a-z0-9]+", "-", text, flags=re.IGNORECASE)
     text = re.sub(r"-{2,}", "-", text).strip("-")
     return text[:120].strip("-") or "part"
 

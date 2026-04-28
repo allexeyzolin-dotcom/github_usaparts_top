@@ -642,6 +642,246 @@ th{position:sticky;top:0;background:rgba(17,25,39,.96);z-index:2}
 .stats-card td{
   vertical-align:top;
 }
+
+.stats-page-header{
+  align-items:flex-start;
+}
+
+.stats-period-pill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 14px;
+  border-radius:999px;
+  background:rgba(255,255,255,.9);
+  border:1px solid rgba(148,163,184,.28);
+  color:#19324c;
+  font-weight:900;
+  box-shadow:0 10px 22px rgba(15,23,42,.08);
+}
+
+.stats-filter-card-compact{
+  padding:14px;
+}
+
+.stats-dashboard{
+  display:grid;
+  grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);
+  gap:18px;
+  margin-bottom:18px;
+}
+
+.stats-hero-card{
+  padding:24px;
+  display:grid;
+  grid-template-columns:minmax(0,.85fr) minmax(280px,1fr);
+  gap:18px;
+  align-items:stretch;
+  background:
+    radial-gradient(circle at 18% 0%,rgba(59,130,246,.16),transparent 34%),
+    linear-gradient(135deg,#ffffff 0%,#eef6ff 100%);
+}
+
+.stats-hero-card h2{
+  margin:8px 0 0;
+  font-size:58px;
+  line-height:1;
+  letter-spacing:-.05em;
+  color:#0f2d4a;
+}
+
+.stats-hero-card p{
+  margin:8px 0 0;
+  color:#60758d;
+  font-weight:800;
+}
+
+.stats-hero-metrics{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+
+.stats-hero-metrics div{
+  padding:16px;
+  border-radius:18px;
+  background:rgba(255,255,255,.78);
+  border:1px solid rgba(148,163,184,.24);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+}
+
+.stats-hero-metrics strong{
+  display:block;
+  font-size:28px;
+  color:#102f4f;
+}
+
+.stats-hero-metrics span{
+  display:block;
+  margin-top:5px;
+  color:#60758d;
+  font-size:12px;
+  font-weight:800;
+}
+
+.stats-summary-grid-balanced{
+  grid-template-columns:1fr;
+  margin-bottom:0;
+}
+
+.stats-summary-card.accent-blue{border-left:5px solid #3b82f6}
+.stats-summary-card.accent-green{border-left:5px solid #22c55e}
+.stats-summary-card.accent-amber{border-left:5px solid #f59e0b}
+
+.stats-insight-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:18px;
+  margin-bottom:18px;
+}
+
+.stats-insight-card{
+  padding:18px;
+  min-height:138px;
+}
+
+.stats-insight-card strong{
+  display:block;
+  margin-top:10px;
+  color:#102f4f;
+  font-size:22px;
+  line-height:1.15;
+}
+
+.stats-insight-card small{
+  display:block;
+  margin-top:9px;
+  color:#60758d;
+  line-height:1.4;
+}
+
+.stats-section-head{
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  align-items:flex-start;
+  margin-bottom:14px;
+}
+
+.stats-section-head h3{margin:0}
+.stats-section-head p{margin:4px 0 0}
+
+.stats-day-strip{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:10px;
+}
+
+.stats-day-card{
+  display:grid;
+  gap:5px;
+  padding:14px;
+  border-radius:18px;
+  background:linear-gradient(180deg,#f8fbff,#eef4fb);
+  border:1px solid rgba(148,163,184,.24);
+}
+
+.stats-day-card strong{color:#102f4f}
+
+.stats-day-card span{
+  color:#60758d;
+  font-size:13px;
+  font-weight:700;
+}
+
+.stats-details-stack{
+  display:grid;
+  gap:12px;
+}
+
+.stats-detail-card{
+  padding:0;
+  overflow:hidden;
+}
+
+.stats-detail-card summary{
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  justify-content:space-between;
+  gap:16px;
+  align-items:center;
+  padding:16px 18px;
+  color:#102f4f;
+  font-weight:900;
+}
+
+.stats-detail-card summary::-webkit-details-marker{display:none}
+
+.stats-detail-card summary::after{
+  content:"+";
+  width:30px;
+  height:30px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:999px;
+  background:#eef4fb;
+  color:#19324c;
+  font-weight:900;
+}
+
+.stats-detail-card[open] summary{
+  border-bottom:1px solid rgba(148,163,184,.22);
+  background:linear-gradient(180deg,#ffffff,#f8fbff);
+}
+
+.stats-detail-card[open] summary::after{
+  content:"-";
+  background:#dbeafe;
+}
+
+.stats-detail-card summary strong{
+  margin-left:auto;
+  min-width:34px;
+  height:28px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:999px;
+  background:#f59e0b;
+  color:#111827;
+  font-size:13px;
+}
+
+.stats-detail-card .stats-table-wrap{
+  padding:14px 18px 18px;
+}
+
+.stats-detail-card table{
+  min-width:680px;
+}
+
+body.admin-theme .stats-hero-card,
+body.admin-theme .stats-insight-card,
+body.admin-theme .stats-days-card,
+body.admin-theme .stats-detail-card{
+  border-color:rgba(148,163,184,.26);
+}
+
+body.admin-theme .stats-detail-card summary{
+  color:var(--admin-text-strong);
+}
+
+body.admin-theme .stats-detail-card td,
+body.admin-theme .stats-detail-card th{
+  color:#18324d;
+}
+
+body.admin-theme .stats-detail-card .muted{
+  color:var(--admin-muted);
+}
+
 .showcase-code{
   letter-spacing:.04em;
 }
@@ -717,8 +957,17 @@ th{position:sticky;top:0;background:rgba(17,25,39,.96);z-index:2}
   }
   .stats-filter-grid,
   .stats-summary-grid,
-  .stats-grid-2{
+  .stats-grid-2,
+  .stats-dashboard,
+  .stats-hero-card,
+  .stats-insight-grid{
     grid-template-columns:1fr;
+  }
+  .stats-hero-metrics{
+    grid-template-columns:1fr;
+  }
+  .stats-period-pill{
+    width:100%;
   }
 }
 @media (max-width: 640px){

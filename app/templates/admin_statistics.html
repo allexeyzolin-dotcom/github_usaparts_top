@@ -1,19 +1,30 @@
 {% extends 'base_admin.html' %}
 {% block admin_content %}
-<div class="panel-header">
+{% set top_search = search_stats[0] if search_stats else none %}
+{% set top_viewed = viewed_parts[0] if viewed_parts else none %}
+{% set top_seller = seller_parts[0] if seller_parts else none %}
+{% set top_cart = cart_parts[0] if cart_parts else none %}
+{% set top_ordered = ordered_parts[0] if ordered_parts else none %}
+
+<div class="panel-header stats-page-header">
   <div>
     <h1>Статистика</h1>
-    <p class="muted">Автоматично збережені гості, пошуки, перегляди товарів, запити продавцю, кошик і замовлення.</p>
+    <p class="muted">
+      Загальна картина за обраний період. Детальні списки відкриваються нижче, щоб сторінка не перетворювалась на довгу таблицю.
+    </p>
+  </div>
+  <div class="stats-period-pill">
+    {{ start_date.strftime('%d.%m.%Y') }}{% if end_date != start_date %} - {{ end_date.strftime('%d.%m.%Y') }}{% endif %}
   </div>
 </div>
 
-<form class="card stats-filter-card" method="get">
+<form class="card stats-filter-card stats-filter-card-compact" method="get">
   <div class="stats-filter-grid">
     <label>
       <span class="field-label">Режим</span>
       <select name="mode">
         <option value="day" {% if mode == 'day' %}selected{% endif %}>Один день</option>
-        <option value="range" {% if mode == 'range' %}selected{% endif %}>Довільний період</option>
+        <option value="range" {% if mode == 'range' %}selected{% endif %}>Період</option>
       </select>
     </label>
     <label>
@@ -32,18 +43,105 @@
   </div>
 </form>
 
-<div class="stats-summary-grid">
-  <div class="stats-summary-card"><span>Гостей</span><strong>{{ summary.guests }}</strong></div>
-  <div class="stats-summary-card"><span>Пошуків</span><strong>{{ summary.searches }}</strong></div>
-  <div class="stats-summary-card"><span>Переглядів товарів</span><strong>{{ summary.part_views }}</strong></div>
-  <div class="stats-summary-card"><span>Запитів продавцю</span><strong>{{ summary.seller_requests }}</strong></div>
-  <div class="stats-summary-card"><span>Додано в кошик</span><strong>{{ summary.cart_adds }}</strong></div>
-  <div class="stats-summary-card"><span>Замовлено товарів</span><strong>{{ summary.ordered_items }}</strong></div>
-</div>
+<section class="stats-dashboard">
+  <div class="stats-hero-card card">
+    <div>
+      <span class="eyebrow">Загальна картина</span>
+      <h2>{{ summary.guests }}</h2>
+      <p>унікальних гостей за період</p>
+    </div>
+    <div class="stats-hero-metrics">
+      <div><strong>{{ summary.searches }}</strong><span>пошуків</span></div>
+      <div><strong>{{ summary.part_views }}</strong><span>переглядів товарів</span></div>
+      <div><strong>{{ summary.seller_requests }}</strong><span>запитів продавцю</span></div>
+    </div>
+  </div>
 
-<div class="stats-grid-2">
-  <section class="card stats-card">
-    <h3>Пошукові запити</h3>
+  <div class="stats-summary-grid stats-summary-grid-balanced">
+    <div class="stats-summary-card accent-blue">
+      <span>Додано в кошик</span>
+      <strong>{{ summary.cart_adds }}</strong>
+    </div>
+    <div class="stats-summary-card accent-green">
+      <span>Замовлено товарів</span>
+      <strong>{{ summary.ordered_items }}</strong>
+    </div>
+    <div class="stats-summary-card accent-amber">
+      <span>Інтерес</span>
+      <strong>{{ summary.seller_requests + summary.cart_adds + summary.ordered_items }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="stats-insight-grid">
+  <article class="card stats-insight-card">
+    <span class="field-label">Найчастіший пошук</span>
+    {% if top_search %}
+    <strong>{{ top_search.query }}</strong>
+    <small>{{ top_search.count }} раз(ів), останній: {{ format_dt(top_search.last_at) }}</small>
+    {% else %}
+    <strong>Пошуків ще немає</strong>
+    <small>Після пошуку на вітрині тут з'явиться запит.</small>
+    {% endif %}
+  </article>
+
+  <article class="card stats-insight-card">
+    <span class="field-label">Найбільше дивились</span>
+    {% if top_viewed %}
+    <strong>{{ top_viewed.part_number }}</strong>
+    <small>{{ top_viewed.part_name }} • {{ top_viewed.count }} перегляд(ів)</small>
+    {% else %}
+    <strong>Переглядів ще немає</strong>
+    <small>Тут буде найцікавіший товар за період.</small>
+    {% endif %}
+  </article>
+
+  <article class="card stats-insight-card">
+    <span class="field-label">Найближче до продажу</span>
+    {% if top_ordered %}
+    <strong>{{ top_ordered.part_number }}</strong>
+    <small>Замовлено {{ top_ordered.quantity }} шт. • {{ top_ordered.part_name }}</small>
+    {% elif top_cart %}
+    <strong>{{ top_cart.part_number }}</strong>
+    <small>У кошик додано {{ top_cart.quantity }} шт. • {{ top_cart.part_name }}</small>
+    {% elif top_seller %}
+    <strong>{{ top_seller.part_number }}</strong>
+    <small>{{ top_seller.count }} запит(ів) продавцю • {{ top_seller.part_name }}</small>
+    {% else %}
+    <strong>Продажів ще немає</strong>
+    <small>Після кошика або замовлення тут буде головний сигнал.</small>
+    {% endif %}
+  </article>
+</section>
+
+<section class="card stats-card stats-days-card">
+  <div class="stats-section-head">
+    <div>
+      <h3>Динаміка по днях</h3>
+      <p class="muted">Коротко видно, в які дні був попит і що саме відбувалось.</p>
+    </div>
+  </div>
+  <div class="stats-day-strip">
+    {% for row in day_stats[:10] %}
+    <div class="stats-day-card">
+      <strong>{{ row.date }}</strong>
+      <span>Гості: {{ row.guests_count }}</span>
+      <span>Пошук: {{ row.searches }}</span>
+      <span>Перегляди: {{ row.part_views }}</span>
+      <span>Замовлено: {{ row.orders }}</span>
+    </div>
+    {% else %}
+    <div class="muted">За обраний період статистики ще немає.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="stats-details-stack">
+  <details class="card stats-detail-card">
+    <summary>
+      <span>Пошукові запити</span>
+      <strong>{{ search_stats|length }}</strong>
+    </summary>
     <div class="stats-table-wrap">
       <table>
         <thead><tr><th>Запит</th><th>К-сть</th><th>Останній раз</th></tr></thead>
@@ -56,10 +154,13 @@
         </tbody>
       </table>
     </div>
-  </section>
+  </details>
 
-  <section class="card stats-card">
-    <h3>Номери товарів, які дивилися</h3>
+  <details class="card stats-detail-card">
+    <summary>
+      <span>Номери товарів, які дивилися</span>
+      <strong>{{ viewed_parts|length }}</strong>
+    </summary>
     <div class="stats-table-wrap">
       <table>
         <thead><tr><th>OEM номер</th><th>Опис</th><th>Переглядів</th></tr></thead>
@@ -72,10 +173,13 @@
         </tbody>
       </table>
     </div>
-  </section>
+  </details>
 
-  <section class="card stats-card">
-    <h3>Запитати у продавця</h3>
+  <details class="card stats-detail-card">
+    <summary>
+      <span>Запитати у продавця</span>
+      <strong>{{ seller_parts|length }}</strong>
+    </summary>
     <div class="stats-table-wrap">
       <table>
         <thead><tr><th>OEM номер</th><th>Опис</th><th>Запитів</th></tr></thead>
@@ -88,10 +192,13 @@
         </tbody>
       </table>
     </div>
-  </section>
+  </details>
 
-  <section class="card stats-card">
-    <h3>Додавали в корзину</h3>
+  <details class="card stats-detail-card">
+    <summary>
+      <span>Додавали в кошик</span>
+      <strong>{{ cart_parts|length }}</strong>
+    </summary>
     <div class="stats-table-wrap">
       <table>
         <thead><tr><th>OEM номер</th><th>Опис</th><th>Кількість</th></tr></thead>
@@ -104,75 +211,57 @@
         </tbody>
       </table>
     </div>
-  </section>
-</div>
+  </details>
 
-<section class="card stats-card">
-  <h3>Замовлені товари</h3>
-  <div class="stats-table-wrap">
-    <table>
-      <thead><tr><th>OEM номер</th><th>Опис</th><th>Кількість</th><th>Подій</th></tr></thead>
-      <tbody>
-        {% for row in ordered_parts %}
-        <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.quantity }}</td><td>{{ row.count }}</td></tr>
-        {% else %}
-        <tr><td colspan="4" class="muted">Замовлених товарів за період немає.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
+  <details class="card stats-detail-card">
+    <summary>
+      <span>Замовлені товари</span>
+      <strong>{{ ordered_parts|length }}</strong>
+    </summary>
+    <div class="stats-table-wrap">
+      <table>
+        <thead><tr><th>OEM номер</th><th>Опис</th><th>Кількість</th><th>Подій</th></tr></thead>
+        <tbody>
+          {% for row in ordered_parts %}
+          <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.quantity }}</td><td>{{ row.count }}</td></tr>
+          {% else %}
+          <tr><td colspan="4" class="muted">Замовлених товарів за період немає.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 
-<section class="card stats-card">
-  <h3>Статистика по днях</h3>
-  <div class="stats-table-wrap">
-    <table>
-      <thead><tr><th>Дата</th><th>Гості</th><th>Пошуки</th><th>Перегляди</th><th>Запити</th><th>Кошик</th><th>Замовлено</th></tr></thead>
-      <tbody>
-        {% for row in day_stats %}
-        <tr>
-          <td>{{ row.date }}</td>
-          <td>{{ row.guests_count }}</td>
-          <td>{{ row.searches }}</td>
-          <td>{{ row.part_views }}</td>
-          <td>{{ row.seller_requests }}</td>
-          <td>{{ row.cart_adds }}</td>
-          <td>{{ row.orders }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="7" class="muted">За обраний період статистики немає.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="card stats-card">
-  <h3>Останні події</h3>
-  <div class="stats-table-wrap">
-    <table>
-      <thead><tr><th>Час</th><th>Подія</th><th>Деталі</th><th>К-сть</th></tr></thead>
-      <tbody>
-        {% for event in recent_events %}
-        <tr>
-          <td>{{ format_dt(event.created_at) }}</td>
-          <td>{{ event_labels.get(event.event_type, event.event_type) }}</td>
-          <td>
-            {% if event.event_type == 'search' %}
-              {{ event.query_text }}
-            {% elif event.part_number %}
-              <strong>{{ event.part_number }}</strong> {{ event.part_name }}
-            {% else %}
-              {{ event.visitor_id[:8] if event.visitor_id else '' }}
-            {% endif %}
-          </td>
-          <td>{{ event.quantity }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="muted">Подій немає.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <details class="card stats-detail-card">
+    <summary>
+      <span>Останні події</span>
+      <strong>{{ recent_events|length }}</strong>
+    </summary>
+    <div class="stats-table-wrap">
+      <table>
+        <thead><tr><th>Час</th><th>Подія</th><th>Деталі</th><th>К-сть</th></tr></thead>
+        <tbody>
+          {% for event in recent_events %}
+          <tr>
+            <td>{{ format_dt(event.created_at) }}</td>
+            <td>{{ event_labels.get(event.event_type, event.event_type) }}</td>
+            <td>
+              {% if event.event_type == 'search' %}
+                {{ event.query_text }}
+              {% elif event.part_number %}
+                <strong>{{ event.part_number }}</strong> {{ event.part_name }}
+              {% else %}
+                {{ event.visitor_id[:8] if event.visitor_id else '' }}
+              {% endif %}
+            </td>
+            <td>{{ event.quantity }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="muted">Подій немає.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 </section>
 {% endblock %}

@@ -26,7 +26,7 @@
 
       {% if gallery %}
       <button class="part-main-photo-button" type="button" id="part-main-photo-open" aria-label="Відкрити фото товару">
-        <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ part.name }}">
+        <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
       </button>
       {% else %}
       <div class="detail-img placeholder">Фото відсутнє</div>
@@ -41,7 +41,7 @@
           data-part-photo-thumb
           data-index="{{ loop.index0 }}"
           aria-label="Фото {{ loop.index }}">
-          <img src="{{ photo }}" alt="{{ part.name }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
+          <img src="{{ photo }}" alt="{{ part.part_number }} {{ clean_text(part.name) }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
         </button>
         {% endfor %}
       </div>
@@ -109,7 +109,7 @@
       </div>
     </div>
     <div class="part-photo-modal-body">
-      <img id="part-photo-modal-image" src="{{ gallery[0] }}" alt="{{ part.name }}">
+      <img id="part-photo-modal-image" src="{{ gallery[0] }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
     </div>
   </div>
 </div>

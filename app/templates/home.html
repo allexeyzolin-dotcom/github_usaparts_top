@@ -37,7 +37,7 @@
       <div class="showcase-card home-product-card">
         <a href="{{ part_detail_url(part) }}">
           {% if primary_part_photo(part) %}
-          <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.name }}">
+          <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
           {% else %}
           <div class="showcase-img placeholder">Фото</div>
           {% endif %}

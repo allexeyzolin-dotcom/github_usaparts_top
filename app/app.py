@@ -5724,52 +5724,176 @@ def seo_json_dumps(payload) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
+def organization_schema_payload() -> dict:
+    base_url = public_site_base_url()
+    return {
+        "@type": "Organization",
+        "@id": f"{base_url}/#organization",
+        "name": "USAparts.top",
+        "url": base_url,
+        "logo": public_url_for("static", filename="usaparts-logo-transparent.png"),
+    }
+
+
+def website_schema_payload() -> dict:
+    base_url = public_site_base_url()
+    return {
+        "@type": "WebSite",
+        "@id": f"{base_url}/#website",
+        "url": base_url,
+        "name": "USAparts.top",
+        "alternateName": ["USA Parts Top", "USAparts", "USAparts.top"],
+        "publisher": {"@id": f"{base_url}/#organization"},
+        "inLanguage": "uk-UA",
+    }
+
+
+def webpage_schema_payload(title: str, description: str, url: str) -> dict:
+    return {
+        "@type": "WebPage",
+        "@id": f"{url}#webpage",
+        "url": url,
+        "name": title,
+        "description": description,
+        "isPartOf": {"@id": f"{public_site_base_url()}/#website"},
+        "inLanguage": "uk-UA",
+    }
+
+
+def breadcrumb_schema_payload(items: list[tuple[str, str]]) -> dict:
+    item_list = []
+    for index, (name, url) in enumerate(items, 1):
+        if not name or not url:
+            continue
+        item_list.append(
+            {
+                "@type": "ListItem",
+                "position": index,
+                "name": name,
+                "item": url,
+            }
+        )
+    return {
+        "@type": "BreadcrumbList",
+        "itemListElement": item_list,
+    }
+
+
+def graph_json_ld(*payloads) -> str:
+    graph = [organization_schema_payload(), website_schema_payload()]
+    for payload in payloads:
+        if not payload:
+            continue
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except Exception:
+                continue
+        if isinstance(payload, dict) and payload.get("@graph"):
+            graph.extend(payload.get("@graph") or [])
+        elif isinstance(payload, list):
+            graph.extend(payload)
+        elif isinstance(payload, dict):
+            graph.append(payload)
+    return seo_json_dumps({"@context": "https://schema.org", "@graph": graph})
+
+
+def build_home_schema(title: str, description: str, featured: list[Part]) -> str:
+    url = public_url_for("home")
+    items = []
+    for index, part in enumerate(featured[:12], 1):
+        items.append(
+            {
+                "@type": "ListItem",
+                "position": index,
+                "url": public_part_url(part),
+                "name": compact_meta_text(part.part_number, part.name, limit=120),
+            }
+        )
+    return graph_json_ld(
+        webpage_schema_payload(title, description, url),
+        {
+            "@type": "ItemList",
+            "@id": f"{url}#featured-parts",
+            "name": "Запчастини для авто з США на вітрині",
+            "itemListElement": items,
+        },
+    )
+
+
 def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
+    part_url = public_part_url(part)
     gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
     price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
-    payload = {
-        "@context": "https://schema.org",
+    categories = seo_part_categories(part)
+    brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type))
+    product_payload = {
         "@type": "Product",
+        "@id": f"{part_url}#product",
         "name": compact_meta_text(part.part_number, part.name, limit=120),
+        "url": part_url,
         "sku": normalize_text(part.part_number or "").strip(),
         "mpn": normalize_text(part.part_number or "").strip(),
-        "brand": {
-            "@type": "Brand",
-            "name": normalize_text(part.brand or part.producer_type or "USAparts.top").strip(),
-        },
+        "brand": {"@type": "Brand", "name": brand_name or "USAparts.top"},
         "description": compact_meta_text(part.description or part.name, part.part_number, limit=300),
-        "image": gallery,
+        "mainEntityOfPage": {"@id": f"{part_url}#webpage"},
         "offers": {
             "@type": "Offer",
-            "url": public_part_url(part),
+            "url": part_url,
             "priceCurrency": "USD",
             "price": price,
             "availability": "https://schema.org/InStock" if part.in_stock and int(part.qty or 0) > 0 else "https://schema.org/OutOfStock",
             "itemCondition": "https://schema.org/NewCondition" if producer_type_label(part.producer_type) == "OEM" else "https://schema.org/UsedCondition",
+            "seller": {"@id": f"{public_site_base_url()}/#organization"},
         },
+        "additionalProperty": [
+            {"@type": "PropertyValue", "name": "OEM номер", "value": normalize_text(part.part_number or "").strip()},
+            {"@type": "PropertyValue", "name": "Кількість", "value": str(int(part.qty or 0))},
+        ],
     }
+    if gallery:
+        product_payload["image"] = gallery
+    if categories:
+        product_payload["category"] = ", ".join(category["label"] for category in categories[:3])
     if warehouse:
-        payload["offers"]["seller"] = {"@type": "Organization", "name": "USAparts.top"}
-    return seo_json_dumps(payload)
+        product_payload["additionalProperty"].append(
+            {"@type": "PropertyValue", "name": "Склад", "value": seo_clean_label(warehouse.name)}
+        )
+    title = compact_meta_text(part.part_number, part.name, limit=90)
+    description = compact_meta_text("Купити запчастину", part.part_number, part.name, f"наявність {int(part.qty or 0)} шт.", limit=160)
+    return graph_json_ld(
+        webpage_schema_payload(title, description, part_url),
+        breadcrumb_schema_payload(
+            [
+                ("Головна", public_url_for("home")),
+                ("Каталог запчастин", public_url_for("catalog")),
+                (normalize_text(part.part_number or "").strip(), part_url),
+            ]
+        ),
+        product_payload,
+    )
 
 
 def build_car_product_schema(car: Car, photos: list[str]) -> str:
+    car_url = public_url_for("car_detail_public", car_id=car.id)
     title = compact_meta_text(car.brand, car.model, car.year, limit=120)
     description = compact_meta_text(car.description, car.vin, limit=300) or title
     payload = {
-        "@context": "https://schema.org",
         "@type": "Product",
+        "@id": f"{car_url}#vehicle",
         "name": title,
+        "url": car_url,
         "sku": normalize_text(car.vin or f"car-{car.id}").strip(),
         "category": "Vehicle",
         "image": [absolute_public_url(url) for url in photos],
         "description": description,
         "offers": {
             "@type": "Offer",
-            "url": public_url_for("car_detail_public", car_id=car.id),
+            "url": car_url,
             "priceCurrency": "USD",
             "price": f"{float(car.price_usd or 0):.2f}",
             "availability": "https://schema.org/InStock" if car.status == "in_stock" else "https://schema.org/PreOrder",
+            "seller": {"@id": f"{public_site_base_url()}/#organization"},
         },
         "additionalProperty": [
             {"@type": "PropertyValue", "name": "VIN", "value": normalize_text(car.vin or "").strip()},
@@ -5777,7 +5901,17 @@ def build_car_product_schema(car: Car, photos: list[str]) -> str:
             {"@type": "PropertyValue", "name": "Mileage", "value": str(car.mileage or "")},
         ],
     }
-    return seo_json_dumps(payload)
+    return graph_json_ld(
+        webpage_schema_payload(title, description, car_url),
+        breadcrumb_schema_payload(
+            [
+                ("Головна", public_url_for("home")),
+                ("Авто", public_url_for("cars_public")),
+                (title, car_url),
+            ]
+        ),
+        payload,
+    )
 
 
 def sitemap_lastmod(value) -> str:
@@ -5796,6 +5930,25 @@ def sitemap_url_node(location: str, lastmod: str = "", changefreq: str = "", pri
         lines.append(f"    <changefreq>{xml_escape(changefreq)}</changefreq>")
     if priority:
         lines.append(f"    <priority>{xml_escape(priority)}</priority>")
+    lines.append("  </url>")
+    return "\n".join(lines)
+
+
+def sitemap_image_url_node(location: str, images: list[dict], lastmod: str = "") -> str:
+    lines = ["  <url>", f"    <loc>{xml_escape(location)}</loc>"]
+    if lastmod:
+        lines.append(f"    <lastmod>{xml_escape(lastmod)}</lastmod>")
+    for image in images[:10]:
+        image_url = image.get("loc") or ""
+        if not image_url:
+            continue
+        lines.append("    <image:image>")
+        lines.append(f"      <image:loc>{xml_escape(image_url)}</image:loc>")
+        if image.get("title"):
+            lines.append(f"      <image:title>{xml_escape(image['title'])}</image:title>")
+        if image.get("caption"):
+            lines.append(f"      <image:caption>{xml_escape(image['caption'])}</image:caption>")
+        lines.append("    </image:image>")
     lines.append("  </url>")
     return "\n".join(lines)
 
@@ -6031,14 +6184,25 @@ def seo_listing_schema(title: str, description: str, url: str, parts: list[Part]
             }
         )
     payload = {
-        "@context": "https://schema.org",
         "@type": "CollectionPage",
+        "@id": f"{url}#collection",
         "name": title,
         "description": description,
         "url": url,
+        "isPartOf": {"@id": f"{public_site_base_url()}/#website"},
+        "inLanguage": "uk-UA",
         "mainEntity": {"@type": "ItemList", "itemListElement": items},
     }
-    return seo_json_dumps(payload)
+    return graph_json_ld(
+        breadcrumb_schema_payload(
+            [
+                ("Головна", public_url_for("home")),
+                ("Каталог запчастин", public_url_for("catalog")),
+                (title, url),
+            ]
+        ),
+        payload,
+    )
 
 
 def render_seo_listing(parts: list[Part], title: str, description: str, canonical_url: str, *, intro: str = "", related=None):
@@ -6063,6 +6227,14 @@ def render_seo_listing(parts: list[Part], title: str, description: str, canonica
 def sitemap_xml_response(nodes: list[str]) -> Response:
     body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+    body += "\n".join(nodes)
+    body += "\n</urlset>\n"
+    return Response(body, mimetype="application/xml")
+
+
+def sitemap_image_xml_response(nodes: list[str]) -> Response:
+    body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    body += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
     body += "\n".join(nodes)
     body += "\n</urlset>\n"
     return Response(body, mimetype="application/xml")
@@ -6613,6 +6785,7 @@ def sitemap_xml():
     locations = [
         (public_url_for("sitemap_pages_xml"), today),
         (public_url_for("sitemap_parts_xml"), today),
+        (public_url_for("sitemap_images_xml"), today),
         (public_url_for("sitemap_cars_xml"), today),
         (public_url_for("sitemap_brands_xml"), today),
         (public_url_for("sitemap_categories_xml"), today),
@@ -6648,6 +6821,52 @@ def sitemap_parts_xml():
                 )
             )
         return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/images.xml")
+def sitemap_images_xml():
+    db = SessionLocal()
+    try:
+        nodes = []
+        for part in best_unique_public_parts(public_active_parts(db)):
+            gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
+            if not gallery:
+                continue
+            title = compact_meta_text(part.part_number, part.name, limit=120)
+            images = [
+                {
+                    "loc": url,
+                    "title": title,
+                    "caption": compact_meta_text("Фото запчастини", part.part_number, part.name, limit=160),
+                }
+                for url in gallery
+            ]
+            nodes.append(sitemap_image_url_node(public_part_url(part), images, lastmod=sitemap_lastmod(part.updated_at)))
+
+        cars = db.query(Car).order_by(desc(Car.created_at), desc(Car.id)).all()
+        for car in cars:
+            photos = [absolute_public_url(url) for url in parse_media_urls(car.image_urls)]
+            if not photos:
+                continue
+            title = compact_meta_text(car.brand, car.model, car.year, limit=120)
+            images = [
+                {
+                    "loc": url,
+                    "title": title,
+                    "caption": compact_meta_text("Фото авто", car.brand, car.model, car.vin, limit=160),
+                }
+                for url in photos
+            ]
+            nodes.append(
+                sitemap_image_url_node(
+                    public_url_for("car_detail_public", car_id=car.id),
+                    images,
+                    lastmod=sitemap_lastmod(car.created_at),
+                )
+            )
+        return sitemap_image_xml_response(nodes)
     finally:
         db.close()
 
@@ -6781,6 +7000,8 @@ def home():
         if q and page == 1:
             track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
             db.commit()
+        seo_title = "USAparts.top | Запчастини для авто з США"
+        seo_description = "USAparts.top - авторозбірка та автошрот в Україні. Б/у запчастини для авто зі США, пошук по OEM номеру, склади в Україні та поставки зі США."
         return render_template(
             "home.html",
             featured=featured,
@@ -6796,10 +7017,11 @@ def home():
             display_uah=display_uah,
             cars_random=cars_random,
             vehicle_warehouses=vehicle_warehouses,
-            seo_title="USAparts.top | Запчастини для авто з США",
-            seo_description="USAparts.top - авторозбірка та автошрот в Україні. Б/у запчастини для авто зі США, пошук по OEM номеру, склади в Україні та поставки зі США.",
+            seo_title=seo_title,
+            seo_description=seo_description,
             canonical_url=public_url_for("home"),
             seo_noindex=bool(q) or page > 1,
+            json_ld=build_home_schema(seo_title, seo_description, featured),
         )
     finally:
         db.close()
@@ -7185,8 +7407,9 @@ def part_detail(part_id, slug=None):
         part.views_168h += 1
         track_stats_event(db, "part_view", part=part)
         db.commit()
-        part_title = compact_meta_text(part.part_number, part.name, limit=90)
+        part_title = compact_meta_text(part.part_number, part.name, "купити запчастину з США", limit=95)
         part_price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
+        part_og_image = absolute_public_url(primary_part_photo(part)) if primary_part_photo(part) else ""
         return render_template(
             "part_detail.html",
             part=part,
@@ -7204,6 +7427,7 @@ def part_detail(part_id, slug=None):
             ),
             canonical_url=public_part_url(part),
             og_type="product",
+            og_image_url=part_og_image,
             json_ld=build_part_product_schema(part, warehouse),
         )
     finally:
@@ -7308,6 +7532,7 @@ def car_detail_public(car_id):
             ),
             canonical_url=public_url_for("car_detail_public", car_id=car.id),
             og_type="product",
+            og_image_url=absolute_public_url(photos[0]) if photos else "",
             json_ld=build_car_product_schema(car, photos),
         )
     finally:

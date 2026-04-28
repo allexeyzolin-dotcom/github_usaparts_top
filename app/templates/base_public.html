@@ -25,6 +25,16 @@
   <meta property="og:url" content="{{ canonical_url }}">
   {% endif %}
   <meta property="og:type" content="{{ og_type|default('website', true) }}">
+  {% if og_image_url|default('') %}
+  <meta property="og:image" content="{{ og_image_url }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ meta_title }}">
+  <meta name="twitter:description" content="{{ meta_description }}">
+  <meta name="twitter:image" content="{{ og_image_url }}">
+  {% else %}
+  <meta name="twitter:card" content="summary">
+  {% endif %}
+  <meta name="theme-color" content="#0b1118">
   <link rel="icon" type="image/png" sizes="48x48" href="{{ url_for('favicon_png_48') }}">
   <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('favicon_png_96') }}">
   <link rel="shortcut icon" href="{{ url_for('favicon_ico') }}">

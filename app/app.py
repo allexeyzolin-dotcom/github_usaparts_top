@@ -6547,22 +6547,64 @@ def robots_txt():
 
 @app.route("/favicon.ico")
 def favicon_ico():
-    return send_file(BASE_DIR / "static" / "favicon.ico", mimetype="image/x-icon")
+    response = send_file(BASE_DIR / "static" / "favicon.ico", mimetype="image/x-icon")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
 
 
 @app.route("/favicon-48.png")
 def favicon_png_48():
-    return send_file(BASE_DIR / "static" / "favicon-48.png", mimetype="image/png")
+    response = send_file(BASE_DIR / "static" / "favicon-48.png", mimetype="image/png")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
 
 
 @app.route("/favicon-96.png")
 def favicon_png_96():
-    return send_file(BASE_DIR / "static" / "favicon-96.png", mimetype="image/png")
+    response = send_file(BASE_DIR / "static" / "favicon-96.png", mimetype="image/png")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
 
 
 @app.route("/apple-touch-icon.png")
 def apple_touch_icon():
-    return send_file(BASE_DIR / "static" / "favicon-180.png", mimetype="image/png")
+    response = send_file(BASE_DIR / "static" / "favicon-180.png", mimetype="image/png")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
+@app.route("/site.webmanifest")
+def site_webmanifest():
+    payload = {
+        "name": "USAparts.top",
+        "short_name": "USAparts.top",
+        "icons": [
+            {
+                "src": public_url_for("favicon_png_48"),
+                "sizes": "48x48",
+                "type": "image/png",
+            },
+            {
+                "src": public_url_for("favicon_png_96"),
+                "sizes": "96x96",
+                "type": "image/png",
+            },
+            {
+                "src": public_url_for("static", filename="favicon-192.png"),
+                "sizes": "192x192",
+                "type": "image/png",
+            },
+        ],
+        "theme_color": "#0b1118",
+        "background_color": "#0b1118",
+        "display": "standalone",
+    }
+    response = Response(
+        json.dumps(payload, ensure_ascii=False),
+        mimetype="application/manifest+json",
+    )
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
 
 
 @app.route("/sitemap.xml")

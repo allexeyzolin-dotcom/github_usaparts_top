@@ -9,9 +9,7 @@
 <div class="panel-header stats-page-header">
   <div>
     <h1>Статистика</h1>
-    <p class="muted">
-      Загальна картина за обраний період. Детальні списки відкриваються нижче, щоб сторінка не перетворювалась на довгу таблицю.
-    </p>
+    <p class="muted">Спочатку загальна картина. Детальні списки відкриваються тільки після натискання на потрібний блок.</p>
   </div>
   <div class="stats-period-pill">
     {{ start_date.strftime('%d.%m.%Y') }}{% if end_date != start_date %} - {{ end_date.strftime('%d.%m.%Y') }}{% endif %}
@@ -67,7 +65,7 @@
       <strong>{{ summary.ordered_items }}</strong>
     </div>
     <div class="stats-summary-card accent-amber">
-      <span>Інтерес</span>
+      <span>Сигнали інтересу</span>
       <strong>{{ summary.seller_requests + summary.cart_adds + summary.ordered_items }}</strong>
     </div>
   </div>
@@ -86,7 +84,7 @@
   </article>
 
   <article class="card stats-insight-card">
-    <span class="field-label">Найбільше дивились</span>
+    <span class="field-label">Найбільше дивилися</span>
     {% if top_viewed %}
     <strong>{{ top_viewed.part_number }}</strong>
     <small>{{ top_viewed.part_name }} • {{ top_viewed.count }} перегляд(ів)</small>
@@ -118,7 +116,7 @@
   <div class="stats-section-head">
     <div>
       <h3>Динаміка по днях</h3>
-      <p class="muted">Коротко видно, в які дні був попит і що саме відбувалось.</p>
+      <p class="muted">Коротко видно, в які дні був попит і що саме відбувалося.</p>
     </div>
   </div>
   <div class="stats-day-strip">
@@ -136,132 +134,193 @@
   </div>
 </section>
 
-<section class="stats-details-stack">
-  <details class="card stats-detail-card">
-    <summary>
+<section class="stats-drilldown">
+  <div class="stats-section-head">
+    <div>
+      <h3>Деталі</h3>
+      <p class="muted">Натисніть блок, щоб відкрити потрібний список. Повторне натискання згортає його.</p>
+    </div>
+  </div>
+  <div class="stats-toggle-grid" data-stats-tabs>
+    <button class="stats-toggle-card" type="button" data-stats-toggle="searches" aria-controls="stats-panel-searches" aria-expanded="false">
       <span>Пошукові запити</span>
       <strong>{{ search_stats|length }}</strong>
-    </summary>
-    <div class="stats-table-wrap">
-      <table>
-        <thead><tr><th>Запит</th><th>К-сть</th><th>Останній раз</th></tr></thead>
-        <tbody>
-          {% for row in search_stats %}
-          <tr><td>{{ row.query }}</td><td>{{ row.count }}</td><td>{{ format_dt(row.last_at) }}</td></tr>
-          {% else %}
-          <tr><td colspan="3" class="muted">За період пошуків немає.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-
-  <details class="card stats-detail-card">
-    <summary>
+    </button>
+    <button class="stats-toggle-card" type="button" data-stats-toggle="views" aria-controls="stats-panel-views" aria-expanded="false">
       <span>Номери товарів, які дивилися</span>
       <strong>{{ viewed_parts|length }}</strong>
-    </summary>
-    <div class="stats-table-wrap">
-      <table>
-        <thead><tr><th>OEM номер</th><th>Опис</th><th>Переглядів</th></tr></thead>
-        <tbody>
-          {% for row in viewed_parts %}
-          <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.count }}</td></tr>
-          {% else %}
-          <tr><td colspan="3" class="muted">Переглядів товарів немає.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-
-  <details class="card stats-detail-card">
-    <summary>
-      <span>Запитати у продавця</span>
-      <strong>{{ seller_parts|length }}</strong>
-    </summary>
-    <div class="stats-table-wrap">
-      <table>
-        <thead><tr><th>OEM номер</th><th>Опис</th><th>Запитів</th></tr></thead>
-        <tbody>
-          {% for row in seller_parts %}
-          <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.count }}</td></tr>
-          {% else %}
-          <tr><td colspan="3" class="muted">Запитів продавцю немає.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-
-  <details class="card stats-detail-card">
-    <summary>
-      <span>Додавали в кошик</span>
-      <strong>{{ cart_parts|length }}</strong>
-    </summary>
-    <div class="stats-table-wrap">
-      <table>
-        <thead><tr><th>OEM номер</th><th>Опис</th><th>Кількість</th></tr></thead>
-        <tbody>
-          {% for row in cart_parts %}
-          <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.quantity }}</td></tr>
-          {% else %}
-          <tr><td colspan="3" class="muted">Додавань у кошик немає.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-
-  <details class="card stats-detail-card">
-    <summary>
-      <span>Замовлені товари</span>
-      <strong>{{ ordered_parts|length }}</strong>
-    </summary>
-    <div class="stats-table-wrap">
-      <table>
-        <thead><tr><th>OEM номер</th><th>Опис</th><th>Кількість</th><th>Подій</th></tr></thead>
-        <tbody>
-          {% for row in ordered_parts %}
-          <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.quantity }}</td><td>{{ row.count }}</td></tr>
-          {% else %}
-          <tr><td colspan="4" class="muted">Замовлених товарів за період немає.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-
-  <details class="card stats-detail-card">
-    <summary>
+    </button>
+    <button class="stats-toggle-card" type="button" data-stats-toggle="events" aria-controls="stats-panel-events" aria-expanded="false">
       <span>Останні події</span>
       <strong>{{ recent_events|length }}</strong>
-    </summary>
-    <div class="stats-table-wrap">
-      <table>
-        <thead><tr><th>Час</th><th>Подія</th><th>Деталі</th><th>К-сть</th></tr></thead>
-        <tbody>
-          {% for event in recent_events %}
-          <tr>
-            <td>{{ format_dt(event.created_at) }}</td>
-            <td>{{ event_labels.get(event.event_type, event.event_type) }}</td>
-            <td>
-              {% if event.event_type == 'search' %}
-                {{ event.query_text }}
-              {% elif event.part_number %}
-                <strong>{{ event.part_number }}</strong> {{ event.part_name }}
-              {% else %}
-                {{ event.visitor_id[:8] if event.visitor_id else '' }}
-              {% endif %}
-            </td>
-            <td>{{ event.quantity }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="4" class="muted">Подій немає.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
+    </button>
+    <button class="stats-toggle-card" type="button" data-stats-toggle="seller" aria-controls="stats-panel-seller" aria-expanded="false">
+      <span>Запитати у продавця</span>
+      <strong>{{ seller_parts|length }}</strong>
+    </button>
+    <button class="stats-toggle-card" type="button" data-stats-toggle="cart" aria-controls="stats-panel-cart" aria-expanded="false">
+      <span>Додавали в кошик</span>
+      <strong>{{ cart_parts|length }}</strong>
+    </button>
+    <button class="stats-toggle-card" type="button" data-stats-toggle="orders" aria-controls="stats-panel-orders" aria-expanded="false">
+      <span>Замовлені товари</span>
+      <strong>{{ ordered_parts|length }}</strong>
+    </button>
+  </div>
+
+  <div class="stats-panel-stack">
+    <section class="card stats-panel hidden" id="stats-panel-searches" data-stats-panel="searches">
+      <div class="stats-panel-head">
+        <h3>Пошукові запити</h3>
+        <span>{{ search_stats|length }}</span>
+      </div>
+      <div class="stats-table-wrap">
+        <table>
+          <thead><tr><th>Запит</th><th>К-сть</th><th>Останній раз</th></tr></thead>
+          <tbody>
+            {% for row in search_stats %}
+            <tr><td>{{ row.query }}</td><td>{{ row.count }}</td><td>{{ format_dt(row.last_at) }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">За період пошуків немає.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card stats-panel hidden" id="stats-panel-views" data-stats-panel="views">
+      <div class="stats-panel-head">
+        <h3>Номери товарів, які дивилися</h3>
+        <span>{{ viewed_parts|length }}</span>
+      </div>
+      <div class="stats-table-wrap">
+        <table>
+          <thead><tr><th>OEM номер</th><th>Опис</th><th>Переглядів</th></tr></thead>
+          <tbody>
+            {% for row in viewed_parts %}
+            <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.count }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Переглядів товарів немає.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card stats-panel hidden" id="stats-panel-events" data-stats-panel="events">
+      <div class="stats-panel-head">
+        <h3>Останні події</h3>
+        <span>{{ recent_events|length }}</span>
+      </div>
+      <div class="stats-table-wrap">
+        <table>
+          <thead><tr><th>Час</th><th>Подія</th><th>Деталі</th><th>К-сть</th></tr></thead>
+          <tbody>
+            {% for event in recent_events %}
+            <tr>
+              <td>{{ format_dt(event.created_at) }}</td>
+              <td>{{ event_labels.get(event.event_type, event.event_type) }}</td>
+              <td>
+                {% if event.event_type == 'search' %}
+                  {{ event.query_text }}
+                {% elif event.part_number %}
+                  <strong>{{ event.part_number }}</strong> {{ event.part_name }}
+                {% else %}
+                  {{ event.visitor_id[:8] if event.visitor_id else '' }}
+                {% endif %}
+              </td>
+              <td>{{ event.quantity }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">Подій немає.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card stats-panel hidden" id="stats-panel-seller" data-stats-panel="seller">
+      <div class="stats-panel-head">
+        <h3>Запитати у продавця</h3>
+        <span>{{ seller_parts|length }}</span>
+      </div>
+      <div class="stats-table-wrap">
+        <table>
+          <thead><tr><th>OEM номер</th><th>Опис</th><th>Запитів</th></tr></thead>
+          <tbody>
+            {% for row in seller_parts %}
+            <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.count }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Запитів продавцю немає.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card stats-panel hidden" id="stats-panel-cart" data-stats-panel="cart">
+      <div class="stats-panel-head">
+        <h3>Додавали в кошик</h3>
+        <span>{{ cart_parts|length }}</span>
+      </div>
+      <div class="stats-table-wrap">
+        <table>
+          <thead><tr><th>OEM номер</th><th>Опис</th><th>Кількість</th></tr></thead>
+          <tbody>
+            {% for row in cart_parts %}
+            <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.quantity }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Додавань у кошик немає.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card stats-panel hidden" id="stats-panel-orders" data-stats-panel="orders">
+      <div class="stats-panel-head">
+        <h3>Замовлені товари</h3>
+        <span>{{ ordered_parts|length }}</span>
+      </div>
+      <div class="stats-table-wrap">
+        <table>
+          <thead><tr><th>OEM номер</th><th>Опис</th><th>Кількість</th><th>Подій</th></tr></thead>
+          <tbody>
+            {% for row in ordered_parts %}
+            <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.quantity }}</td><td>{{ row.count }}</td></tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">Замовлених товарів за період немає.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </section>
+
+<script>
+(() => {
+  const buttons = [...document.querySelectorAll('[data-stats-toggle]')];
+  const panels = [...document.querySelectorAll('[data-stats-panel]')];
+  if (!buttons.length || !panels.length) return;
+
+  function setOpen(key) {
+    const activeButton = buttons.find((button) => button.dataset.statsToggle === key);
+    const alreadyOpen = activeButton?.classList.contains('is-active');
+    buttons.forEach((button) => {
+      const isActive = !alreadyOpen && button.dataset.statsToggle === key;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-expanded', isActive ? 'true' : 'false');
+    });
+    panels.forEach((panel) => {
+      const isActive = !alreadyOpen && panel.dataset.statsPanel === key;
+      panel.classList.toggle('hidden', !isActive);
+    });
+  }
+
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => setOpen(button.dataset.statsToggle));
+  });
+})();
+</script>
 {% endblock %}

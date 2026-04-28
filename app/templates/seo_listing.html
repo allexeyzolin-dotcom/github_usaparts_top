@@ -1,0 +1,89 @@
+{% extends 'base_public.html' %}
+{% block content %}
+<div class="container seo-listing-page">
+  <section class="seo-listing-hero card">
+    <span class="eyebrow">USAparts.top • SEO каталог</span>
+    <h1>{{ title }}</h1>
+    <p>{{ intro }}</p>
+    <div class="seo-listing-meta">
+      <span>{{ total_count }} позицій</span>
+      <span>Пошук по OEM номеру</span>
+      <span>Фото, ціна та наявність</span>
+    </div>
+  </section>
+
+  {% if related %}
+  <section class="seo-related-grid">
+    {% if related.categories %}
+    <div class="card seo-related-card">
+      <h2>Категорії</h2>
+      <div class="seo-chip-row">
+        {% for item in related.categories %}
+        <a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if related.vehicles %}
+    <div class="card seo-related-card">
+      <h2>Авто / склади</h2>
+      <div class="seo-chip-row">
+        {% for item in related.vehicles %}
+        <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if related.brands %}
+    <div class="card seo-related-card">
+      <h2>Бренди</h2>
+      <div class="seo-chip-row">
+        {% for item in related.brands %}
+        <a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <div class="showcase-grid seo-product-grid">
+    {% for part in parts %}
+    <div class="showcase-card">
+      <a href="{{ part_detail_url(part) }}">
+        {% if primary_part_photo(part) %}
+        <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+        {% else %}
+        <div class="showcase-img placeholder">Фото</div>
+        {% endif %}
+      </a>
+      <div class="showcase-body">
+        <div class="showcase-code">{{ part.part_number }}</div>
+        <h3>{{ clean_text(part.name) }}</h3>
+        <div class="muted seo-card-oem">OEM: {{ part.part_number }}</div>
+        <div class="price-row">
+          ${{ display_usd(part.price_usd, part.warehouse.markup_percent) }}
+          <span>₴{{ display_uah(part.price_usd, part.warehouse.markup_percent) }}</span>
+        </div>
+        <a class="btn primary full" href="{{ part_detail_url(part) }}">Переглянути</a>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="muted">Поки немає активних товарів для цієї SEO-сторінки.</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <section class="card seo-source-note">
+    <h2>Як формується сторінка</h2>
+    <p>
+      Сторінка оновлюється автоматично з бази товарів USAparts.top. Якщо для товару бракує опису або сумісності,
+      ключовим джерелом ідентифікації залишається OEM номер запчастини. Дані для підбору потрібно звіряти за OEM номером
+      і фото товару перед оформленням замовлення.
+    </p>
+  </section>
+</div>
+{% endblock %}

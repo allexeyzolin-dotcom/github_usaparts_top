@@ -5800,6 +5800,286 @@ def sitemap_url_node(location: str, lastmod: str = "", changefreq: str = "", pri
     return "\n".join(lines)
 
 
+SEO_VEHICLE_KEYWORDS = {
+    "ACURA", "AUDI", "BMW", "CADILLAC", "CHEVROLET", "CHRYSLER", "DODGE", "FIAT",
+    "FORD", "GMC", "HONDA", "HYUNDAI", "INFINITI", "JEEP", "KIA", "LEXUS",
+    "LINCOLN", "MAZDA", "MERCEDES", "MERCEDES-BENZ", "MITSUBISHI", "NISSAN",
+    "PORSCHE", "RENAULT", "SATURN", "SCION", "SSANGYONG", "SUBARU", "SUZUKI",
+    "TOYOTA", "VOLKSWAGEN", "VW", "VAG", "BUICK", "TESLA", "VOLVO", "RAM",
+    "TIGUAN", "PASSAT", "JETTA", "GOLF", "TOUAREG", "ATLAS", "TAHOE", "CAMRY",
+    "RAV4", "VENZA", "ROGUE", "ESCAPE", "FUSION", "MALIBU", "CHEROKEE",
+    "COMPASS", "DURANGO", "PACIFICA", "X5", "X3", "Q5", "Q7",
+}
+
+SEO_VEHICLE_LABELS = {
+    "VW": "Volkswagen",
+    "VAG": "Volkswagen / VAG",
+    "MERCEDES-BENZ": "Mercedes-Benz",
+    "MERCEDES": "Mercedes-Benz",
+}
+
+SEO_SERVICE_WAREHOUSE_WORDS = {
+    "СКЛАД", "ГАРАНТОВАН", "НАЯВ", "TEST", "MARKET", "OEM", "ЗАМІННИК",
+    "ЗАМЕННИК", "ПРИЙОМ", "ПРИЕМ", "ТОВАР", "TRANSIT", "ALL", "ВСІ", "ВСЕ",
+}
+
+SEO_IGNORED_BRANDS = {
+    "", "OEM", "MARKET", "MARKET OEM", "MARKET (OEM)", "ОРИГІНАЛ", "ОРИГИНАЛ",
+    "ЗАМІННИК", "ЗАМЕННИК", "АНАЛОГ", "НОВИЙ", "БУ", "B/U", "USED", "NEW",
+}
+
+SEO_CATEGORY_RULES = (
+    {"slug": "bampery-kryla-kuzov", "label": "Кузовні запчастини", "keywords": ("бампер", "крило", "капот", "двер", "крыш", "криш", "кузов", "наклад", "обшив", "панел", "решет", "дзерк", "зерк", "molding", "trim")},
+    {"slug": "optika-fary-likhtari", "label": "Оптика, фари та ліхтарі", "keywords": ("фара", "ліхтар", "фонар", "оптик", "ламп", "противотуман", "стоп", "reflector", "headlight", "tail light")},
+    {"slug": "pidviska-ryulove", "label": "Підвіска та рульове", "keywords": ("важіль", "рычаг", "амортиз", "стойк", "сайлент", "шарова", "ступиц", "маточ", "тяга", "руль", "рейк", "підвіск", "подвес")},
+    {"slug": "halmivna-systema", "label": "Гальмівна система", "keywords": ("гальм", "тормоз", "колод", "диск", "супорт", "суппорт", "abs", "brake")},
+    {"slug": "dvygun-ta-opory", "label": "Двигун та опори", "keywords": ("двигун", "двигател", "мотор", "опор", "подушка", "клапан", "порш", "колін", "колен", "engine")},
+    {"slug": "karter-piddon-mastylna", "label": "Картер, піддон і мастильна система", "keywords": ("піддон", "поддон", "картер", "масл", "олив", "oil pan", "фільтр олив", "фильтр масл")},
+    {"slug": "okholodzhennya", "label": "Система охолодження", "keywords": ("радіатор", "радиатор", "вентилятор", "термостат", "патруб", "насос", "помпа", "охолод", "coolant")},
+    {"slug": "elektryka-datchyky", "label": "Електрика та датчики", "keywords": ("датчик", "сенсор", "провод", "блок", "модул", "реле", "кнопк", "перемика", "плата", "електр", "электр", "module", "sensor")},
+    {"slug": "salon-interyer", "label": "Салон та інтер'єр", "keywords": ("салон", "сидін", "сиден", "панель прибор", "щиток", "консоль", "ремін", "ремень", "interior", "airbag")},
+    {"slug": "transmisiya-akpp", "label": "Трансмісія та АКПП", "keywords": ("акпп", "кпп", "коробк", "трансм", "редуктор", "шрус", "привід", "привод", "transmission")},
+    {"slug": "palivna-systema", "label": "Паливна система", "keywords": ("палив", "топлив", "бак", "форсунк", "насос пал", "fuel")},
+    {"slug": "sklo-dah-ushchilnyuvachi", "label": "Скло, дах та ущільнювачі", "keywords": ("скло", "стекл", "люк", "дах", "крыша", "ущільн", "уплотн", "glass", "seal")},
+)
+
+
+def seo_slug(value: str) -> str:
+    text = transliterate_slug_text(value or "")
+    text = re.sub(r"[^a-z0-9]+", "-", text, flags=re.IGNORECASE)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text[:90].strip("-") or "item"
+
+
+def seo_clean_label(value: str) -> str:
+    return re.sub(r"\s+", " ", normalize_text(value or "").strip())
+
+
+def public_active_parts(db):
+    return (
+        db.query(Part)
+        .filter(Part.is_deleted == False, Part.in_stock == True, Part.qty > 0)
+        .order_by(desc(Part.updated_at), desc(Part.id))
+        .all()
+    )
+
+
+def best_unique_public_parts(parts) -> list[Part]:
+    best_by_number: dict[str, Part] = {}
+    for part in parts:
+        key = seo_clean_label(part.part_number).upper() or f"id-{part.id}"
+        current = best_by_number.get(key)
+        candidate_score = (
+            1 if primary_part_photo(part) else 0,
+            max(int(part.qty or 0), 0),
+            part.updated_at.timestamp() if part.updated_at else 0,
+            part.id,
+        )
+        current_score = (
+            1 if current and primary_part_photo(current) else 0,
+            max(int(current.qty or 0), 0) if current else 0,
+            current.updated_at.timestamp() if current and current.updated_at else 0,
+            current.id if current else 0,
+        )
+        if not current or candidate_score > current_score:
+            best_by_number[key] = part
+    return sorted(best_by_number.values(), key=lambda part: (seo_clean_label(part.part_number).upper(), part.id))
+
+
+def seo_part_text(part: Part) -> str:
+    warehouse_name = part.warehouse.name if getattr(part, "warehouse", None) else ""
+    return " ".join(
+        [
+            seo_clean_label(part.part_number),
+            seo_clean_label(part.brand),
+            seo_clean_label(part.brand_export),
+            seo_clean_label(part.producer_type),
+            seo_clean_label(part.name),
+            seo_clean_label(part.description),
+            seo_clean_label(warehouse_name),
+        ]
+    ).casefold()
+
+
+def seo_part_brand(part: Part) -> str:
+    for value in (part.brand, part.brand_export):
+        label = seo_clean_label(value)
+        normalized = re.sub(r"[^A-ZА-ЯІЇЄҐ0-9]+", " ", label.upper()).strip()
+        if normalized not in SEO_IGNORED_BRANDS and len(label) >= 2:
+            return label[:60]
+    return ""
+
+
+def seo_vehicle_label_from_warehouse(warehouse: Warehouse | None) -> str:
+    if not warehouse:
+        return ""
+    name = seo_clean_label(warehouse.name)
+    if not name:
+        return ""
+    upper = name.upper()
+    normalized = re.sub(r"[^A-ZА-ЯІЇЄҐ0-9]+", " ", upper).strip()
+    tokens = set(normalized.split())
+    if tokens and tokens.issubset(SEO_SERVICE_WAREHOUSE_WORDS):
+        return ""
+    if not any(keyword in upper for keyword in SEO_VEHICLE_KEYWORDS):
+        return ""
+    return name[:80]
+
+
+def seo_vehicle_label_from_part(part: Part) -> str:
+    warehouse_label = seo_vehicle_label_from_warehouse(part.warehouse if getattr(part, "warehouse", None) else None)
+    if warehouse_label:
+        return warehouse_label
+    text = seo_part_text(part).upper()
+    for keyword in sorted(SEO_VEHICLE_KEYWORDS, key=len, reverse=True):
+        if re.search(rf"(^|[^A-Z0-9]){re.escape(keyword)}([^A-Z0-9]|$)", text):
+            return SEO_VEHICLE_LABELS.get(keyword, keyword.title())
+    return ""
+
+
+def seo_part_categories(part: Part) -> list[dict]:
+    text = seo_part_text(part)
+    categories = []
+    for rule in SEO_CATEGORY_RULES:
+        if any(keyword.casefold() in text for keyword in rule["keywords"]):
+            categories.append(rule)
+    return categories
+
+
+def seo_collect_entries(parts: list[Part]):
+    brands: dict[str, dict] = {}
+    categories: dict[str, dict] = {}
+    vehicles: dict[str, dict] = {}
+    vehicle_categories: dict[tuple[str, str], dict] = {}
+    for part in parts:
+        updated_at = part.updated_at or part.created_at
+        brand_label = seo_part_brand(part)
+        if brand_label:
+            slug = seo_slug(brand_label)
+            row = brands.setdefault(slug, {"slug": slug, "label": brand_label, "count": 0, "lastmod": updated_at})
+            row["count"] += 1
+            if updated_at and (not row["lastmod"] or updated_at > row["lastmod"]):
+                row["lastmod"] = updated_at
+
+        vehicle_label = seo_vehicle_label_from_part(part)
+        vehicle_slug = seo_slug(vehicle_label) if vehicle_label else ""
+        if vehicle_label:
+            row = vehicles.setdefault(vehicle_slug, {"slug": vehicle_slug, "label": vehicle_label, "count": 0, "lastmod": updated_at})
+            row["count"] += 1
+            if updated_at and (not row["lastmod"] or updated_at > row["lastmod"]):
+                row["lastmod"] = updated_at
+
+        for category in seo_part_categories(part):
+            row = categories.setdefault(
+                category["slug"],
+                {"slug": category["slug"], "label": category["label"], "count": 0, "lastmod": updated_at},
+            )
+            row["count"] += 1
+            if updated_at and (not row["lastmod"] or updated_at > row["lastmod"]):
+                row["lastmod"] = updated_at
+
+            if vehicle_slug:
+                combo_key = (category["slug"], vehicle_slug)
+                combo = vehicle_categories.setdefault(
+                    combo_key,
+                    {
+                        "category_slug": category["slug"],
+                        "category_label": category["label"],
+                        "vehicle_slug": vehicle_slug,
+                        "vehicle_label": vehicle_label,
+                        "count": 0,
+                        "lastmod": updated_at,
+                    },
+                )
+                combo["count"] += 1
+                if updated_at and (not combo["lastmod"] or updated_at > combo["lastmod"]):
+                    combo["lastmod"] = updated_at
+
+    return {
+        "brands": sorted(brands.values(), key=lambda row: (-row["count"], row["label"].casefold())),
+        "categories": sorted(categories.values(), key=lambda row: (-row["count"], row["label"].casefold())),
+        "vehicles": sorted(vehicles.values(), key=lambda row: (-row["count"], row["label"].casefold())),
+        "vehicle_categories": sorted(
+            [row for row in vehicle_categories.values() if row["count"] >= 2],
+            key=lambda row: (-row["count"], row["vehicle_label"].casefold(), row["category_label"].casefold()),
+        ),
+    }
+
+
+def seo_filter_parts(parts: list[Part], *, brand_slug: str = "", category_slug: str = "", vehicle_slug: str = "") -> list[Part]:
+    filtered = []
+    for part in parts:
+        if brand_slug and seo_slug(seo_part_brand(part)) != brand_slug:
+            continue
+        if vehicle_slug and seo_slug(seo_vehicle_label_from_part(part)) != vehicle_slug:
+            continue
+        if category_slug and category_slug not in {category["slug"] for category in seo_part_categories(part)}:
+            continue
+        filtered.append(part)
+    return filtered
+
+
+def seo_listing_schema(title: str, description: str, url: str, parts: list[Part]) -> str:
+    items = []
+    for index, part in enumerate(parts[:24], 1):
+        items.append(
+            {
+                "@type": "ListItem",
+                "position": index,
+                "url": public_part_url(part),
+                "name": compact_meta_text(part.part_number, part.name, limit=120),
+            }
+        )
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": title,
+        "description": description,
+        "url": url,
+        "mainEntity": {"@type": "ItemList", "itemListElement": items},
+    }
+    return seo_json_dumps(payload)
+
+
+def render_seo_listing(parts: list[Part], title: str, description: str, canonical_url: str, *, intro: str = "", related=None):
+    related = related or {}
+    return render_template(
+        "seo_listing.html",
+        title=title,
+        description=description,
+        intro=intro or description,
+        parts=parts[:72],
+        total_count=len(parts),
+        related=related,
+        display_usd=display_usd,
+        display_uah=display_uah,
+        seo_title=f"{title} | USAparts.top",
+        seo_description=compact_meta_text(description, limit=155),
+        canonical_url=canonical_url,
+        json_ld=seo_listing_schema(title, description, canonical_url, parts),
+    )
+
+
+def sitemap_xml_response(nodes: list[str]) -> Response:
+    body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+    body += "\n".join(nodes)
+    body += "\n</urlset>\n"
+    return Response(body, mimetype="application/xml")
+
+
+def sitemap_index_response(locations: list[tuple[str, str]]) -> Response:
+    lines = ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"]
+    for location, lastmod in locations:
+        lines.append("  <sitemap>")
+        lines.append(f"    <loc>{xml_escape(location)}</loc>")
+        if lastmod:
+            lines.append(f"    <lastmod>{xml_escape(lastmod)}</lastmod>")
+        lines.append("  </sitemap>")
+    lines.append("</sitemapindex>")
+    return Response("\n".join(lines) + "\n", mimetype="application/xml")
+
+
 def recalc_warehouse_stats(warehouse: Warehouse):
     parts = [part for part in warehouse.parts if not part.is_deleted]
     total = len(parts)
@@ -6287,47 +6567,145 @@ def apple_touch_icon():
 
 @app.route("/sitemap.xml")
 def sitemap_xml():
+    today = datetime.utcnow().date().isoformat()
+    locations = [
+        (public_url_for("sitemap_pages_xml"), today),
+        (public_url_for("sitemap_parts_xml"), today),
+        (public_url_for("sitemap_cars_xml"), today),
+        (public_url_for("sitemap_brands_xml"), today),
+        (public_url_for("sitemap_categories_xml"), today),
+        (public_url_for("sitemap_vehicles_xml"), today),
+        (public_url_for("sitemap_vehicle_categories_xml"), today),
+    ]
+    return sitemap_index_response(locations)
+
+
+@app.route("/sitemap/pages.xml")
+def sitemap_pages_xml():
+    nodes = [
+        sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"),
+        sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
+        sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
+    ]
+    return sitemap_xml_response(nodes)
+
+
+@app.route("/sitemap/parts.xml")
+def sitemap_parts_xml():
     db = SessionLocal()
     try:
-        nodes = [
-            sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"),
-            sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
-            sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
-        ]
-        parts = (
-            db.query(Part.id, Part.part_number, Part.name, Part.updated_at)
-            .filter(Part.is_deleted == False, Part.in_stock == True, Part.qty > 0)
-            .order_by(desc(Part.updated_at), desc(Part.id))
-            .all()
-        )
-        for part_id, part_number, part_name, updated_at in parts:
+        parts = best_unique_public_parts(public_active_parts(db))
+        nodes = []
+        for part in parts:
             nodes.append(
                 sitemap_url_node(
-                    public_url_for(
-                        "part_detail",
-                        part_id=part_id,
-                        slug=part_seo_slug_from_values(part_number, part_name),
-                    ),
-                    lastmod=sitemap_lastmod(updated_at),
+                    public_part_url(part),
+                    lastmod=sitemap_lastmod(part.updated_at),
                     changefreq="weekly",
                     priority="0.8",
                 )
             )
-        cars = db.query(Car.id, Car.created_at).order_by(desc(Car.created_at), desc(Car.id)).all()
-        for car_id, created_at in cars:
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/cars.xml")
+def sitemap_cars_xml():
+    db = SessionLocal()
+    try:
+        cars = db.query(Car).order_by(desc(Car.created_at), desc(Car.id)).all()
+        nodes = []
+        for car in cars:
             nodes.append(
                 sitemap_url_node(
-                    public_url_for("car_detail_public", car_id=car_id),
-                    lastmod=sitemap_lastmod(created_at),
+                    public_url_for("car_detail_public", car_id=car.id),
+                    lastmod=sitemap_lastmod(car.created_at),
                     changefreq="weekly",
                     priority="0.7",
                 )
             )
-        body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
-        body += "\n".join(nodes)
-        body += "\n</urlset>\n"
-        return Response(body, mimetype="application/xml")
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/brands.xml")
+def sitemap_brands_xml():
+    db = SessionLocal()
+    try:
+        entries = seo_collect_entries(public_active_parts(db))["brands"]
+        nodes = [
+            sitemap_url_node(
+                public_url_for("seo_brand_page", slug=entry["slug"]),
+                lastmod=sitemap_lastmod(entry["lastmod"]),
+                changefreq="weekly",
+                priority="0.65",
+            )
+            for entry in entries
+        ]
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/categories.xml")
+def sitemap_categories_xml():
+    db = SessionLocal()
+    try:
+        entries = seo_collect_entries(public_active_parts(db))["categories"]
+        nodes = [
+            sitemap_url_node(
+                public_url_for("seo_category_page", slug=entry["slug"]),
+                lastmod=sitemap_lastmod(entry["lastmod"]),
+                changefreq="weekly",
+                priority="0.65",
+            )
+            for entry in entries
+        ]
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/vehicles.xml")
+def sitemap_vehicles_xml():
+    db = SessionLocal()
+    try:
+        entries = seo_collect_entries(public_active_parts(db))["vehicles"]
+        nodes = [
+            sitemap_url_node(
+                public_url_for("seo_vehicle_page", slug=entry["slug"]),
+                lastmod=sitemap_lastmod(entry["lastmod"]),
+                changefreq="weekly",
+                priority="0.65",
+            )
+            for entry in entries
+        ]
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/vehicle-categories.xml")
+def sitemap_vehicle_categories_xml():
+    db = SessionLocal()
+    try:
+        entries = seo_collect_entries(public_active_parts(db))["vehicle_categories"]
+        nodes = [
+            sitemap_url_node(
+                public_url_for(
+                    "seo_vehicle_category_page",
+                    category_slug=entry["category_slug"],
+                    vehicle_slug=entry["vehicle_slug"],
+                ),
+                lastmod=sitemap_lastmod(entry["lastmod"]),
+                changefreq="weekly",
+                priority="0.7",
+            )
+            for entry in entries
+        ]
+        return sitemap_xml_response(nodes)
     finally:
         db.close()
 
@@ -6644,6 +7022,105 @@ def catalog():
             seo_description="Каталог запчастин для авто з США. Пошук по OEM номеру, назві, бренду та швидке оформлення замовлення.",
             canonical_url=public_url_for("catalog"),
             seo_noindex=bool(q) or bool(condition),
+        )
+    finally:
+        db.close()
+
+
+@app.route("/brand/<slug>")
+def seo_brand_page(slug):
+    db = SessionLocal()
+    try:
+        all_parts = best_unique_public_parts(public_active_parts(db))
+        entries = seo_collect_entries(all_parts)
+        brand = next((entry for entry in entries["brands"] if entry["slug"] == slug), None)
+        if not brand:
+            return redirect(url_for("catalog"), code=302)
+        parts = seo_filter_parts(all_parts, brand_slug=slug)
+        title = f"Запчастини {brand['label']}"
+        description = f"Каталог запчастин {brand['label']} на USAparts.top. Пошук і замовлення по OEM номеру, фото, ціна та наявність на складі."
+        return render_seo_listing(
+            parts,
+            title,
+            description,
+            public_url_for("seo_brand_page", slug=slug),
+            intro=f"Сторінка автоматично формується з товарів, де бренд або виробник визначений як {brand['label']}. Для точного підбору використовуйте OEM номер запчастини.",
+            related={"categories": entries["categories"][:12], "vehicles": entries["vehicles"][:12]},
+        )
+    finally:
+        db.close()
+
+
+@app.route("/vehicle/<slug>")
+def seo_vehicle_page(slug):
+    db = SessionLocal()
+    try:
+        all_parts = best_unique_public_parts(public_active_parts(db))
+        entries = seo_collect_entries(all_parts)
+        vehicle = next((entry for entry in entries["vehicles"] if entry["slug"] == slug), None)
+        if not vehicle:
+            return redirect(url_for("catalog"), code=302)
+        parts = seo_filter_parts(all_parts, vehicle_slug=slug)
+        title = f"Запчастини {vehicle['label']}"
+        description = f"Б/у запчастини для {vehicle['label']} з авто зі США. Наявність, фото, ціна та швидке замовлення по OEM номеру."
+        return render_seo_listing(
+            parts,
+            title,
+            description,
+            public_url_for("seo_vehicle_page", slug=slug),
+            intro=f"Підбірка формується автоматично зі складів, назва яких відповідає {vehicle['label']}. Якщо потрібна сумісність, орієнтуйтесь на OEM номер і звертайтесь до менеджера.",
+            related={"categories": entries["categories"][:12], "brands": entries["brands"][:12]},
+        )
+    finally:
+        db.close()
+
+
+@app.route("/list/<slug>")
+def seo_category_page(slug):
+    db = SessionLocal()
+    try:
+        all_parts = best_unique_public_parts(public_active_parts(db))
+        entries = seo_collect_entries(all_parts)
+        category = next((entry for entry in entries["categories"] if entry["slug"] == slug), None)
+        if not category:
+            return redirect(url_for("catalog"), code=302)
+        parts = seo_filter_parts(all_parts, category_slug=slug)
+        title = f"{category['label']} для авто з США"
+        description = f"{category['label']} в наявності на USAparts.top. Підбір по OEM номеру, фото товару, ціна в USD та гривні."
+        return render_seo_listing(
+            parts,
+            title,
+            description,
+            public_url_for("seo_category_page", slug=slug),
+            intro=f"Категорія визначається автоматично з опису та назви запчастини. Нові товари з імпорту одразу потрапляють сюди, якщо текст відповідає категорії «{category['label']}».",
+            related={"vehicles": entries["vehicles"][:12], "brands": entries["brands"][:12]},
+        )
+    finally:
+        db.close()
+
+
+@app.route("/list/<category_slug>/<vehicle_slug>")
+def seo_vehicle_category_page(category_slug, vehicle_slug):
+    db = SessionLocal()
+    try:
+        all_parts = best_unique_public_parts(public_active_parts(db))
+        entries = seo_collect_entries(all_parts)
+        category = next((entry for entry in entries["categories"] if entry["slug"] == category_slug), None)
+        vehicle = next((entry for entry in entries["vehicles"] if entry["slug"] == vehicle_slug), None)
+        if not category or not vehicle:
+            return redirect(url_for("catalog"), code=302)
+        parts = seo_filter_parts(all_parts, category_slug=category_slug, vehicle_slug=vehicle_slug)
+        if not parts:
+            return redirect(url_for("seo_category_page", slug=category_slug), code=302)
+        title = f"{category['label']} {vehicle['label']}"
+        description = f"{category['label']} для {vehicle['label']} з авто зі США. Наявні позиції з фото, ціною та OEM номером."
+        return render_seo_listing(
+            parts,
+            title,
+            description,
+            public_url_for("seo_vehicle_category_page", category_slug=category_slug, vehicle_slug=vehicle_slug),
+            intro=f"SEO-сторінка створена автоматично з перетину категорії «{category['label']}» і складу/авто «{vehicle['label']}».",
+            related={"categories": entries["categories"][:12], "vehicles": entries["vehicles"][:12]},
         )
     finally:
         db.close()

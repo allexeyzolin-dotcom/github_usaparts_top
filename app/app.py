@@ -6772,14 +6772,27 @@ def redirect_to_primary_domain():
 
 @app.route("/robots.txt")
 def robots_txt():
+    base_url = public_site_base_url()
     content = "\n".join([
         "User-agent: *",
         "Disallow: /admin/",
         "Disallow: /api/",
         "Disallow: /cart",
         "Disallow: /checkout",
+        "Allow: /part/",
+        "Allow: /catalog",
+        "Allow: /list/",
+        "Allow: /static/",
         "Allow: /uploads/",
-        f"Sitemap: {public_site_base_url()}/sitemap.xml",
+        "Allow: /favicon.ico",
+        "Allow: /favicon.png",
+        "Allow: /favicon-48.png",
+        "Allow: /favicon-96.png",
+        "",
+        f"Sitemap: {base_url}/sitemap.xml",
+        f"Sitemap: {base_url}/sitemap/parts.xml",
+        f"Sitemap: {base_url}/sitemap/images.xml",
+        f"Sitemap: {base_url}/sitemap/cars.xml",
         "",
     ])
     return Response(content, mimetype="text/plain")

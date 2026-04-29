@@ -615,6 +615,72 @@ def queue_template_inventory_change(db, template: "PartTemplate", before_qty: in
     )
 
 
+def build_inventory_assignment_telegram_message(
+    *,
+    part_number: str,
+    title: str,
+    qty: int,
+    from_label: str,
+    to_label: str,
+    warehouse_qty: int,
+    unassigned_qty: int,
+    context_label: str = "",
+    reason: str = "",
+) -> str:
+    qty = max(int(qty or 0), 0)
+    if qty <= 0:
+        return ""
+    description = normalize_text(title or "").strip() or "Без опису"
+    direction_to_warehouse = normalize_text(to_label or "").strip().casefold() != "всі товари"
+    headline = "Присвоєння складу" if direction_to_warehouse else "Повернення у Всі товари"
+    lines = [
+        f"🔁 {headline}",
+        "",
+        f"Номер запчастини: {normalize_text(part_number or '').strip() or '-'}",
+        f"Опис: {description}",
+        f"Переміщено: {qty}",
+        f"Звідки: {normalize_text(from_label or '').strip() or '-'}",
+        f"Куди: {normalize_text(to_label or '').strip() or '-'}",
+        f"Залишок у складі: {max(int(warehouse_qty or 0), 0)}",
+        f"Залишок у Всі товари: {max(int(unassigned_qty or 0), 0)}",
+    ]
+    if context_label:
+        lines.append(f"Контекст: {normalize_text(context_label).strip()}")
+    if reason:
+        lines.append(f"Причина: {normalize_text(reason).strip()}")
+    return "\n".join(lines)
+
+
+def queue_inventory_assignment_change(
+    db,
+    *,
+    template: "PartTemplate",
+    warehouse_name: str,
+    qty: int,
+    to_warehouse: bool,
+    warehouse_qty: int,
+    unassigned_qty: int,
+    context_label: str = "",
+    reason: str = "",
+):
+    if not template:
+        return
+    warehouse_label = normalize_text(warehouse_name or "").strip() or "Склад"
+    text = build_inventory_assignment_telegram_message(
+        part_number=template.part_number,
+        title=template.name or template.description or "",
+        qty=qty,
+        from_label="Всі товари" if to_warehouse else warehouse_label,
+        to_label=warehouse_label if to_warehouse else "Всі товари",
+        warehouse_qty=warehouse_qty,
+        unassigned_qty=unassigned_qty,
+        context_label=context_label,
+        reason=reason,
+    )
+    if text:
+        queue_telegram_message(db, text)
+
+
 def build_order_telegram_message(order: Order, items: list[dict], city_name: str, address: str, comment: str) -> str:
     delivery_comment = normalize_text(order.comment or "").strip()
     lines = [
@@ -9429,12 +9495,13 @@ def admin_part_autosave():
                     part_number=part_number,
                     created_at=now(),
                     updated_at=now(),
-                )
+            )
                 db.add(selected_part)
                 db.flush()
 
             rebalance_template_assignment_qty(template, before_selected_qty, qty)
-            template_qty_changed = template_unassigned_qty(template) != before_template_qty
+            after_template_qty = template_unassigned_qty(template)
+            template_qty_changed = after_template_qty != before_template_qty
             selected_part.qty = qty
             selected_part.in_stock = qty > 0
             selected_part.is_deleted = qty <= 0
@@ -9444,19 +9511,49 @@ def admin_part_autosave():
             selected_part.brand_export = normalize_text(template.brand or "").strip()
             selected_part.part_number_export = part_number
             ensure_part_barcode(db, selected_part)
-            queue_part_inventory_change(
-                db,
-                selected_part,
-                before_selected_qty,
-                context_label=f"Картка товару → {warehouse.name}",
-                reason="Збережено зміни через автозапис",
-            )
-        if warehouse_value in {"", "all"} or template_qty_changed:
+            part_delta = int(qty or 0) - int(before_selected_qty or 0)
+            template_delta = int(after_template_qty or 0) - int(before_template_qty or 0)
+            assigned_qty = min(max(part_delta, 0), max(-template_delta, 0))
+            returned_qty = min(max(-part_delta, 0), max(template_delta, 0))
+            if assigned_qty:
+                queue_inventory_assignment_change(
+                    db,
+                    template=template,
+                    warehouse_name=warehouse.name,
+                    qty=assigned_qty,
+                    to_warehouse=True,
+                    warehouse_qty=int(qty or 0),
+                    unassigned_qty=after_template_qty,
+                    context_label=f"Картка товару → {warehouse.name}",
+                    reason="Присвоєно склад через автозапис",
+                )
+            if returned_qty:
+                queue_inventory_assignment_change(
+                    db,
+                    template=template,
+                    warehouse_name=warehouse.name,
+                    qty=returned_qty,
+                    to_warehouse=False,
+                    warehouse_qty=int(qty or 0),
+                    unassigned_qty=after_template_qty,
+                    context_label=f"Картка товару → Всі товари",
+                    reason="Повернуто зі складу через автозапис",
+                )
+            actual_part_increase = max(part_delta - assigned_qty, 0)
+            if actual_part_increase:
+                queue_part_inventory_change(
+                    db,
+                    selected_part,
+                    int(qty or 0) - actual_part_increase,
+                    context_label=f"Картка товару → {warehouse.name}",
+                    reason="Додано понад залишок Всі товари через автозапис",
+                )
+        if warehouse_value in {"", "all"}:
             queue_template_inventory_change(
                 db,
                 template,
                 before_template_qty,
-                context_label="Картка товару → Всі товари" if warehouse_value in {"", "all"} else f"Картка товару → {warehouse.name}",
+                context_label="Картка товару → Всі товари",
                 reason="Збережено зміни через автозапис",
             )
 
@@ -9546,6 +9643,7 @@ def create_part():
                         db.flush()
                     new_qty = before_part_qty + qty
                     rebalance_template_assignment_qty(cross_owner, before_part_qty, new_qty)
+                    after_template_qty = template_unassigned_qty(cross_owner)
                     part.qty = new_qty
                     part.in_stock = new_qty > 0
                     part.is_deleted = new_qty <= 0
@@ -9555,20 +9653,30 @@ def create_part():
                     part.brand_export = normalize_text(cross_owner.brand or "").strip()
                     part.part_number_export = cross_owner.part_number
                     ensure_part_barcode(db, part)
-                    queue_part_inventory_change(
-                        db,
-                        part,
-                        before_part_qty,
-                        context_label=f"Крос-номер → {warehouse.name if warehouse else 'Склад'}",
-                        reason=f"Кількість додано через крос {part_number}",
-                    )
-                    queue_template_inventory_change(
-                        db,
-                        cross_owner,
-                        before_template_qty,
-                        context_label=f"Крос-номер → {warehouse.name if warehouse else 'Склад'}",
-                        reason=f"Кількість додано через крос {part_number}",
-                    )
+                    part_delta = int(new_qty or 0) - int(before_part_qty or 0)
+                    template_delta = int(after_template_qty or 0) - int(before_template_qty or 0)
+                    assigned_qty = min(max(part_delta, 0), max(-template_delta, 0))
+                    if assigned_qty:
+                        queue_inventory_assignment_change(
+                            db,
+                            template=cross_owner,
+                            warehouse_name=warehouse.name if warehouse else "Склад",
+                            qty=assigned_qty,
+                            to_warehouse=True,
+                            warehouse_qty=int(new_qty or 0),
+                            unassigned_qty=after_template_qty,
+                            context_label=f"Крос-номер → {warehouse.name if warehouse else 'Склад'}",
+                            reason=f"Присвоєно склад через крос {part_number}",
+                        )
+                    actual_part_increase = max(part_delta - assigned_qty, 0)
+                    if actual_part_increase:
+                        queue_part_inventory_change(
+                            db,
+                            part,
+                            int(new_qty or 0) - actual_part_increase,
+                            context_label=f"Крос-номер → {warehouse.name if warehouse else 'Склад'}",
+                            reason=f"Додано понад залишок Всі товари через крос {part_number}",
+                        )
                 flash_news(db, "parts", "Кількість додано через крос-номер", f"{part_number} → {cross_owner.part_number}: +{qty} шт.", "success")
                 db.commit()
                 flash(f"Кількість додано до основного товару {cross_owner.part_number}", "success")
@@ -9712,25 +9820,36 @@ def create_part():
             template_payload["cross_numbers"] = cross_numbers
         template, _ = upsert_part_template(db, part_number, template_payload)
         rebalance_template_assignment_qty(template, 0, qty)
+        after_template_qty = template_unassigned_qty(template)
         ensure_template_barcode(db, template)
         apply_template_to_parts(db, template, only_parts=[part])
         part.brand_export = normalize_text(template.brand or "").strip()
         part.part_number_export = part_number
         ensure_part_barcode(db, part)
-        queue_part_inventory_change(
-            db,
-            part,
-            before_part_qty,
-            context_label=f"Створення товару → {warehouse.name}",
-            reason="Збережено через форму додавання",
-        )
-        queue_template_inventory_change(
-            db,
-            template,
-            before_template_qty,
-            context_label=f"Створення товару → {warehouse.name}",
-            reason="Збережено через форму додавання",
-        )
+        part_delta = int(qty or 0) - int(before_part_qty or 0)
+        template_delta = int(after_template_qty or 0) - int(before_template_qty or 0)
+        assigned_qty = min(max(part_delta, 0), max(-template_delta, 0))
+        if assigned_qty:
+            queue_inventory_assignment_change(
+                db,
+                template=template,
+                warehouse_name=warehouse.name,
+                qty=assigned_qty,
+                to_warehouse=True,
+                warehouse_qty=int(qty or 0),
+                unassigned_qty=after_template_qty,
+                context_label=f"Створення товару → {warehouse.name}",
+                reason="Присвоєно склад через форму додавання",
+            )
+        actual_part_increase = max(part_delta - assigned_qty, 0)
+        if actual_part_increase:
+            queue_part_inventory_change(
+                db,
+                part,
+                int(qty or 0) - actual_part_increase,
+                context_label=f"Створення товару → {warehouse.name}",
+                reason="Додано понад залишок Всі товари через форму додавання",
+            )
         flash_news(db, "parts", "Оновлено картку товару", f"Товар {part.part_number} {action_text} у склад {warehouse.name}.", "success")
         db.commit()
         flash("Картку товару збережено", "success")
@@ -9814,24 +9933,56 @@ def update_part(part_id):
         template, _ = upsert_part_template(db, new_part_number, template_payload)
         if before_part_number == new_part_number:
             rebalance_template_assignment_qty(template, before_qty, requested_qty)
+        after_template_qty = template_unassigned_qty(template)
         ensure_template_barcode(db, template)
         apply_template_to_parts(db, template, only_parts=[part])
         part.brand_export = normalize_text(template.brand or "").strip()
         part.part_number_export = new_part_number
         ensure_part_barcode(db, part)
         part.updated_at = now()
-        queue_part_inventory_change(
-            db,
-            part,
-            before_qty,
-            context_label=f"Редагування товару → {part.warehouse.name if part.warehouse else 'Без складу'}",
-            reason="Збережено зміни у картці товару",
-        )
         if before_part_number == new_part_number:
-            queue_template_inventory_change(
+            part_delta = int(requested_qty or 0) - int(before_qty or 0)
+            template_delta = int(after_template_qty or 0) - int(before_template_qty or 0)
+            assigned_qty = min(max(part_delta, 0), max(-template_delta, 0))
+            returned_qty = min(max(-part_delta, 0), max(template_delta, 0))
+            if assigned_qty:
+                queue_inventory_assignment_change(
+                    db,
+                    template=template,
+                    warehouse_name=part.warehouse.name if part.warehouse else "Склад",
+                    qty=assigned_qty,
+                    to_warehouse=True,
+                    warehouse_qty=int(requested_qty or 0),
+                    unassigned_qty=after_template_qty,
+                    context_label=f"Редагування товару → {part.warehouse.name if part.warehouse else 'Склад'}",
+                    reason="Присвоєно склад через редагування",
+                )
+            if returned_qty:
+                queue_inventory_assignment_change(
+                    db,
+                    template=template,
+                    warehouse_name=part.warehouse.name if part.warehouse else "Склад",
+                    qty=returned_qty,
+                    to_warehouse=False,
+                    warehouse_qty=int(requested_qty or 0),
+                    unassigned_qty=after_template_qty,
+                    context_label="Редагування товару → Всі товари",
+                    reason="Повернуто зі складу через редагування",
+                )
+            actual_part_increase = max(part_delta - assigned_qty, 0)
+            if actual_part_increase:
+                queue_part_inventory_change(
+                    db,
+                    part,
+                    int(requested_qty or 0) - actual_part_increase,
+                    context_label=f"Редагування товару → {part.warehouse.name if part.warehouse else 'Без складу'}",
+                    reason="Додано понад залишок Всі товари через редагування",
+                )
+        else:
+            queue_part_inventory_change(
                 db,
-                template,
-                before_template_qty,
+                part,
+                before_qty,
                 context_label=f"Редагування товару → {part.warehouse.name if part.warehouse else 'Без складу'}",
                 reason="Збережено зміни у картці товару",
             )

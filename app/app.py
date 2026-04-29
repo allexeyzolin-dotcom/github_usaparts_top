@@ -6774,6 +6774,14 @@ def redirect_to_primary_domain():
 def robots_txt():
     base_url = public_site_base_url()
     content = "\n".join([
+        "User-agent: Googlebot-Image",
+        "Allow: /favicon.ico",
+        "Allow: /favicon.png",
+        "Allow: /favicon-48.png",
+        "Allow: /favicon-96.png",
+        "Allow: /static/",
+        "Allow: /uploads/",
+        "",
         "User-agent: *",
         "Disallow: /admin/",
         "Disallow: /api/",
@@ -6840,17 +6848,17 @@ def site_webmanifest():
         "short_name": "USAparts.top",
         "icons": [
             {
-                "src": f"{public_url_for('favicon_png_48')}?v=20260429",
+                "src": public_url_for("favicon_png_48"),
                 "sizes": "48x48",
                 "type": "image/png",
             },
             {
-                "src": f"{public_url_for('favicon_png_96')}?v=20260429",
+                "src": public_url_for("favicon_png_96"),
                 "sizes": "96x96",
                 "type": "image/png",
             },
             {
-                "src": f"{public_url_for('favicon_png')}?v=20260429",
+                "src": public_url_for("favicon_png"),
                 "sizes": "192x192",
                 "type": "image/png",
             },

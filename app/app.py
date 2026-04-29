@@ -5748,6 +5748,63 @@ def website_schema_payload() -> dict:
     }
 
 
+def merchant_return_policy_payload() -> dict:
+    country = (os.getenv("SEO_RETURN_COUNTRY") or "UA").strip().upper()[:2] or "UA"
+    policy = (os.getenv("SEO_RETURN_POLICY") or "not_permitted").strip().casefold()
+    if policy in {"finite", "window", "return_window", "allowed"}:
+        days = max(int(os.getenv("SEO_RETURN_DAYS") or 14), 1)
+        return {
+            "@type": "MerchantReturnPolicy",
+            "applicableCountry": country,
+            "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+            "merchantReturnDays": days,
+            "returnMethod": "https://schema.org/ReturnByMail",
+            "returnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
+        }
+    return {
+        "@type": "MerchantReturnPolicy",
+        "applicableCountry": country,
+        "returnPolicyCategory": "https://schema.org/MerchantReturnNotPermitted",
+    }
+
+
+def offer_shipping_details_payload() -> dict:
+    country = (os.getenv("SEO_SHIPPING_COUNTRY") or "UA").strip().upper()[:2] or "UA"
+    currency = (os.getenv("SEO_SHIPPING_CURRENCY") or "USD").strip().upper()[:3] or "USD"
+    max_shipping = os.getenv("SEO_SHIPPING_MAX_VALUE", "10.00").strip() or "10.00"
+    handling_min = max(int(os.getenv("SEO_HANDLING_MIN_DAYS") or 0), 0)
+    handling_max = max(int(os.getenv("SEO_HANDLING_MAX_DAYS") or 1), handling_min)
+    transit_min = max(int(os.getenv("SEO_TRANSIT_MIN_DAYS") or 1), 0)
+    transit_max = max(int(os.getenv("SEO_TRANSIT_MAX_DAYS") or 3), transit_min)
+    return {
+        "@type": "OfferShippingDetails",
+        "shippingDestination": {
+            "@type": "DefinedRegion",
+            "addressCountry": country,
+        },
+        "shippingRate": {
+            "@type": "MonetaryAmount",
+            "maxValue": max_shipping,
+            "currency": currency,
+        },
+        "deliveryTime": {
+            "@type": "ShippingDeliveryTime",
+            "handlingTime": {
+                "@type": "QuantitativeValue",
+                "minValue": handling_min,
+                "maxValue": handling_max,
+                "unitCode": "DAY",
+            },
+            "transitTime": {
+                "@type": "QuantitativeValue",
+                "minValue": transit_min,
+                "maxValue": transit_max,
+                "unitCode": "DAY",
+            },
+        },
+    }
+
+
 def webpage_schema_payload(title: str, description: str, url: str) -> dict:
     return {
         "@type": "WebPage",
@@ -5845,6 +5902,8 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
             "availability": "https://schema.org/InStock" if part.in_stock and int(part.qty or 0) > 0 else "https://schema.org/OutOfStock",
             "itemCondition": "https://schema.org/NewCondition" if producer_type_label(part.producer_type) == "OEM" else "https://schema.org/UsedCondition",
             "seller": {"@id": f"{public_site_base_url()}/#organization"},
+            "shippingDetails": offer_shipping_details_payload(),
+            "hasMerchantReturnPolicy": merchant_return_policy_payload(),
         },
         "additionalProperty": [
             {"@type": "PropertyValue", "name": "OEM номер", "value": normalize_text(part.part_number or "").strip()},
@@ -5894,6 +5953,8 @@ def build_car_product_schema(car: Car, photos: list[str]) -> str:
             "price": f"{float(car.price_usd or 0):.2f}",
             "availability": "https://schema.org/InStock" if car.status == "in_stock" else "https://schema.org/PreOrder",
             "seller": {"@id": f"{public_site_base_url()}/#organization"},
+            "shippingDetails": offer_shipping_details_payload(),
+            "hasMerchantReturnPolicy": merchant_return_policy_payload(),
         },
         "additionalProperty": [
             {"@type": "PropertyValue", "name": "VIN", "value": normalize_text(car.vin or "").strip()},

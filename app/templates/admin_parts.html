@@ -56,12 +56,33 @@
       <label class="field-label">1. OEM номер</label>
       <input id="create-part-number" name="part_number" placeholder="Номер виробника" required>
 
+      <div class="cross-number-panel">
+        <div class="button-row" style="justify-content:flex-start">
+          <button class="btn ghost small" type="button" id="add-create-cross-number">Добавити Кросс</button>
+        </div>
+        <div class="helper-note">Крос-номери шукаються на вітрині і отримують окремі SEO-сторінки, але залишок списується з основного OEM.</div>
+        <div class="stack" id="create-cross-number-list" style="gap:8px"></div>
+      </div>
+
       <div id="create-part-prefill-status" class="helper-note">Після введення OEM номера система перевірить базу товарів і складів.</div>
 
       <div id="create-part-prefill-card" class="card inner-card hidden">
         <strong id="create-part-prefill-title"></strong>
         <div id="create-part-prefill-meta" class="muted"></div>
         <img id="create-part-prefill-photo" class="rev-photo" alt="" style="display:none;margin-top:10px">
+      </div>
+
+      <div id="create-cross-conflict-card" class="card inner-card hidden">
+        <strong>Цей OEM вже є крос-номером</strong>
+        <div id="create-cross-conflict-text" class="muted"></div>
+        <label class="choice-row">
+          <input type="radio" name="cross_conflict_action" value="add_to_existing">
+          <span>Добавити кількість до створеного товару</span>
+        </label>
+        <label class="choice-row">
+          <input type="radio" name="cross_conflict_action" value="create_new_remove_cross">
+          <span>Створити нову картку товару і видалити крос</span>
+        </label>
       </div>
 
       <label class="field-label">2. Опис</label>
@@ -132,6 +153,9 @@
 
         <div class="part-admin-foot">
           <div class="muted" data-summary-barcode>Штрихкод: {{ item.barcode or 'ще не згенеровано' }}</div>
+          {% if item.crossNumbers %}
+          <div class="muted">Крос: {{ item.crossNumbers|join(', ') }}</div>
+          {% endif %}
           {% if item.youtubeUrl %}
           <a class="text-link" href="{{ item.youtubeUrl }}" target="_blank" rel="noopener">YouTube</a>
           {% endif %}
@@ -165,6 +189,10 @@
 
             <label class="field-label">OEM номер</label>
             <input value="{{ item.partNumber }}" disabled>
+
+            <label class="field-label">Крос-номери</label>
+            <textarea name="cross_numbers" placeholder="Кожен крос-номер з нового рядка">{{ item.crossNumbers|join('\n') }}</textarea>
+            <div class="helper-note">Ці номери показуються в пошуку як суміжні, але кількість і списання залишаються на основному OEM.</div>
 
             <label class="field-label">Бренд</label>
             <input name="brand" value="{{ clean_text(item.brand) }}">
@@ -407,7 +435,42 @@ function promptPrintLabels(partId, defaultQty) {
   const infoTitle = document.getElementById('create-part-prefill-title');
   const infoMeta = document.getElementById('create-part-prefill-meta');
   const photo = document.getElementById('create-part-prefill-photo');
+  const addCrossButton = document.getElementById('add-create-cross-number');
+  const crossList = document.getElementById('create-cross-number-list');
+  const crossConflictCard = document.getElementById('create-cross-conflict-card');
+  const crossConflictText = document.getElementById('create-cross-conflict-text');
   let timer = null;
+
+  function addCrossInput(value = '') {
+    if (!crossList) return;
+    const row = document.createElement('div');
+    row.className = 'parts-toolbar parts-toolbar-compact';
+    row.style.gridTemplateColumns = 'minmax(0, 1fr) auto';
+    row.style.gap = '8px';
+    const input = document.createElement('input');
+    input.name = 'cross_numbers';
+    input.placeholder = 'Крос-номер';
+    input.value = value;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn ghost small';
+    remove.textContent = 'Видалити';
+    remove.addEventListener('click', () => row.remove());
+    row.appendChild(input);
+    row.appendChild(remove);
+    crossList.appendChild(row);
+    input.focus();
+  }
+
+  function clearCrossConflict() {
+    crossConflictCard?.classList.add('hidden');
+    if (crossConflictText) crossConflictText.textContent = '';
+    form.querySelectorAll('input[name="cross_conflict_action"]').forEach((input) => {
+      input.checked = false;
+    });
+  }
+
+  addCrossButton?.addEventListener('click', () => addCrossInput());
 
   function updateWarehouseNote() {
     const isAll = (warehouseSelect?.value || 'all') === 'all';
@@ -426,6 +489,7 @@ function promptPrintLabels(partId, defaultQty) {
     infoMeta.textContent = '';
     photo.style.display = 'none';
     photo.src = '';
+    clearCrossConflict();
   }
 
   function setStatus(text, tone) {
@@ -451,6 +515,13 @@ function promptPrintLabels(partId, defaultQty) {
         return;
       }
       const part = data.part || {};
+      clearCrossConflict();
+      if (data.crossMatch) {
+        crossConflictCard?.classList.remove('hidden');
+        if (crossConflictText) {
+          crossConflictText.textContent = `${data.requestedPartNumber || partNumber} прив'язаний як крос до основного товару ${part.partNumber || ''}. Оберіть, що зробити з кількістю.`;
+        }
+      }
       if (!nameInput.value.trim()) nameInput.value = part.name || '';
       if (!descriptionInput.value.trim()) descriptionInput.value = part.description || '';
       if (!priceInput.value || Number(priceInput.value) === 0) priceInput.value = part.priceUsd ?? '';
@@ -472,12 +543,14 @@ function promptPrintLabels(partId, defaultQty) {
         photo.src = '';
       }
       setStatus(
-        part.isTemplate
+        data.crossMatch
+          ? 'Знайдено крос-номер. Оберіть дію: додати кількість до основного товару або створити нову картку.'
+          : part.isTemplate
           ? 'Знайдено картку в базі товарів. Дані підставлено у форму.'
           : data.sameWarehouse
           ? 'Така позиція вже є в цьому складі. Якщо це той самий товар, краще відредагувати існуючу картку.'
           : 'Знайдено товар у базі. Дані підставлено у форму.',
-        part.isTemplate ? 'warn' : 'success'
+        data.crossMatch || part.isTemplate ? 'warn' : 'success'
       );
     } catch (error) {
       clearPreview();

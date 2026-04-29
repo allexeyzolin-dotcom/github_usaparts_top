@@ -1,4 +1,4 @@
-﻿:root{
+:root{
   --bg:#0b0f14;
   --panel:#121820;
   --card:#161f2b;
@@ -118,6 +118,7 @@ th{color:#ffce55}
 .choice{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--line)}
 .hidden{display:none}
 .inner-card{padding:14px}
+.choice-row{display:flex;align-items:flex-start;gap:10px;margin-top:10px;font-weight:700}
 .ajax-bulk-actions button:disabled,.ajax-toggle:disabled{opacity:.55;cursor:wait}
 .danger-text{color:#fecaca}
 body.admin-theme .admin-shell img[src]:not([src=""]):not([data-no-preview]){cursor:zoom-in}

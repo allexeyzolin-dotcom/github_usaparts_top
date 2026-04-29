@@ -2,6 +2,7 @@
 {% block content %}
 {% set gallery = part_gallery_urls(part) %}
 {% set video_url = youtube_embed_url(part.youtube_url) %}
+{% set visible_part_number = display_part_number|default(part.part_number) %}
 <div class="container">
   <div class="detail-grid">
     <div class="card stack part-photo-panel">
@@ -26,7 +27,7 @@
 
       {% if gallery %}
       <button class="part-main-photo-button" type="button" id="part-main-photo-open" aria-label="Відкрити фото товару">
-        <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+        <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
       </button>
       {% else %}
       <div class="detail-img placeholder">Фото відсутнє</div>
@@ -41,7 +42,7 @@
           data-part-photo-thumb
           data-index="{{ loop.index0 }}"
           aria-label="Фото {{ loop.index }}">
-          <img src="{{ photo }}" alt="{{ part.part_number }} {{ clean_text(part.name) }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
+          <img src="{{ photo }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
         </button>
         {% endfor %}
       </div>
@@ -53,7 +54,10 @@
     </div>
 
     <div class="card stack">
-      <div class="showcase-code">{{ part.part_number }}</div>
+      <div class="showcase-code">{{ visible_part_number }}</div>
+      {% if main_part_number is defined and main_part_number and main_part_number != visible_part_number %}
+      <div class="muted">Основний OEM: {{ main_part_number }}</div>
+      {% endif %}
       <h2>{{ clean_text(part.name) }}</h2>
       <div class="price-row big">${{ display_usd(part.price_usd, warehouse.markup_percent) }} <span>₴{{ display_uah(part.price_usd, warehouse.markup_percent) }}</span></div>
       <div class="muted">Кількість: {{ part.qty }} | Наявність: {{ 'Так' if part.in_stock else 'Ні' }}</div>
@@ -66,7 +70,7 @@
         <form method="post" action="{{ url_for('part_seller_request', part_id=part.id) }}" class="stack seller-request-form">
           <div>
             <label class="field-label">Номер запчастини</label>
-            <input type="text" value="{{ part.part_number }}" readonly>
+            <input type="text" value="{{ visible_part_number }}" readonly>
           </div>
           <div>
             <label class="field-label">Номер телефону</label>
@@ -96,7 +100,7 @@
   <div class="image-preview-dialog part-photo-modal-dialog">
     <div class="image-preview-toolbar">
       <div class="image-preview-meta">
-        <strong>{{ part.part_number }}</strong>
+        <strong>{{ visible_part_number }}</strong>
         <span class="muted">{{ clean_text(part.name) }}</span>
         <span class="muted" id="part-photo-modal-counter">Фото 1 / {{ gallery|length }}</span>
       </div>
@@ -109,7 +113,7 @@
       </div>
     </div>
     <div class="part-photo-modal-body">
-      <img id="part-photo-modal-image" src="{{ gallery[0] }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+      <img id="part-photo-modal-image" src="{{ gallery[0] }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
     </div>
   </div>
 </div>

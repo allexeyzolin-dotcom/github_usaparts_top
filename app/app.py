@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import hashlib
 import io
 import json
@@ -131,6 +131,7 @@ class PartTemplate(Base):
     __tablename__ = "part_templates"
     id = Column(Integer, primary_key=True)
     part_number = Column(String(255), nullable=False, unique=True, index=True)
+    cross_numbers_json = Column(Text, nullable=False, default="[]")
     barcode = Column(String(8), nullable=False, default="", index=True)
     brand = Column(String(255), nullable=False, default="")
     producer_type = Column(String(32), nullable=False, default="OEM")
@@ -1128,6 +1129,7 @@ def build_all_goods_cards(db, query_text: str = ""):
         barcode = normalize_text(
             (template.barcode if template else exemplar.barcode if exemplar else "")
         ).strip()
+        cross_numbers = template_cross_numbers(template)
         photo_url = primary_template_photo(template) if template else ""
         if not photo_url and exemplar:
             photo_url = primary_part_photo(exemplar)
@@ -1163,6 +1165,7 @@ def build_all_goods_cards(db, query_text: str = ""):
                 description,
                 brand,
                 barcode,
+                " ".join(cross_numbers),
                 " ".join(warehouse_names),
             ]
         ).casefold()
@@ -1198,6 +1201,7 @@ def build_all_goods_cards(db, query_text: str = ""):
                 "description": description,
                 "brand": brand,
                 "barcode": barcode,
+                "crossNumbers": cross_numbers,
                 "photoUrl": photo_url,
                 "galleryCount": len(gallery),
                 "youtubeUrl": youtube_url,
@@ -1361,13 +1365,14 @@ def warehouse_print_scope_label(db, scope: str) -> str:
     return warehouse.name if warehouse else "Склад"
 
 
-def build_showcase_parts(parts, query_text: str = "", limit: int = 12):
+def build_showcase_parts(parts, query_text: str = "", limit: int = 12, cross_map: dict[str, list[str]] | None = None):
     needle = normalize_text(query_text or "").strip().casefold()
+    cross_map = cross_map or {}
     best_by_number = {}
     for part in parts:
         if not part or part.is_deleted or not part.in_stock:
             continue
-        if needle and not public_part_matches_query(part, needle):
+        if needle and not public_part_matches_query(part, needle, cross_map):
             continue
         photo_url = primary_part_photo(part)
         if not photo_url and not needle:
@@ -1400,15 +1405,18 @@ def build_showcase_parts(parts, query_text: str = "", limit: int = 12):
     return ordered[:limit], len(ordered)
 
 
-def public_part_matches_query(part: Part, needle: str) -> bool:
+def public_part_matches_query(part: Part, needle: str, cross_map: dict[str, list[str]] | None = None) -> bool:
     if not part:
         return False
     normalized = normalize_text(needle or "").strip().casefold()
     if not normalized:
         return True
+    key = normalize_text(part.part_number or "").strip().upper()
+    cross_numbers = (cross_map or {}).get(key, [])
     haystack = " ".join(
         [
             normalize_text(part.part_number or ""),
+            " ".join(cross_numbers),
             normalize_text(part.name or ""),
             normalize_text(part.brand or ""),
             normalize_text(part.description or ""),
@@ -2796,7 +2804,7 @@ def find_manual_issue_template_by_code(db, raw_code: str):
         if template:
             return template
 
-        template = find_part_template(db, candidate)
+        template, _ = find_part_template_or_cross(db, candidate)
         if template:
             ensure_template_barcode(db, template)
             return template
@@ -2893,7 +2901,7 @@ def resolve_manual_issue_items(db, items_payload):
         part_number = normalize_text(raw.get("partNumber") or "").strip().upper()
         template = find_template_for_manual_issue(db, barcode) if len(barcode) == 8 else None
         if not template and part_number:
-            template = find_part_template(db, part_number)
+            template, _ = find_part_template_or_cross(db, part_number)
 
         if not template:
             raise ValueError(f"item_not_found:{part_number or barcode}")
@@ -3823,6 +3831,130 @@ def find_part_template(db, part_number: str):
     )
 
 
+def compact_part_code(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", normalize_text(value or "").upper())
+
+
+def normalize_cross_number(value: str) -> str:
+    text = normalize_text(value or "").strip().upper()
+    text = re.sub(r"\s+", "", text)
+    return text[:255]
+
+
+def split_cross_number_values(values) -> list[str]:
+    if values is None:
+        return []
+    if isinstance(values, str):
+        values = [values]
+    result = []
+    for value in values:
+        for item in re.split(r"[\n\r,;]+", normalize_text(value or "")):
+            clean = normalize_cross_number(item)
+            if clean:
+                result.append(clean)
+    return result
+
+
+def template_cross_numbers(template: PartTemplate | None) -> list[str]:
+    if not template:
+        return []
+    raw = template.cross_numbers_json or "[]"
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        parsed = []
+    return normalize_cross_numbers(parsed, template.part_number or "")
+
+
+def normalize_cross_numbers(values, main_part_number: str = "") -> list[str]:
+    main = normalize_cross_number(main_part_number)
+    main_compact = compact_part_code(main)
+    unique: list[str] = []
+    seen = set()
+    for item in split_cross_number_values(values):
+        item_compact = compact_part_code(item)
+        if not item_compact:
+            continue
+        if item == main or (main_compact and item_compact == main_compact):
+            continue
+        if item_compact in seen:
+            continue
+        seen.add(item_compact)
+        unique.append(item)
+    return unique
+
+
+def dump_cross_numbers(values, main_part_number: str = "") -> str:
+    return json.dumps(normalize_cross_numbers(values, main_part_number), ensure_ascii=False)
+
+
+def cross_numbers_from_form(form, field_name: str = "cross_numbers", main_part_number: str = "") -> list[str]:
+    values = []
+    try:
+        values.extend(form.getlist(field_name))
+    except Exception:
+        pass
+    single = form.get(field_name) if hasattr(form, "get") else None
+    if single:
+        values.append(single)
+    return normalize_cross_numbers(values, main_part_number)
+
+
+def find_part_template_by_cross(db, cross_number: str):
+    target = normalize_cross_number(cross_number)
+    target_compact = compact_part_code(target)
+    if not target_compact:
+        return None
+    templates = db.query(PartTemplate).order_by(desc(PartTemplate.updated_at), PartTemplate.id.asc()).all()
+    for template in templates:
+        for item in template_cross_numbers(template):
+            if item == target or compact_part_code(item) == target_compact:
+                return template
+    return None
+
+
+def find_part_template_or_cross(db, part_number: str):
+    template = find_part_template(db, part_number)
+    if template:
+        return template, False
+    template = find_part_template_by_cross(db, part_number)
+    return template, bool(template)
+
+
+def remove_cross_number_from_template(template: PartTemplate | None, cross_number: str) -> bool:
+    if not template:
+        return False
+    target_compact = compact_part_code(cross_number)
+    if not target_compact:
+        return False
+    current = template_cross_numbers(template)
+    updated = [item for item in current if compact_part_code(item) != target_compact]
+    if len(updated) == len(current):
+        return False
+    template.cross_numbers_json = dump_cross_numbers(updated, template.part_number or "")
+    template.updated_at = now()
+    return True
+
+
+def cross_numbers_map_for_parts(db, parts: list[Part]) -> dict[str, list[str]]:
+    part_numbers = sorted({
+        normalize_text(part.part_number or "").strip().upper()
+        for part in parts or []
+        if part and normalize_text(part.part_number or "").strip()
+    })
+    if not part_numbers:
+        return {}
+    templates = (
+        db.query(PartTemplate)
+        .filter(PartTemplate.part_number.in_(part_numbers))
+        .all()
+    )
+    return {
+        normalize_text(template.part_number or "").strip().upper(): template_cross_numbers(template)
+        for template in templates
+    }
+
+
 def upsert_part_template(db, part_number: str, payload: dict | None = None):
     normalized = normalize_text(part_number or "").strip().upper()
     if not normalized:
@@ -3868,6 +4000,17 @@ def upsert_part_template(db, part_number: str, payload: dict | None = None):
         template.showcase_photo_urls = dump_media_urls([payload.get("photo_urls")])
     if "youtube_url" in payload:
         template.youtube_url = normalize_text(payload.get("youtube_url") or "").strip()
+    if "cross_numbers" in payload:
+        clean_cross_numbers = []
+        for cross_number in normalize_cross_numbers(payload.get("cross_numbers"), normalized):
+            exact_owner = find_part_template(db, cross_number)
+            if exact_owner and exact_owner.id != template.id:
+                continue
+            cross_owner = find_part_template_by_cross(db, cross_number)
+            if cross_owner and cross_owner.id != template.id:
+                continue
+            clean_cross_numbers.append(cross_number)
+        template.cross_numbers_json = dump_cross_numbers(clean_cross_numbers, normalized)
 
     template.has_photo = bool(primary_template_photo(template))
     template.has_description = bool(template.description)
@@ -3897,6 +4040,24 @@ def search_parts_for_picker(db, query_text: str, warehouse_id: int | None = None
         .limit(limit)
         .all()
     )
+    cross_template = find_part_template_by_cross(db, query_text)
+    if cross_template and len(parts) < limit:
+        cross_query = db.query(Part).filter(Part.part_number == cross_template.part_number)
+        if warehouse_id:
+            cross_query = cross_query.filter(Part.warehouse_id == warehouse_id)
+        if not include_deleted:
+            cross_query = cross_query.filter(Part.is_deleted == False)
+        existing_ids = {part.id for part in parts}
+        for part in (
+            cross_query.order_by(desc(Part.in_stock), desc(Part.updated_at), Part.part_number.asc())
+            .limit(limit)
+            .all()
+        ):
+            if part.id not in existing_ids:
+                parts.append(part)
+                existing_ids.add(part.id)
+            if len(parts) >= limit:
+                break
     for part in parts:
         ensure_part_barcode(db, part)
     return parts
@@ -3904,7 +4065,9 @@ def search_parts_for_picker(db, query_text: str, warehouse_id: int | None = None
 
 def resolve_transit_source(db, part_number: str):
     part = find_part_prefill(db, part_number, None)
-    template = find_part_template(db, part_number)
+    template, matched_by_cross = find_part_template_or_cross(db, part_number)
+    if matched_by_cross and template:
+        part = find_part_prefill(db, template.part_number, None)
     if part:
         ensure_part_barcode(db, part)
     if template:
@@ -5435,10 +5598,11 @@ def build_mobile_lookup_payload(db, part_number: str):
             "photoUrl": "",
         }
 
-    template = find_part_template(db, normalized)
+    template, matched_by_cross = find_part_template_or_cross(db, normalized)
+    lookup_number = normalize_text(template.part_number or "").strip().upper() if template else normalized
     parts = (
         db.query(Part)
-        .filter(Part.part_number.ilike(normalized), Part.is_deleted == False)
+        .filter(Part.part_number.ilike(lookup_number), Part.is_deleted == False)
         .all()
     )
     stocks = []
@@ -5464,7 +5628,9 @@ def build_mobile_lookup_payload(db, part_number: str):
     if not primary and template:
         ensure_template_barcode(db, template)
     return {
-        "partNumber": normalized,
+        "partNumber": lookup_number,
+        "requestedPartNumber": normalized,
+        "matchedByCross": matched_by_cross,
         "exactExists": any(int(p.qty or 0) > 0 for p in parts),
         "stocks": stocks,
         "matches": matches,
@@ -5728,6 +5894,21 @@ def public_part_url(part: Part) -> str:
     return absolute_public_url(part_detail_url(part))
 
 
+def cross_part_detail_url(part: Part, cross_number: str, **values) -> str:
+    cross_slug = part_seo_slug_from_values(cross_number, part.name)
+    return url_for(
+        "cross_part_detail",
+        cross_number=normalize_cross_number(cross_number),
+        part_id=part.id,
+        slug=cross_slug,
+        **values,
+    )
+
+
+def public_cross_part_url(part: Part, cross_number: str) -> str:
+    return absolute_public_url(cross_part_detail_url(part, cross_number))
+
+
 def seo_json_dumps(payload) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
@@ -5886,8 +6067,9 @@ def build_home_schema(title: str, description: str, featured: list[Part]) -> str
     )
 
 
-def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
-    part_url = public_part_url(part)
+def build_part_product_schema(part: Part, warehouse: Warehouse | None, display_part_number: str | None = None, canonical_url: str | None = None) -> str:
+    display_number = normalize_text(display_part_number or part.part_number or "").strip()
+    part_url = canonical_url or public_part_url(part)
     gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
     price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
     categories = seo_part_categories(part)
@@ -5895,12 +6077,12 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
     product_payload = {
         "@type": "Product",
         "@id": f"{part_url}#product",
-        "name": compact_meta_text(part.part_number, part.name, limit=120),
+        "name": compact_meta_text(display_number, part.name, limit=120),
         "url": part_url,
-        "sku": normalize_text(part.part_number or "").strip(),
-        "mpn": normalize_text(part.part_number or "").strip(),
+        "sku": display_number,
+        "mpn": display_number,
         "brand": {"@type": "Brand", "name": brand_name or "USAparts.top"},
-        "description": compact_meta_text(part.description or part.name, part.part_number, limit=300),
+        "description": compact_meta_text(part.description or part.name, display_number, limit=300),
         "mainEntityOfPage": {"@id": f"{part_url}#webpage"},
         "offers": {
             "@type": "Offer",
@@ -5919,10 +6101,14 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
             "hasMerchantReturnPolicy": merchant_return_policy_payload(),
         },
         "additionalProperty": [
-            {"@type": "PropertyValue", "name": "OEM номер", "value": normalize_text(part.part_number or "").strip()},
+            {"@type": "PropertyValue", "name": "OEM номер", "value": display_number},
             {"@type": "PropertyValue", "name": "Кількість", "value": str(int(part.qty or 0))},
         ],
     }
+    if display_number != normalize_text(part.part_number or "").strip():
+        product_payload["additionalProperty"].append(
+            {"@type": "PropertyValue", "name": "Основний OEM", "value": normalize_text(part.part_number or "").strip()}
+        )
     if gallery:
         product_payload["image"] = gallery
     if categories:
@@ -5931,15 +6117,15 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
         product_payload["additionalProperty"].append(
             {"@type": "PropertyValue", "name": "Склад", "value": seo_clean_label(warehouse.name)}
         )
-    title = compact_meta_text(part.part_number, part.name, limit=90)
-    description = compact_meta_text("Купити запчастину", part.part_number, part.name, f"наявність {int(part.qty or 0)} шт.", limit=160)
+    title = compact_meta_text(display_number, part.name, limit=90)
+    description = compact_meta_text("Купити запчастину", display_number, part.name, f"наявність {int(part.qty or 0)} шт.", limit=160)
     return graph_json_ld(
         webpage_schema_payload(title, description, part_url),
         breadcrumb_schema_payload(
             [
                 ("Головна", public_url_for("home")),
                 ("Каталог запчастин", public_url_for("catalog")),
-                (normalize_text(part.part_number or "").strip(), part_url),
+                (display_number, part_url),
             ]
         ),
         product_payload,
@@ -6581,6 +6767,7 @@ def seed_if_empty():
             conn.exec_driver_sql("ALTER TABLE parts ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false")
             conn.exec_driver_sql("ALTER TABLE parts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL")
             conn.exec_driver_sql("ALTER TABLE part_templates ADD COLUMN IF NOT EXISTS unassigned_qty INTEGER NOT NULL DEFAULT 0")
+            conn.exec_driver_sql("ALTER TABLE part_templates ADD COLUMN IF NOT EXISTS cross_numbers_json TEXT NOT NULL DEFAULT '[]'")
             conn.exec_driver_sql("ALTER TABLE cars ADD COLUMN IF NOT EXISTS youtube_url VARCHAR(500) NOT NULL DEFAULT ''")
             conn.exec_driver_sql("ALTER TABLE receiving_draft_items ADD COLUMN IF NOT EXISTS barcode VARCHAR(8) NOT NULL DEFAULT ''")
             conn.exec_driver_sql("ALTER TABLE receiving_draft_items ALTER COLUMN warehouse_id DROP NOT NULL")
@@ -6922,6 +7109,7 @@ def sitemap_parts_xml():
     db = SessionLocal()
     try:
         parts = best_unique_public_parts(public_active_parts(db))
+        cross_map = cross_numbers_map_for_parts(db, parts)
         nodes = []
         for part in parts:
             nodes.append(
@@ -6932,6 +7120,16 @@ def sitemap_parts_xml():
                     priority="0.8",
                 )
             )
+            part_number = normalize_text(part.part_number or "").strip().upper()
+            for cross_number in cross_map.get(part_number, []):
+                nodes.append(
+                    sitemap_url_node(
+                        public_cross_part_url(part, cross_number),
+                        lastmod=sitemap_lastmod(part.updated_at),
+                        changefreq="weekly",
+                        priority="0.8",
+                    )
+                )
         return sitemap_xml_response(nodes)
     finally:
         db.close()
@@ -7097,10 +7295,11 @@ def home():
             .order_by(desc(Part.updated_at), desc(Part.id))
             .all()
         )
-        featured, featured_total = build_showcase_parts(parts_pool, q, limit=display_count)
+        cross_map = cross_numbers_map_for_parts(db, parts_pool)
+        featured, featured_total = build_showcase_parts(parts_pool, q, limit=display_count, cross_map=cross_map)
         if q and featured_total == 0:
             needle = normalize_text(q).strip().casefold()
-            search_found_without_photo = any(public_part_matches_query(part, needle) for part in parts_pool)
+            search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
         has_more = featured_total > len(featured)
         cars_pool = db.query(Car).filter(Car.status == "in_stock").order_by(desc(Car.created_at)).all()
         cars_random = random.sample(cars_pool, min(5, len(cars_pool))) if cars_pool else []
@@ -7378,10 +7577,11 @@ def catalog():
             parts_pool = [part for part in parts_pool if producer_type_label(part.producer_type) == "Замінник"]
         elif condition == "new":
             parts_pool = [part for part in parts_pool if producer_type_label(part.producer_type) == "OEM"]
-        parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1))
+        cross_map = cross_numbers_map_for_parts(db, parts_pool)
+        parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1), cross_map=cross_map)
         if q and parts_total == 0:
             needle = normalize_text(q).strip().casefold()
-            search_found_without_photo = any(public_part_matches_query(part, needle) for part in parts_pool)
+            search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
         if q:
             track_stats_event(db, "search", query_text=q, meta={"source": "catalog", "results": parts_total})
             db.commit()
@@ -7541,6 +7741,57 @@ def part_detail(part_id, slug=None):
             og_type="product",
             og_image_url=part_og_image,
             json_ld=build_part_product_schema(part, warehouse),
+        )
+    finally:
+        db.close()
+
+
+@app.route("/cross/<cross_number>/<int:part_id>")
+@app.route("/cross/<cross_number>/<int:part_id>/<slug>")
+def cross_part_detail(cross_number, part_id, slug=None):
+    db = SessionLocal()
+    try:
+        clean_cross = normalize_cross_number(cross_number)
+        part = db.get(Part, part_id)
+        if not clean_cross or not part or part.is_deleted:
+            flash("Товар не знайдено", "error")
+            return redirect(url_for("catalog"))
+        template = find_part_template_by_cross(db, clean_cross)
+        if not template or compact_part_code(template.part_number or "") != compact_part_code(part.part_number or ""):
+            return redirect(part_detail_url(part), code=302)
+        canonical_slug = part_seo_slug_from_values(clean_cross, part.name)
+        if slug != canonical_slug:
+            return redirect(cross_part_detail_url(part, clean_cross), code=301)
+        warehouse = db.get(Warehouse, part.warehouse_id)
+        part.views_24h += 1
+        part.views_168h += 1
+        track_stats_event(db, "part_view", part=part, meta={"crossNumber": clean_cross})
+        db.commit()
+        part_title = compact_meta_text(clean_cross, part.name, "крос-номер запчастини з США", limit=95)
+        part_price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
+        part_og_image = absolute_public_url(primary_part_photo(part)) if primary_part_photo(part) else ""
+        cross_url = public_cross_part_url(part, clean_cross)
+        return render_template(
+            "part_detail.html",
+            part=part,
+            warehouse=warehouse,
+            display_part_number=clean_cross,
+            main_part_number=part.part_number,
+            safe_photo=safe_photo,
+            display_usd=display_usd,
+            display_uah=display_uah,
+            seo_title=f"{part_title} | USAparts.top",
+            seo_description=compact_meta_text(
+                "Купити запчастину по крос-номеру",
+                clean_cross,
+                part.name,
+                f"основний OEM {part.part_number}",
+                f"ціна ${part_price}",
+            ),
+            canonical_url=cross_url,
+            og_type="product",
+            og_image_url=part_og_image,
+            json_ld=build_part_product_schema(part, warehouse, display_part_number=clean_cross, canonical_url=cross_url),
         )
     finally:
         db.close()
@@ -9033,17 +9284,25 @@ def admin_part_prefill():
             })
 
         template = find_part_template(db, part_number)
+        cross_match = False
+        if not template:
+            template = find_part_template_by_cross(db, part_number)
+            cross_match = bool(template)
         if not template:
             return jsonify({"found": False, "partNumber": part_number})
 
         ensure_template_barcode(db, template)
+        lookup = build_mobile_lookup_payload(db, template.part_number)
         db.commit()
         return jsonify({
             "found": True,
             "sameWarehouse": False,
+            "crossMatch": cross_match,
+            "requestedPartNumber": part_number,
             "part": {
                 "id": None,
                 "partNumber": template.part_number or "",
+                "crossNumber": part_number if cross_match else "",
                 "brand": template.brand or "",
                 "producerType": template.producer_type or "OEM",
                 "name": template.name or "",
@@ -9057,7 +9316,7 @@ def admin_part_prefill():
                 "isDeleted": False,
                 "isTemplate": True,
                 "note": template_note(template),
-                "stocks": [],
+                "stocks": lookup.get("stocks", []),
             },
         })
     finally:
@@ -9107,6 +9366,7 @@ def admin_part_autosave():
         raw_type = request.form.get("producer_type")
         raw_price = request.form.get("price_usd")
         raw_youtube = request.form.get("youtube_url")
+        raw_cross = request.form.get("cross_numbers") if "cross_numbers" in request.form else None
         name = normalize_text(raw_name or "").strip()
         description = normalize_text(raw_description or "").strip()
         brand = normalize_text(raw_brand or "").strip()
@@ -9114,8 +9374,13 @@ def admin_part_autosave():
         price_usd = to_float(raw_price, 0)
         qty = to_int(request.form.get("qty"), 0)
         youtube_url = normalize_text(raw_youtube or "").strip()
-
         existing_template = find_part_template(db, part_number)
+        cross_numbers = (
+            cross_numbers_from_form(request.form, "cross_numbers", part_number)
+            if raw_cross is not None
+            else template_cross_numbers(existing_template)
+        )
+
         before_template_qty = template_unassigned_qty(existing_template)
         exemplar = find_part_prefill(db, part_number, None)
         template_payload = {
@@ -9128,6 +9393,7 @@ def admin_part_autosave():
             "photo_urls": existing_template.photo_urls if existing_template else (primary_part_photo(exemplar) if exemplar else ""),
             "showcase_photo_urls": template_gallery_urls(existing_template) if existing_template else (part_gallery_urls(exemplar) if exemplar else []),
             "youtube_url": youtube_url if raw_youtube is not None else (existing_template.youtube_url if existing_template else exemplar.youtube_url if exemplar else ""),
+            "cross_numbers": cross_numbers,
         }
         template, _ = upsert_part_template(db, part_number, template_payload)
         ensure_template_barcode(db, template)
@@ -9242,7 +9508,81 @@ def create_part():
         name = request.form.get("name", "").strip()
         qty = int(request.form.get("qty", 0) or 0)
         price_usd = float(request.form.get("price_usd", 0) or 0)
+        cross_numbers_submitted = bool(request.form.getlist("cross_numbers")) or ("cross_numbers" in request.form)
+        cross_numbers = cross_numbers_from_form(request.form, "cross_numbers", part_number)
         template = find_part_template(db, part_number)
+        cross_owner = find_part_template_by_cross(db, part_number)
+        cross_action = normalize_text(request.form.get("cross_conflict_action") or "").strip()
+        if cross_owner and (not template or cross_owner.id != template.id):
+            if cross_action == "add_to_existing":
+                ensure_template_barcode(db, cross_owner)
+                before_template_qty = template_unassigned_qty(cross_owner)
+                if warehouse_id is None:
+                    cross_owner.unassigned_qty = before_template_qty + qty
+                    cross_owner.updated_at = now()
+                    queue_template_inventory_change(
+                        db,
+                        cross_owner,
+                        before_template_qty,
+                        context_label="Крос-номер → Всі товари",
+                        reason=f"Кількість додано через крос {part_number}",
+                    )
+                else:
+                    part = (
+                        db.query(Part)
+                        .filter(Part.warehouse_id == warehouse_id, Part.part_number == cross_owner.part_number)
+                        .order_by(Part.id.asc())
+                        .first()
+                    )
+                    before_part_qty = 0 if not part or part.is_deleted else int(part.qty or 0)
+                    if not part:
+                        part = Part(
+                            warehouse_id=warehouse_id,
+                            part_number=cross_owner.part_number,
+                            created_at=now(),
+                            updated_at=now(),
+                        )
+                        db.add(part)
+                        db.flush()
+                    new_qty = before_part_qty + qty
+                    rebalance_template_assignment_qty(cross_owner, before_part_qty, new_qty)
+                    part.qty = new_qty
+                    part.in_stock = new_qty > 0
+                    part.is_deleted = new_qty <= 0
+                    part.deleted_at = now() if new_qty <= 0 else None
+                    part.updated_at = now()
+                    apply_template_to_parts(db, cross_owner, only_parts=[part])
+                    part.brand_export = normalize_text(cross_owner.brand or "").strip()
+                    part.part_number_export = cross_owner.part_number
+                    ensure_part_barcode(db, part)
+                    queue_part_inventory_change(
+                        db,
+                        part,
+                        before_part_qty,
+                        context_label=f"Крос-номер → {warehouse.name if warehouse else 'Склад'}",
+                        reason=f"Кількість додано через крос {part_number}",
+                    )
+                    queue_template_inventory_change(
+                        db,
+                        cross_owner,
+                        before_template_qty,
+                        context_label=f"Крос-номер → {warehouse.name if warehouse else 'Склад'}",
+                        reason=f"Кількість додано через крос {part_number}",
+                    )
+                flash_news(db, "parts", "Кількість додано через крос-номер", f"{part_number} → {cross_owner.part_number}: +{qty} шт.", "success")
+                db.commit()
+                flash(f"Кількість додано до основного товару {cross_owner.part_number}", "success")
+                return redirect(url_for("admin_parts", warehouse_id=warehouse_id or "all"))
+            if cross_action == "create_new_remove_cross":
+                remove_cross_number_from_template(cross_owner, part_number)
+                db.flush()
+            else:
+                flash(
+                    f"OEM {part_number} вже є крос-номером товару {cross_owner.part_number}. "
+                    'Оберіть: "добавити кількість до створеного товару" або "створити нову картку товару і видалити крос".',
+                    "error",
+                )
+                return redirect(url_for("admin_parts", warehouse_id=warehouse_id or "all"))
         before_template_qty = template_unassigned_qty(template)
         if template:
             ensure_template_barcode(db, template)
@@ -9284,6 +9624,8 @@ def create_part():
                 "showcase_photo_urls": parse_media_urls(gallery_urls) or template_gallery_urls(template),
                 "youtube_url": normalize_text(request.form.get("youtube_url", "").strip()),
             }
+            if cross_numbers_submitted:
+                payload["cross_numbers"] = cross_numbers
             template, _ = upsert_part_template(db, part_number, payload)
             ensure_template_barcode(db, template)
             apply_template_to_parts(db, template)
@@ -9366,6 +9708,8 @@ def create_part():
             "showcase_photo_urls": parse_media_urls(gallery_urls) or template_gallery_urls(template),
             "youtube_url": normalize_text(request.form.get("youtube_url", "").strip()),
         }
+        if cross_numbers_submitted:
+            template_payload["cross_numbers"] = cross_numbers
         template, _ = upsert_part_template(db, part_number, template_payload)
         rebalance_template_assignment_qty(template, 0, qty)
         ensure_template_barcode(db, template)
@@ -9424,6 +9768,11 @@ def update_part(part_id):
 
         existing_template = find_part_template(db, new_part_number)
         before_template_qty = template_unassigned_qty(existing_template)
+        cross_numbers = (
+            cross_numbers_from_form(request.form, "cross_numbers", new_part_number)
+            if "cross_numbers" in request.form
+            else template_cross_numbers(existing_template)
+        )
         part.part_number = new_part_number
         part.part_number_export = new_part_number
         requested_name = request.form.get("name", part.name).strip()
@@ -9460,6 +9809,7 @@ def update_part(part_id):
             "photo_urls": part.photo_urls or (existing_template.photo_urls if existing_template else ""),
             "showcase_photo_urls": parse_media_urls(part.showcase_photo_urls) or template_gallery_urls(existing_template),
             "youtube_url": part.youtube_url or (existing_template.youtube_url if existing_template else ""),
+            "cross_numbers": cross_numbers,
         }
         template, _ = upsert_part_template(db, new_part_number, template_payload)
         if before_part_number == new_part_number:

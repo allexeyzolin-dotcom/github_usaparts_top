@@ -35,11 +35,12 @@
   <meta name="twitter:card" content="summary">
   {% endif %}
   <meta name="theme-color" content="#0b1118">
-  <link rel="icon" type="image/png" sizes="48x48" href="{{ url_for('favicon_png_48') }}">
-  <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('favicon_png_96') }}">
-  <link rel="shortcut icon" href="{{ url_for('favicon_ico') }}">
-  <link rel="icon" href="{{ url_for('favicon_ico') }}" sizes="any">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('apple_touch_icon') }}">
+  <link rel="icon" type="image/png" sizes="48x48" href="{{ url_for('favicon_png_48') }}?v=20260429">
+  <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('favicon_png_96') }}?v=20260429">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('favicon_png') }}?v=20260429">
+  <link rel="shortcut icon" href="{{ url_for('favicon_ico') }}?v=20260429">
+  <link rel="icon" href="{{ url_for('favicon_ico') }}?v=20260429" sizes="any">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('apple_touch_icon') }}?v=20260429">
   <link rel="manifest" href="{{ url_for('site_webmanifest') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   {% if json_ld|default('') %}

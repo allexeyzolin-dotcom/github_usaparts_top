@@ -5857,24 +5857,19 @@ def graph_json_ld(*payloads) -> str:
 
 def build_home_schema(title: str, description: str, featured: list[Part]) -> str:
     url = public_url_for("home")
-    items = []
-    for index, part in enumerate(featured[:12], 1):
-        items.append(
-            {
-                "@type": "ListItem",
-                "position": index,
-                "url": public_part_url(part),
-                "name": compact_meta_text(part.part_number, part.name, limit=120),
-            }
-        )
+    # Product codes are indexed on their own canonical product pages. Keeping them
+    # out of the homepage schema prevents Google from showing the homepage for OEM queries.
     return graph_json_ld(
         webpage_schema_payload(title, description, url),
         {
-            "@type": "ItemList",
-            "@id": f"{url}#featured-parts",
-            "name": "Запчастини для авто з США на вітрині",
-            "itemListElement": items,
-        },
+            "@type": "AutoPartsStore",
+            "@id": f"{url}#store",
+            "name": "USAparts.top",
+            "url": url,
+            "description": description,
+            "image": public_url_for("static", filename="usaparts-logo-transparent.png"),
+            "areaServed": "UA",
+        }
     )
 
 
@@ -6799,6 +6794,13 @@ def favicon_png_96():
     return response
 
 
+@app.route("/favicon.png")
+def favicon_png():
+    response = send_file(BASE_DIR / "static" / "favicon.png", mimetype="image/png")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
 @app.route("/apple-touch-icon.png")
 def apple_touch_icon():
     response = send_file(BASE_DIR / "static" / "favicon-180.png", mimetype="image/png")
@@ -6813,17 +6815,17 @@ def site_webmanifest():
         "short_name": "USAparts.top",
         "icons": [
             {
-                "src": public_url_for("favicon_png_48"),
+                "src": f"{public_url_for('favicon_png_48')}?v=20260429",
                 "sizes": "48x48",
                 "type": "image/png",
             },
             {
-                "src": public_url_for("favicon_png_96"),
+                "src": f"{public_url_for('favicon_png_96')}?v=20260429",
                 "sizes": "96x96",
                 "type": "image/png",
             },
             {
-                "src": public_url_for("static", filename="favicon-192.png"),
+                "src": f"{public_url_for('favicon_png')}?v=20260429",
                 "sizes": "192x192",
                 "type": "image/png",
             },

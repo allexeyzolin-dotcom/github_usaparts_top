@@ -5805,6 +5805,11 @@ def offer_shipping_details_payload() -> dict:
     }
 
 
+def seo_price_valid_until() -> str:
+    days = max(int(os.getenv("SEO_PRICE_VALID_DAYS") or 30), 1)
+    return (datetime.utcnow() + timedelta(days=days)).date().isoformat()
+
+
 def webpage_schema_payload(title: str, description: str, url: str) -> dict:
     return {
         "@type": "WebPage",
@@ -5894,8 +5899,13 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None) -> str:
             "url": part_url,
             "priceCurrency": "USD",
             "price": price,
+            "priceValidUntil": seo_price_valid_until(),
             "availability": "https://schema.org/InStock" if part.in_stock and int(part.qty or 0) > 0 else "https://schema.org/OutOfStock",
             "itemCondition": "https://schema.org/NewCondition" if producer_type_label(part.producer_type) == "OEM" else "https://schema.org/UsedCondition",
+            "inventoryLevel": {
+                "@type": "QuantitativeValue",
+                "value": max(int(part.qty or 0), 0),
+            },
             "seller": {"@id": f"{public_site_base_url()}/#organization"},
             "shippingDetails": offer_shipping_details_payload(),
             "hasMerchantReturnPolicy": merchant_return_policy_payload(),
@@ -5946,7 +5956,9 @@ def build_car_product_schema(car: Car, photos: list[str]) -> str:
             "url": car_url,
             "priceCurrency": "USD",
             "price": f"{float(car.price_usd or 0):.2f}",
+            "priceValidUntil": seo_price_valid_until(),
             "availability": "https://schema.org/InStock" if car.status == "in_stock" else "https://schema.org/PreOrder",
+            "itemCondition": "https://schema.org/UsedCondition",
             "seller": {"@id": f"{public_site_base_url()}/#organization"},
             "shippingDetails": offer_shipping_details_payload(),
             "hasMerchantReturnPolicy": merchant_return_policy_payload(),

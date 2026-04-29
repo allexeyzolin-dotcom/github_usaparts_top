@@ -425,6 +425,14 @@ def admin_required(fn):
     return wrapper
 
 
+@app.after_request
+def apply_crawl_headers(response):
+    private_paths = ("/admin", "/api", "/cart", "/checkout")
+    if request.path == "/cart" or request.path == "/checkout" or request.path.startswith(private_paths):
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    return response
+
+
 def flash_news(db, source: str, title: str, body: str, severity: str = "info"):
     clean_source = normalize_text(source)
     clean_title = normalize_text(title)
@@ -6297,7 +6305,9 @@ def sitemap_xml_response(nodes: list[str]) -> Response:
     body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
     body += "\n".join(nodes)
     body += "\n</urlset>\n"
-    return Response(body, mimetype="application/xml")
+    response = Response(body, mimetype="application/xml")
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 def sitemap_image_xml_response(nodes: list[str]) -> Response:
@@ -6305,7 +6315,9 @@ def sitemap_image_xml_response(nodes: list[str]) -> Response:
     body += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
     body += "\n".join(nodes)
     body += "\n</urlset>\n"
-    return Response(body, mimetype="application/xml")
+    response = Response(body, mimetype="application/xml")
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 def sitemap_index_response(locations: list[tuple[str, str]]) -> Response:
@@ -6317,7 +6329,9 @@ def sitemap_index_response(locations: list[tuple[str, str]]) -> Response:
             lines.append(f"    <lastmod>{xml_escape(lastmod)}</lastmod>")
         lines.append("  </sitemap>")
     lines.append("</sitemapindex>")
-    return Response("\n".join(lines) + "\n", mimetype="application/xml")
+    response = Response("\n".join(lines) + "\n", mimetype="application/xml")
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 def recalc_warehouse_stats(warehouse: Warehouse):
@@ -6803,7 +6817,9 @@ def robots_txt():
         f"Sitemap: {base_url}/sitemap/cars.xml",
         "",
     ])
-    return Response(content, mimetype="text/plain")
+    response = Response(content, mimetype="text/plain")
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 @app.route("/favicon.ico")

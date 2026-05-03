@@ -1,4 +1,4 @@
-:root{
+﻿:root{
   --bg:#0b0f14;
   --panel:#121820;
   --card:#161f2b;
@@ -40,6 +40,32 @@ a{text-decoration:none;color:inherit}
 .page{padding:24px 0 48px}
 .container{width:min(1280px, calc(100% - 32px));margin:0 auto}
 .narrow{width:min(760px, calc(100% - 24px))}
+.site-policy-footer{padding:48px 0 64px;background:linear-gradient(180deg,rgba(7,12,18,.68),rgba(4,8,13,.96));border-top:1px solid rgba(148,163,184,.14)}
+.policy-tabs-card{border:1px solid rgba(148,163,184,.18);border-radius:28px;background:linear-gradient(145deg,rgba(17,27,39,.94),rgba(8,13,20,.96));box-shadow:0 24px 70px rgba(0,0,0,.28);overflow:hidden}
+.policy-tabs-head{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:24px 26px;border-bottom:1px solid rgba(148,163,184,.14)}
+.policy-tabs-head h2{margin:8px 0 0;font-size:30px}
+.policy-tab-buttons{display:flex;flex-wrap:wrap;gap:10px}
+.policy-tab-button{border:1px solid rgba(255,179,0,.22);background:rgba(255,255,255,.05);color:#dbeafe;border-radius:999px;padding:12px 18px;font-weight:800;cursor:pointer;transition:.18s ease}
+.policy-tab-button:hover{transform:translateY(-1px);border-color:rgba(255,179,0,.5);color:#fff}
+.policy-tab-button.is-active{background:linear-gradient(135deg,#ffbd31,#f59e0b);border-color:transparent;color:#07111e;box-shadow:0 16px 30px rgba(245,158,11,.22)}
+.policy-tab-panel{padding:28px}
+.policy-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}
+.policy-grid-delivery{grid-template-columns:minmax(0,.9fr) minmax(360px,.7fr)}
+.policy-copy{color:#d8e3f3;line-height:1.72;font-size:15px}
+.policy-copy h3{margin:0 0 14px;font-size:28px;color:#fff}
+.policy-copy h4{margin:22px 0 8px;color:#fbbf24;font-size:16px}
+.policy-copy p{margin:0 0 10px}
+.policy-copy a{color:#fbbf24;text-decoration:none;font-weight:800}
+.policy-copy ul{margin:8px 0 12px;padding-left:20px}
+.policy-copy li{margin:5px 0}
+.policy-contact-card,.policy-map-card{border:1px solid rgba(148,163,184,.16);border-radius:24px;background:rgba(255,255,255,.055);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);padding:20px;color:#dbeafe}
+.policy-contact-icon{width:70px;height:70px;border-radius:22px;display:grid;place-items:center;background:linear-gradient(135deg,#22c55e,#16a34a);color:#06120b;font-size:26px;font-weight:900;margin-bottom:14px}
+.policy-contact-card h4,.policy-map-card h4{margin:0 0 8px;color:#fff;font-size:18px}
+.policy-contact-card p,.policy-map-card p{margin:0 0 16px;color:#b8c7da;line-height:1.55}
+.policy-map-card{padding:0;overflow:hidden}
+.policy-map-copy{padding:18px 20px;border-bottom:1px solid rgba(148,163,184,.14)}
+.policy-map-frame{position:relative;aspect-ratio:4/3;background:#0b1118}
+.policy-map-frame iframe{width:100%;height:100%;display:block;filter:saturate(.9) contrast(1.02)}
 .hero{padding:72px 0}
 .premium-hero{padding-top:48px}
 .eyebrow{display:inline-block;padding:8px 12px;border-radius:999px;background:rgba(255,179,0,.12);color:#ffd166;border:1px solid rgba(255,179,0,.3);font-size:12px;font-weight:700;letter-spacing:.08em}
@@ -190,6 +216,14 @@ body.admin-theme .admin-shell img[src]:not([src=""]):not([data-no-preview]){curs
   .search-row,.grid-2,.split,.detail-grid,.warehouse-stats,.admin-content-split{grid-template-columns:1fr}
   .showcase-grid,.cars-grid{grid-template-columns:1fr}
   .container{width:min(100% - 20px, 1280px)}
+  .site-policy-footer{padding:34px 0 44px}
+  .policy-tabs-head{align-items:flex-start;flex-direction:column;padding:20px}
+  .policy-tabs-head h2{font-size:25px}
+  .policy-tab-buttons{width:100%;display:grid;grid-template-columns:1fr}
+  .policy-tab-button{width:100%;padding:12px 14px}
+  .policy-tab-panel{padding:20px}
+  .policy-grid,.policy-grid-delivery{grid-template-columns:1fr}
+  .policy-copy h3{font-size:24px}
   .image-preview-dialog{width:min(calc(100vw - 20px), 1400px);padding:12px}
   .image-preview-scroll{max-height:calc(100vh - 160px);padding:10px}
 }

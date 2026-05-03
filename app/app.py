@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import hashlib
 import io
 import json

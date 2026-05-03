@@ -59,6 +59,7 @@
       </a>
     </div>
     <nav class="header-center">
+      <a class="nav-link" href="{{ url_for('catalog') }}">Каталог запчастин</a>
       <a class="nav-link" href="{{ url_for('cars_public', status='in_stock') }}">Авто в наявності</a>
       <a class="nav-link" href="{{ url_for('cars_public', status='in_transit') }}">Авто в дорозі</a>
     </nav>

@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import hashlib
 import io
 import json
@@ -5855,34 +5855,13 @@ def aggregate_search_stats(events):
 
 
 def vehicle_names_from_warehouses(warehouses) -> list[str]:
-    vehicle_keywords = {
-        "ACURA", "AUDI", "BMW", "CADILLAC", "CHEVROLET", "CHRYSLER", "DODGE", "FIAT",
-        "FORD", "GMC", "HONDA", "HYUNDAI", "INFINITI", "JEEP", "KIA", "LEXUS",
-        "LINCOLN", "MAZDA", "MERCEDES", "MERCEDES-BENZ", "MITSUBISHI", "NISSAN",
-        "PORSCHE", "RENAULT", "SATURN", "SCION", "SSANGYONG", "SUBARU", "SUZUKI",
-        "TOYOTA", "VOLKSWAGEN", "VW", "VAG", "BUICK", "TESLA", "VOLVO", "RAM",
-        "TIGUAN", "PASSAT", "JETTA", "GOLF", "TOUAREG", "ATLAS", "TAHOE", "CAMRY",
-        "RAV4", "VENZA", "ROGUE", "ESCAPE", "FUSION", "MALIBU", "CHEROKEE",
-        "COMPASS", "DURANGO", "PACIFICA", "X5", "X3", "Q5", "Q7",
-    }
-    service_words = {
-        "СКЛАД", "ГАРАНТОВАН", "НАЯВ", "TEST", "MARKET", "OEM", "ЗАМІННИК",
-        "ЗАМЕННИК", "ПРИЙОМ", "ПРИЕМ", "ТОВАР", "TRANSIT", "ALL", "ВСІ", "ВСЕ",
-    }
     result = []
     seen = set()
     for warehouse in warehouses:
-        name = normalize_text(getattr(warehouse, "name", "") or "").strip()
+        name = seo_vehicle_label_from_warehouse(warehouse)
         if not name:
             continue
-        upper = name.upper()
-        normalized = re.sub(r"[^A-ZА-ЯІЇЄҐ0-9]+", " ", upper).strip()
-        tokens = set(normalized.split())
-        if tokens and tokens.issubset(service_words):
-            continue
-        if not any(keyword in upper for keyword in vehicle_keywords):
-            continue
-        key = upper.casefold()
+        key = name.upper().casefold()
         if key not in seen:
             seen.add(key)
             result.append(name)
@@ -6304,6 +6283,11 @@ SEO_SERVICE_WAREHOUSE_WORDS = {
     "ЗАМЕННИК", "ПРИЙОМ", "ПРИЕМ", "ТОВАР", "TRANSIT", "ALL", "ВСІ", "ВСЕ",
 }
 
+SEO_SERVICE_WAREHOUSE_WORD_STEMS = (
+    "СКЛАД", "ГАРАНТОВАН", "НАЯВ", "TEST", "MARKET", "OEM", "ЗАМІННИК",
+    "ЗАМЕННИК", "ПРИЙОМ", "ПРИЕМ", "ТОВАР", "TRANSIT", "ALL", "ВСІ", "ВСЕ",
+)
+
 SEO_IGNORED_BRANDS = {
     "", "OEM", "MARKET", "MARKET OEM", "MARKET (OEM)", "ОРИГІНАЛ", "ОРИГИНАЛ",
     "ЗАМІННИК", "ЗАМЕННИК", "АНАЛОГ", "НОВИЙ", "БУ", "B/U", "USED", "NEW",
@@ -6334,6 +6318,22 @@ def seo_slug(value: str) -> str:
 
 def seo_clean_label(value: str) -> str:
     return re.sub(r"\s+", " ", normalize_text(value or "").strip())
+
+
+def seo_normalized_tokens(value: str) -> list[str]:
+    normalized = re.sub(r"[^A-ZА-ЯІЇЄҐ0-9]+", " ", (value or "").upper()).strip()
+    return [token for token in normalized.split() if token]
+
+
+def seo_is_service_warehouse_name(value: str) -> bool:
+    tokens = seo_normalized_tokens(value)
+    if not tokens:
+        return True
+    service_hits = 0
+    for token in tokens:
+        if token in SEO_SERVICE_WAREHOUSE_WORDS or any(token.startswith(stem) or stem in token for stem in SEO_SERVICE_WAREHOUSE_WORD_STEMS):
+            service_hits += 1
+    return service_hits == len(tokens)
 
 
 def public_active_parts(db):
@@ -6398,9 +6398,7 @@ def seo_vehicle_label_from_warehouse(warehouse: Warehouse | None) -> str:
     if not name:
         return ""
     upper = name.upper()
-    normalized = re.sub(r"[^A-ZА-ЯІЇЄҐ0-9]+", " ", upper).strip()
-    tokens = set(normalized.split())
-    if tokens and tokens.issubset(SEO_SERVICE_WAREHOUSE_WORDS):
+    if seo_is_service_warehouse_name(name):
         return ""
     if not any(keyword in upper for keyword in SEO_VEHICLE_KEYWORDS):
         return ""
@@ -6409,13 +6407,46 @@ def seo_vehicle_label_from_warehouse(warehouse: Warehouse | None) -> str:
 
 def seo_vehicle_label_from_part(part: Part) -> str:
     warehouse_label = seo_vehicle_label_from_warehouse(part.warehouse if getattr(part, "warehouse", None) else None)
-    if warehouse_label:
-        return warehouse_label
-    text = seo_part_text(part).upper()
-    for keyword in sorted(SEO_VEHICLE_KEYWORDS, key=len, reverse=True):
-        if re.search(rf"(^|[^A-Z0-9]){re.escape(keyword)}([^A-Z0-9]|$)", text):
-            return SEO_VEHICLE_LABELS.get(keyword, keyword.title())
-    return ""
+    return warehouse_label
+
+
+def seo_warehouse_catalog_entries(db) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    warehouses = db.query(Warehouse).order_by(Warehouse.name.asc()).all()
+    for warehouse in warehouses:
+        label = seo_vehicle_label_from_warehouse(warehouse)
+        if not label:
+            continue
+        slug = seo_slug(label)
+        parts = (
+            db.query(Part)
+            .filter(
+                Part.warehouse_id == warehouse.id,
+                Part.is_deleted == False,
+                Part.in_stock == True,
+                Part.qty > 0,
+            )
+            .order_by(desc(Part.updated_at), desc(Part.id))
+            .all()
+        )
+        if not parts:
+            continue
+        latest = max((part.updated_at or part.created_at for part in parts if part.updated_at or part.created_at), default=warehouse.updated_at)
+        row = grouped.setdefault(
+            slug,
+            {
+                "slug": slug,
+                "label": label,
+                "count": 0,
+                "lastmod": latest,
+                "warehouses": [],
+            },
+        )
+        row["count"] += len(parts)
+        row["warehouses"].append(warehouse.name)
+        if latest and (not row["lastmod"] or latest > row["lastmod"]):
+            row["lastmod"] = latest
+    return sorted(grouped.values(), key=lambda row: (-row["count"], row["label"].casefold()))
 
 
 def seo_part_categories(part: Part) -> list[dict]:
@@ -7309,7 +7340,7 @@ def sitemap_categories_xml():
 def sitemap_vehicles_xml():
     db = SessionLocal()
     try:
-        entries = seo_collect_entries(public_active_parts(db))["vehicles"]
+        entries = seo_warehouse_catalog_entries(db)
         nodes = [
             sitemap_url_node(
                 public_url_for("seo_vehicle_page", slug=entry["slug"]),
@@ -7374,6 +7405,7 @@ def home():
         vehicle_warehouses = vehicle_names_from_warehouses(
             db.query(Warehouse).order_by(Warehouse.name.asc()).all()
         )
+        warehouse_catalogs = seo_warehouse_catalog_entries(db)
         if q and page == 1:
             track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
             db.commit()
@@ -7394,6 +7426,7 @@ def home():
             display_uah=display_uah,
             cars_random=cars_random,
             vehicle_warehouses=vehicle_warehouses,
+            warehouse_catalogs=warehouse_catalogs[:18],
             seo_title=seo_title,
             seo_description=seo_description,
             canonical_url=public_url_for("home"),
@@ -7645,6 +7678,7 @@ def catalog():
             parts_pool = [part for part in parts_pool if producer_type_label(part.producer_type) == "OEM"]
         cross_map = cross_numbers_map_for_parts(db, parts_pool)
         parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1), cross_map=cross_map)
+        warehouse_catalogs = seo_warehouse_catalog_entries(db)
         if q and parts_total == 0:
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
@@ -7656,6 +7690,7 @@ def catalog():
             parts=parts,
             q=q,
             condition=condition,
+            warehouse_catalogs=warehouse_catalogs,
             search_found_without_photo=search_found_without_photo,
             safe_photo=safe_photo,
             display_usd=display_usd,
@@ -7699,7 +7734,8 @@ def seo_vehicle_page(slug):
     try:
         all_parts = best_unique_public_parts(public_active_parts(db))
         entries = seo_collect_entries(all_parts)
-        vehicle = next((entry for entry in entries["vehicles"] if entry["slug"] == slug), None)
+        warehouse_entries = seo_warehouse_catalog_entries(db)
+        vehicle = next((entry for entry in warehouse_entries if entry["slug"] == slug), None)
         if not vehicle:
             return redirect(url_for("catalog"), code=302)
         parts = seo_filter_parts(all_parts, vehicle_slug=slug)
@@ -9270,7 +9306,8 @@ def update_warehouse(warehouse_id):
         flash_news(db, "warehouse", "РћРЅРѕРІР»РµРЅРѕ СЃРєР»Р°Рґ", f"РЎРєР»Р°Рґ {warehouse.name} РѕРЅРѕРІР»РµРЅРѕ.", "info")
         db.commit()
         flash("РЎРєР»Р°Рґ РѕРЅРѕРІР»РµРЅРѕ", "success")
-        return redirect(url_for("admin_parts", warehouse_id=warehouse.id))
+        next_url = request.form.get("next") or ""
+        return redirect(next_url or url_for("admin_parts", warehouse_id=warehouse.id))
     except Exception as e:
         db.rollback()
         flash(f"РџРѕРјРёР»РєР° РѕРЅРѕРІР»РµРЅРЅСЏ СЃРєР»Р°РґСѓ: {e}", "error")

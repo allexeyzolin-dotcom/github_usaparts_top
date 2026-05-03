@@ -13,7 +13,9 @@
     {% set photos = parse_media_urls(car.image_urls) %}
     <a class="showcase-card" href="{{ url_for('car_detail_public', car_id=car.id) }}">
       {% if photos %}
-      <img class="showcase-img" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}">
+      <span class="watermarked-photo">
+        <img class="showcase-img" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}">
+      </span>
       {% else %}
       <div class="showcase-img placeholder">Авто</div>
       {% endif %}

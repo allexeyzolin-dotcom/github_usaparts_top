@@ -7,7 +7,9 @@
       {% for car in cars_random %}
       <a class="mini-car-card" href="{{ url_for('car_detail_public', car_id=car.id) }}">
         {% if primary_car_photo(car) %}
-        <img class="mini-car-image" src="{{ primary_car_photo(car) }}" alt="{{ car.brand }} {{ car.model }}">
+        <span class="watermarked-photo watermark-small">
+          <img class="mini-car-image" src="{{ primary_car_photo(car) }}" alt="{{ car.brand }} {{ car.model }}">
+        </span>
         {% else %}
         <div class="mini-car-image placeholder">Авто</div>
         {% endif %}
@@ -32,12 +34,35 @@
       <button class="btn primary" type="submit">Знайти</button>
     </form>
 
+    <div class="home-catalog-actions">
+      <a class="btn ghost" href="{{ url_for('catalog') }}">Відкрити весь каталог запчастин</a>
+    </div>
+
+    {% if warehouse_catalogs %}
+    <section class="warehouse-catalog-strip card">
+      <div class="warehouse-catalog-head">
+        <div>
+          <span class="eyebrow">Каталоги зі складів</span>
+          <h2>Підбірки за авто</h2>
+        </div>
+        <a class="text-link" href="{{ url_for('catalog') }}">Усі запчастини</a>
+      </div>
+      <div class="seo-chip-row">
+        {% for item in warehouse_catalogs %}
+        <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
     <div class="showcase-grid showcase-grid-home" data-nosnippet>
       {% for part in featured %}
       <div class="showcase-card home-product-card">
         <a href="{{ part_detail_url(part) }}">
           {% if primary_part_photo(part) %}
-          <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+          <span class="watermarked-photo">
+            <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+          </span>
           {% else %}
           <div class="showcase-img placeholder">Фото</div>
           {% endif %}

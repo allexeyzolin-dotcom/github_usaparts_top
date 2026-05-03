@@ -52,7 +52,7 @@
       </div>
 
       {% if photos %}
-      <button class="car-main-photo-button" type="button" id="car-main-photo-open" aria-label="Відкрити фото авто">
+      <button class="car-main-photo-button watermarked-photo watermark-large" type="button" id="car-main-photo-open" aria-label="Відкрити фото авто">
         <img class="showcase-img" id="car-main-photo" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}" style="height:min(56vw,420px);border-radius:20px">
       </button>
       {% else %}
@@ -67,7 +67,9 @@
           type="button"
           data-car-photo-thumb
           data-index="{{ loop.index0 }}">
-          <img src="{{ photo }}" alt="{{ car.brand }} {{ car.model }} фото {{ loop.index }}">
+          <span class="watermarked-photo watermark-small">
+            <img src="{{ photo }}" alt="{{ car.brand }} {{ car.model }} фото {{ loop.index }}">
+          </span>
           <div class="muted">Фото {{ loop.index }}</div>
         </button>
         {% endfor %}
@@ -114,7 +116,7 @@
         <button class="btn ghost small" type="button" data-close-car-modal>Закрити</button>
       </div>
     </div>
-    <div class="car-photo-modal-body">
+    <div class="car-photo-modal-body watermarked-photo watermark-large">
       <img id="car-photo-modal-image" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}">
     </div>
   </div>

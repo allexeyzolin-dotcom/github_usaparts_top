@@ -54,7 +54,9 @@
     <div class="showcase-card">
       <a href="{{ part_detail_url(part) }}">
         {% if primary_part_photo(part) %}
-        <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+        <span class="watermarked-photo">
+          <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+        </span>
         {% else %}
         <div class="showcase-img placeholder">Фото</div>
         {% endif %}

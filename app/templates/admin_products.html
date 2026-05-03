@@ -17,6 +17,23 @@
     </form>
   </section>
 
+  <section class="card stack">
+    <h3>Переіменувати склад</h3>
+    <form method="post" action="" class="stack" onsubmit="return submitWarehouseRename(this)">
+      <select name="warehouse_id" required>
+        <option value="">Оберіть склад</option>
+        {% for warehouse, stats in warehouse_cards %}
+        <option value="{{ warehouse.id }}" data-name="{{ warehouse.name }}" data-markup="{{ warehouse.markup_percent }}">{{ warehouse.name }}</option>
+        {% endfor %}
+      </select>
+      <input name="name" placeholder="Нова назва складу" required>
+      <input name="markup_percent" type="hidden" value="0">
+      <input type="hidden" name="next" value="{{ url_for('admin_products') }}">
+      <div class="helper-note">Після перейменування SEO-каталог автоматично отримає нову назву зі складу.</div>
+      <button class="btn primary" type="submit">Зберегти назву</button>
+    </form>
+  </section>
+
   <section class="card stack danger-card">
     <h3>Видалити склад</h3>
     <form method="post" action="{{ url_for('delete_warehouse_review') }}" class="stack" onsubmit="return confirmWarehouseDelete(this)">
@@ -84,6 +101,7 @@
           <th>Фото</th>
           <th>Опис</th>
           <th>Ревізія</th>
+          <th>Дії</th>
         </tr>
       </thead>
       <tbody>
@@ -102,9 +120,17 @@
             Не розпочато
             {% endif %}
           </td>
+          <td>
+            <form method="post" action="{{ url_for('update_warehouse', warehouse_id=warehouse.id) }}" class="warehouse-rename-inline">
+              <input name="name" value="{{ warehouse.name }}" aria-label="Назва складу" required>
+              <input name="markup_percent" type="number" step="0.01" value="{{ warehouse.markup_percent }}" aria-label="Націнка %">
+              <input type="hidden" name="next" value="{{ url_for('admin_products') }}">
+              <button class="btn ghost small" type="submit">Зберегти</button>
+            </form>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="muted">Складів поки немає.</td></tr>
+        <tr><td colspan="6" class="muted">Складів поки немає.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -137,6 +163,31 @@ function submitWarehouseExport(form) {
   window.location.href = `/admin/export/${select.value}`;
   return false;
 }
+
+function submitWarehouseRename(form) {
+  const select = form.querySelector('select[name="warehouse_id"]');
+  const nameInput = form.querySelector('input[name="name"]');
+  const markupInput = form.querySelector('input[name="markup_percent"]');
+  if (!select.value) {
+    window.alert('Оберіть склад для перейменування.');
+    return false;
+  }
+  if (!nameInput.value.trim()) {
+    window.alert('Вкажіть нову назву складу.');
+    return false;
+  }
+  const option = select.options[select.selectedIndex];
+  markupInput.value = option.dataset.markup || '0';
+  form.action = `/admin/warehouse/${select.value}/update`;
+  return true;
+}
+
+document.querySelector('form[onsubmit="return submitWarehouseRename(this)"] select[name="warehouse_id"]')?.addEventListener('change', (event) => {
+  const form = event.target.closest('form');
+  const option = event.target.options[event.target.selectedIndex];
+  const input = form?.querySelector('input[name="name"]');
+  if (input && option?.dataset.name) input.value = option.dataset.name;
+});
 
 </script>
 {% endblock %}

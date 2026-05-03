@@ -26,7 +26,7 @@
       </div>
 
       {% if gallery %}
-      <button class="part-main-photo-button" type="button" id="part-main-photo-open" aria-label="Відкрити фото товару">
+      <button class="part-main-photo-button watermarked-photo watermark-large" type="button" id="part-main-photo-open" aria-label="Відкрити фото товару">
         <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
       </button>
       {% else %}
@@ -42,7 +42,9 @@
           data-part-photo-thumb
           data-index="{{ loop.index0 }}"
           aria-label="Фото {{ loop.index }}">
-          <img src="{{ photo }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
+          <span class="watermarked-photo watermark-thumb">
+            <img src="{{ photo }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
+          </span>
         </button>
         {% endfor %}
       </div>
@@ -112,7 +114,7 @@
         <button class="btn ghost small" type="button" data-close-part-modal>Закрити</button>
       </div>
     </div>
-    <div class="part-photo-modal-body">
+    <div class="part-photo-modal-body watermarked-photo watermark-large">
       <img id="part-photo-modal-image" src="{{ gallery[0] }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
     </div>
   </div>

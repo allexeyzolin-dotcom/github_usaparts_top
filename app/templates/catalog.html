@@ -16,12 +16,32 @@
     </select>
     <button class="btn primary" type="submit">Пошук</button>
   </form>
+
+  {% if warehouse_catalogs %}
+  <section class="warehouse-catalog-strip card">
+    <div class="warehouse-catalog-head">
+      <div>
+        <span class="eyebrow">Каталоги зі складів</span>
+        <h2>Підбірки за авто</h2>
+      </div>
+      <div class="muted">Назви формуються з назв складів, які відповідають авто.</div>
+    </div>
+    <div class="seo-chip-row">
+      {% for item in warehouse_catalogs %}
+      <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <div class="showcase-grid">
     {% for part in parts %}
     <div class="showcase-card">
       <a href="{{ part_detail_url(part) }}">
         {% if primary_part_photo(part) %}
-        <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+        <span class="watermarked-photo">
+          <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+        </span>
         {% else %}
         <div class="showcase-img placeholder">Фото</div>
         {% endif %}

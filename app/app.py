@@ -6463,11 +6463,14 @@ def seo_collect_entries(parts: list[Part]):
     categories: dict[str, dict] = {}
     vehicles: dict[str, dict] = {}
     vehicle_categories: dict[tuple[str, str], dict] = {}
+    brand_categories: dict[tuple[str, str], dict] = {}
     for part in parts:
         updated_at = part.updated_at or part.created_at
         brand_label = seo_part_brand(part)
+        brand_slug = ""
         if brand_label:
             slug = seo_slug(brand_label)
+            brand_slug = slug
             row = brands.setdefault(slug, {"slug": slug, "label": brand_label, "count": 0, "lastmod": updated_at})
             row["count"] += 1
             if updated_at and (not row["lastmod"] or updated_at > row["lastmod"]):
@@ -6489,6 +6492,23 @@ def seo_collect_entries(parts: list[Part]):
             row["count"] += 1
             if updated_at and (not row["lastmod"] or updated_at > row["lastmod"]):
                 row["lastmod"] = updated_at
+
+            if brand_slug:
+                brand_combo_key = (brand_slug, category["slug"])
+                brand_combo = brand_categories.setdefault(
+                    brand_combo_key,
+                    {
+                        "brand_slug": brand_slug,
+                        "brand_label": brand_label,
+                        "category_slug": category["slug"],
+                        "category_label": category["label"],
+                        "count": 0,
+                        "lastmod": updated_at,
+                    },
+                )
+                brand_combo["count"] += 1
+                if updated_at and (not brand_combo["lastmod"] or updated_at > brand_combo["lastmod"]):
+                    brand_combo["lastmod"] = updated_at
 
             if vehicle_slug:
                 combo_key = (category["slug"], vehicle_slug)
@@ -6514,6 +6534,10 @@ def seo_collect_entries(parts: list[Part]):
         "vehicle_categories": sorted(
             [row for row in vehicle_categories.values() if row["count"] >= 2],
             key=lambda row: (-row["count"], row["vehicle_label"].casefold(), row["category_label"].casefold()),
+        ),
+        "brand_categories": sorted(
+            brand_categories.values(),
+            key=lambda row: (-row["count"], row["brand_label"].casefold(), row["category_label"].casefold()),
         ),
     }
 
@@ -7085,8 +7109,13 @@ def robots_txt():
         "Disallow: /api/",
         "Disallow: /cart",
         "Disallow: /checkout",
+        "Allow: /",
         "Allow: /part/",
+        "Allow: /cross/",
+        "Allow: /brand/",
+        "Allow: /vehicle/",
         "Allow: /catalog",
+        "Allow: /cars",
         "Allow: /list/",
         "Allow: /static/",
         "Allow: /uploads/",
@@ -7097,8 +7126,14 @@ def robots_txt():
         "",
         f"Sitemap: {base_url}/sitemap.xml",
         f"Sitemap: {base_url}/sitemap/parts.xml",
+        f"Sitemap: {base_url}/sitemap/cross-parts.xml",
         f"Sitemap: {base_url}/sitemap/images.xml",
         f"Sitemap: {base_url}/sitemap/cars.xml",
+        f"Sitemap: {base_url}/sitemap/brands.xml",
+        f"Sitemap: {base_url}/sitemap/categories.xml",
+        f"Sitemap: {base_url}/sitemap/vehicles.xml",
+        f"Sitemap: {base_url}/sitemap/brand-categories.xml",
+        f"Sitemap: {base_url}/sitemap/vehicle-categories.xml",
         "",
     ])
     response = Response(content, mimetype="text/plain")
@@ -7181,11 +7216,13 @@ def sitemap_xml():
     locations = [
         (public_url_for("sitemap_pages_xml"), today),
         (public_url_for("sitemap_parts_xml"), today),
+        (public_url_for("sitemap_cross_parts_xml"), today),
         (public_url_for("sitemap_images_xml"), today),
         (public_url_for("sitemap_cars_xml"), today),
         (public_url_for("sitemap_brands_xml"), today),
         (public_url_for("sitemap_categories_xml"), today),
         (public_url_for("sitemap_vehicles_xml"), today),
+        (public_url_for("sitemap_brand_categories_xml"), today),
         (public_url_for("sitemap_vehicle_categories_xml"), today),
     ]
     return sitemap_index_response(locations)
@@ -7206,7 +7243,6 @@ def sitemap_parts_xml():
     db = SessionLocal()
     try:
         parts = best_unique_public_parts(public_active_parts(db))
-        cross_map = cross_numbers_map_for_parts(db, parts)
         nodes = []
         for part in parts:
             nodes.append(
@@ -7217,6 +7253,21 @@ def sitemap_parts_xml():
                     priority="0.8",
                 )
             )
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/cross-parts.xml")
+def sitemap_cross_parts_xml():
+    db = SessionLocal()
+    try:
+        parts = best_unique_public_parts(public_active_parts(db))
+        cross_map = cross_numbers_map_for_parts(db, parts)
+        nodes = []
+        for part in parts:
             part_number = normalize_text(part.part_number or "").strip().upper()
             for cross_number in cross_map.get(part_number, []):
                 nodes.append(
@@ -7227,6 +7278,8 @@ def sitemap_parts_xml():
                         priority="0.8",
                     )
                 )
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
         return sitemap_xml_response(nodes)
     finally:
         db.close()
@@ -7359,6 +7412,31 @@ def sitemap_vehicles_xml():
                 lastmod=sitemap_lastmod(entry["lastmod"]),
                 changefreq="weekly",
                 priority="0.65",
+            )
+            for entry in entries
+        ]
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/brand-categories.xml")
+def sitemap_brand_categories_xml():
+    db = SessionLocal()
+    try:
+        entries = seo_collect_entries(public_active_parts(db))["brand_categories"]
+        nodes = [
+            sitemap_url_node(
+                public_url_for(
+                    "seo_brand_category_page",
+                    brand_slug=entry["brand_slug"],
+                    category_slug=entry["category_slug"],
+                ),
+                lastmod=sitemap_lastmod(entry["lastmod"]),
+                changefreq="weekly",
+                priority="0.7",
             )
             for entry in entries
         ]
@@ -7739,6 +7817,33 @@ def seo_brand_page(slug):
             public_url_for("seo_brand_page", slug=slug),
             intro=f"Сторінка автоматично формується з товарів, де бренд або виробник визначений як {brand['label']}. Для точного підбору використовуйте OEM номер запчастини.",
             related={"categories": entries["categories"][:12], "vehicles": entries["vehicles"][:12]},
+        )
+    finally:
+        db.close()
+
+
+@app.route("/brand/<brand_slug>/<category_slug>")
+def seo_brand_category_page(brand_slug, category_slug):
+    db = SessionLocal()
+    try:
+        all_parts = best_unique_public_parts(public_active_parts(db))
+        entries = seo_collect_entries(all_parts)
+        brand = next((entry for entry in entries["brands"] if entry["slug"] == brand_slug), None)
+        category = next((entry for entry in entries["categories"] if entry["slug"] == category_slug), None)
+        if not brand or not category:
+            return redirect(url_for("catalog"), code=302)
+        parts = seo_filter_parts(all_parts, brand_slug=brand_slug, category_slug=category_slug)
+        if not parts:
+            return redirect(url_for("seo_brand_page", slug=brand_slug), code=302)
+        title = f"{category['label']} {brand['label']}"
+        description = f"{category['label']} {brand['label']} на USAparts.top. Наявні позиції з фото, ціною та OEM номером для швидкого замовлення."
+        return render_seo_listing(
+            parts,
+            title,
+            description,
+            public_url_for("seo_brand_category_page", brand_slug=brand_slug, category_slug=category_slug),
+            intro=f"Автоматична SEO-підбірка з перетину бренду «{brand['label']}» і категорії «{category['label']}». Дані оновлюються разом із наявністю товарів.",
+            related={"categories": entries["categories"][:12], "brands": entries["brands"][:12], "vehicles": entries["vehicles"][:12]},
         )
     finally:
         db.close()

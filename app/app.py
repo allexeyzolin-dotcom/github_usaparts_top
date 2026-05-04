@@ -7273,6 +7273,8 @@ def sitemap_images_xml():
                     lastmod=sitemap_lastmod(car.created_at),
                 )
             )
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"))
         return sitemap_image_xml_response(nodes)
     finally:
         db.close()
@@ -7283,7 +7285,13 @@ def sitemap_cars_xml():
     db = SessionLocal()
     try:
         cars = db.query(Car).order_by(desc(Car.created_at), desc(Car.id)).all()
-        nodes = []
+        nodes = [
+            sitemap_url_node(
+                public_url_for("cars_public"),
+                changefreq="weekly",
+                priority="0.7",
+            )
+        ]
         for car in cars:
             nodes.append(
                 sitemap_url_node(
@@ -7312,6 +7320,8 @@ def sitemap_brands_xml():
             )
             for entry in entries
         ]
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
         return sitemap_xml_response(nodes)
     finally:
         db.close()
@@ -7331,6 +7341,8 @@ def sitemap_categories_xml():
             )
             for entry in entries
         ]
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
         return sitemap_xml_response(nodes)
     finally:
         db.close()
@@ -7350,6 +7362,8 @@ def sitemap_vehicles_xml():
             )
             for entry in entries
         ]
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
         return sitemap_xml_response(nodes)
     finally:
         db.close()
@@ -7373,6 +7387,8 @@ def sitemap_vehicle_categories_xml():
             )
             for entry in entries
         ]
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
         return sitemap_xml_response(nodes)
     finally:
         db.close()

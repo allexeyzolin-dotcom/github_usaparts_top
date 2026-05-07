@@ -23,7 +23,7 @@
         <div class="showcase-code">{{ car.vin or 'VIN не вказано' }}</div>
         <h3>{{ clean_text(car.brand) }} {{ clean_text(car.model) }}</h3>
         <div class="muted">{{ car.year or '-' }} • {{ car.mileage or '-' }} км • {{ 'в дорозі' if car.status == 'in_transit' else 'в наявності' }}</div>
-        <div class="price-row">${{ '%.2f'|format(car.price_usd|float) }}</div>
+        <div class="price-row">{{ display_public_price_uah(car.price_usd, 0) }}</div>
         <div class="button-row" style="margin-top:10px">
           {% if photos|length > 1 %}
           <span class="badge neutral">Фото: {{ photos|length }}</span>

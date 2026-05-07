@@ -5714,6 +5714,10 @@ def display_uah(price_usd: float, markup_percent: float) -> str:
     return f"{usd * DEFAULT_UAH_RATE:.2f}"
 
 
+def display_public_price_uah(price_usd: float, markup_percent: float = 0) -> str:
+    return f"₴{display_uah(price_usd or 0, markup_percent or 0)}"
+
+
 def safe_photo(urls: str) -> str:
     items = parse_media_urls(urls)
     return items[0] if items else ""
@@ -6004,8 +6008,8 @@ def merchant_return_policy_payload() -> dict:
 
 def offer_shipping_details_payload() -> dict:
     country = (os.getenv("SEO_SHIPPING_COUNTRY") or "UA").strip().upper()[:2] or "UA"
-    currency = (os.getenv("SEO_SHIPPING_CURRENCY") or "USD").strip().upper()[:3] or "USD"
-    max_shipping = os.getenv("SEO_SHIPPING_MAX_VALUE", "10.00").strip() or "10.00"
+    currency = (os.getenv("SEO_SHIPPING_CURRENCY") or "UAH").strip().upper()[:3] or "UAH"
+    max_shipping = os.getenv("SEO_SHIPPING_MAX_VALUE", "300.00").strip() or "300.00"
     handling_min = max(int(os.getenv("SEO_HANDLING_MIN_DAYS") or 0), 0)
     handling_max = max(int(os.getenv("SEO_HANDLING_MAX_DAYS") or 1), handling_min)
     transit_min = max(int(os.getenv("SEO_TRANSIT_MIN_DAYS") or 1), 0)
@@ -6116,7 +6120,7 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None, display_p
     display_number = normalize_text(display_part_number or part.part_number or "").strip()
     part_url = canonical_url or public_part_url(part)
     gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
-    price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
+    price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
     categories = seo_part_categories(part)
     brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type))
     product_payload = {
@@ -6132,7 +6136,7 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None, display_p
         "offers": {
             "@type": "Offer",
             "url": part_url,
-            "priceCurrency": "USD",
+            "priceCurrency": "UAH",
             "price": price,
             "priceValidUntil": seo_price_valid_until(),
             "availability": "https://schema.org/InStock" if part.in_stock and int(part.qty or 0) > 0 else "https://schema.org/OutOfStock",
@@ -6193,8 +6197,8 @@ def build_car_product_schema(car: Car, photos: list[str]) -> str:
         "offers": {
             "@type": "Offer",
             "url": car_url,
-            "priceCurrency": "USD",
-            "price": f"{float(car.price_usd or 0):.2f}",
+            "priceCurrency": "UAH",
+            "price": display_uah(car.price_usd or 0, 0),
             "priceValidUntil": seo_price_valid_until(),
             "availability": "https://schema.org/InStock" if car.status == "in_stock" else "https://schema.org/PreOrder",
             "itemCondition": "https://schema.org/UsedCondition",
@@ -7072,6 +7076,9 @@ def inject_globals():
         "youtube_embed_url": youtube_embed_url,
         "part_gallery_urls": part_gallery_urls,
         "part_detail_url": part_detail_url,
+        "display_usd": display_usd,
+        "display_uah": display_uah,
+        "display_public_price_uah": display_public_price_uah,
         "primary_part_photo": primary_part_photo,
         "primary_car_photo": primary_car_photo,
         "primary_template_photo": primary_template_photo,
@@ -7943,7 +7950,7 @@ def part_detail(part_id, slug=None):
         track_stats_event(db, "part_view", part=part)
         db.commit()
         part_title = compact_meta_text(part.part_number, part.name, "купити запчастину з США", limit=95)
-        part_price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
+        part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
         part_og_image = absolute_public_url(primary_part_photo(part)) if primary_part_photo(part) else ""
         return render_template(
             "part_detail.html",
@@ -7957,7 +7964,7 @@ def part_detail(part_id, slug=None):
                 "Купити запчастину",
                 part.part_number,
                 part.name,
-                f"ціна ${part_price}",
+                f"ціна ₴{part_price}",
                 f"наявність {int(part.qty or 0)} шт.",
             ),
             canonical_url=public_part_url(part),
@@ -7991,7 +7998,7 @@ def cross_part_detail(cross_number, part_id, slug=None):
         track_stats_event(db, "part_view", part=part, meta={"crossNumber": clean_cross})
         db.commit()
         part_title = compact_meta_text(clean_cross, part.name, "крос-номер запчастини з США", limit=95)
-        part_price = display_usd(part.price_usd, warehouse.markup_percent if warehouse else 0)
+        part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
         part_og_image = absolute_public_url(primary_part_photo(part)) if primary_part_photo(part) else ""
         cross_url = public_cross_part_url(part, clean_cross)
         return render_template(
@@ -8009,7 +8016,7 @@ def cross_part_detail(cross_number, part_id, slug=None):
                 clean_cross,
                 part.name,
                 f"основний OEM {part.part_number}",
-                f"ціна ${part_price}",
+                f"ціна ₴{part_price}",
             ),
             canonical_url=cross_url,
             og_type="product",

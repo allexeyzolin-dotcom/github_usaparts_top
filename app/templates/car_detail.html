@@ -11,7 +11,7 @@
 
   <div class="card stack public-car-detail">
     <div class="showcase-code">{{ car.vin or 'VIN не вказано' }}</div>
-    <div class="price-row">${{ '%.2f'|format(car.price_usd|float) }}</div>
+    <div class="price-row">{{ display_public_price_uah(car.price_usd, 0) }}</div>
 
     <div class="card vin-tracking-panel">
       <div class="field-label">Трекінг авто по VIN</div>

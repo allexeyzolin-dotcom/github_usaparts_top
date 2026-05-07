@@ -49,7 +49,7 @@
       <div class="showcase-body">
         <div class="showcase-code">{{ part.part_number }}</div>
         <h3>{{ clean_text(part.name) }}</h3>
-        <div class="price-row">${{ display_usd(part.price_usd, part.warehouse.markup_percent) }} <span>₴{{ display_uah(part.price_usd, part.warehouse.markup_percent) }}</span></div>
+        <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent) }}</div>
         <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
           <button class="btn primary full" type="submit">Додати в кошик</button>
         </form>

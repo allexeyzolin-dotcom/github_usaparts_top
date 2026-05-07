@@ -16,7 +16,7 @@
         <div class="mini-car-body">
           <div class="mini-car-name">{{ clean_text(car.brand) }} {{ clean_text(car.model) }}</div>
           <div class="muted mini-car-meta">{{ car.year or '—' }} • {{ car.mileage or '—' }} км • {{ 'в дорозі' if car.status == 'in_transit' else 'в наявності' }}</div>
-          <div class="mini-car-price">${{ '%.2f'|format(car.price_usd|float) }}</div>
+          <div class="mini-car-price">{{ display_public_price_uah(car.price_usd, 0) }}</div>
         </div>
       </a>
       {% endfor %}
@@ -70,7 +70,7 @@
         <div class="showcase-body">
           <div class="showcase-code">{{ part.part_number }}</div>
           <h3>{{ clean_text(part.name) }}</h3>
-          <div class="price-row">${{ display_usd(part.price_usd, part.warehouse.markup_percent) }} <span>₴{{ display_uah(part.price_usd, part.warehouse.markup_percent) }}</span></div>
+          <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent) }}</div>
           <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}" class="home-buy-form">
             <button class="btn primary full" type="submit">Додати в кошик</button>
           </form>

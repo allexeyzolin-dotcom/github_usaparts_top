@@ -61,7 +61,7 @@
       <div class="muted">Основний OEM: {{ main_part_number }}</div>
       {% endif %}
       <h2>{{ clean_text(part.name) }}</h2>
-      <div class="price-row big">${{ display_usd(part.price_usd, warehouse.markup_percent) }} <span>₴{{ display_uah(part.price_usd, warehouse.markup_percent) }}</span></div>
+      <div class="price-row big">{{ display_public_price_uah(part.price_usd, warehouse.markup_percent) }}</div>
       <div class="muted">Кількість: {{ part.qty }} | Наявність: {{ 'Так' if part.in_stock else 'Ні' }}</div>
       <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
         <button class="btn primary">Додати в кошик</button>

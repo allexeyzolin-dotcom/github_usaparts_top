@@ -6645,6 +6645,97 @@ def sitemap_index_response(locations: list[tuple[str, str]]) -> Response:
     return response
 
 
+def build_main_sitemap_nodes(db) -> list[str]:
+    nodes: list[str] = []
+    seen: set[str] = set()
+
+    def add(location: str, lastmod: str = "", changefreq: str = "", priority: str = ""):
+        if not location or location in seen:
+            return
+        seen.add(location)
+        nodes.append(sitemap_url_node(location, lastmod=lastmod, changefreq=changefreq, priority=priority))
+
+    add(public_url_for("home"), changefreq="daily", priority="1.0")
+    add(public_url_for("catalog"), changefreq="daily", priority="0.9")
+    add(public_url_for("cars_public"), changefreq="weekly", priority="0.7")
+
+    parts = best_unique_public_parts(public_active_parts(db))
+    for part in parts:
+        add(
+            public_part_url(part),
+            lastmod=sitemap_lastmod(part.updated_at),
+            changefreq="weekly",
+            priority="0.8",
+        )
+
+    cross_map = cross_numbers_map_for_parts(db, parts)
+    for part in parts:
+        part_number = normalize_text(part.part_number or "").strip().upper()
+        for cross_number in cross_map.get(part_number, []):
+            add(
+                public_cross_part_url(part, cross_number),
+                lastmod=sitemap_lastmod(part.updated_at),
+                changefreq="weekly",
+                priority="0.8",
+            )
+
+    cars = db.query(Car).order_by(desc(Car.created_at), desc(Car.id)).all()
+    for car in cars:
+        add(
+            public_url_for("car_detail_public", car_id=car.id),
+            lastmod=sitemap_lastmod(car.created_at),
+            changefreq="weekly",
+            priority="0.7",
+        )
+
+    entries = seo_collect_entries(parts)
+    for entry in entries["brands"]:
+        add(
+            public_url_for("seo_brand_page", slug=entry["slug"]),
+            lastmod=sitemap_lastmod(entry["lastmod"]),
+            changefreq="weekly",
+            priority="0.65",
+        )
+    for entry in entries["categories"]:
+        add(
+            public_url_for("seo_category_page", slug=entry["slug"]),
+            lastmod=sitemap_lastmod(entry["lastmod"]),
+            changefreq="weekly",
+            priority="0.65",
+        )
+    for entry in seo_warehouse_catalog_entries(db):
+        add(
+            public_url_for("seo_vehicle_page", slug=entry["slug"]),
+            lastmod=sitemap_lastmod(entry["lastmod"]),
+            changefreq="weekly",
+            priority="0.65",
+        )
+    for entry in entries["brand_categories"]:
+        add(
+            public_url_for(
+                "seo_brand_category_page",
+                brand_slug=entry["brand_slug"],
+                category_slug=entry["category_slug"],
+            ),
+            lastmod=sitemap_lastmod(entry["lastmod"]),
+            changefreq="weekly",
+            priority="0.7",
+        )
+    for entry in entries["vehicle_categories"]:
+        add(
+            public_url_for(
+                "seo_vehicle_category_page",
+                category_slug=entry["category_slug"],
+                vehicle_slug=entry["vehicle_slug"],
+            ),
+            lastmod=sitemap_lastmod(entry["lastmod"]),
+            changefreq="weekly",
+            priority="0.7",
+        )
+
+    return nodes
+
+
 def recalc_warehouse_stats(warehouse: Warehouse):
     parts = [part for part in warehouse.parts if not part.is_deleted]
     total = len(parts)
@@ -7132,6 +7223,7 @@ def robots_txt():
         "Allow: /favicon-96.png",
         "",
         f"Sitemap: {base_url}/sitemap.xml",
+        f"Sitemap: {base_url}/sitemap-index.xml",
         f"Sitemap: {base_url}/sitemap/parts.xml",
         f"Sitemap: {base_url}/sitemap/cross-parts.xml",
         f"Sitemap: {base_url}/sitemap/images.xml",
@@ -7219,8 +7311,21 @@ def site_webmanifest():
 
 @app.route("/sitemap.xml")
 def sitemap_xml():
+    db = SessionLocal()
+    try:
+        nodes = build_main_sitemap_nodes(db)
+        if not nodes:
+            nodes = [sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0")]
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap-index.xml")
+def sitemap_index_xml():
     today = datetime.utcnow().date().isoformat()
     locations = [
+        (public_url_for("sitemap_xml"), today),
         (public_url_for("sitemap_pages_xml"), today),
         (public_url_for("sitemap_parts_xml"), today),
         (public_url_for("sitemap_cross_parts_xml"), today),

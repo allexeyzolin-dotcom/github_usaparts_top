@@ -1854,6 +1854,9 @@ body.admin-theme .text-link:hover{
   display:grid;
   gap:12px;
 }
+.goods-editor-block.hidden{
+  display:none;
+}
 .goods-assignment-note{
   line-height:1.45;
 }

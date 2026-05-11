@@ -1700,7 +1700,7 @@ body.admin-theme .text-link:hover{
   align-items:end;
 }
 .parts-toolbar.parts-toolbar-compact{
-  grid-template-columns:minmax(240px,.9fr) minmax(320px,1.4fr);
+  grid-template-columns:minmax(220px,.8fr) minmax(320px,1.4fr) minmax(140px,.45fr);
 }
 .parts-toolbar-submit{
   min-width:140px;
@@ -1729,6 +1729,45 @@ body.admin-theme .text-link:hover{
 }
 .catalog-part-card{
   gap:14px;
+}
+.compact-part-row{
+  gap:10px;
+}
+.compact-part-row .part-admin-head{
+  align-items:center;
+}
+.compact-part-row .part-admin-thumb{
+  width:72px;
+  height:72px;
+  flex-basis:72px;
+  border-radius:16px;
+}
+.compact-part-row h3{
+  margin:0;
+  font-size:16px;
+  line-height:1.25;
+}
+.compact-row-meta{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  align-items:center;
+  padding-top:8px;
+  border-top:1px solid rgba(148,163,184,.16);
+}
+.parts-list-status{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+}
+.parts-pagination{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:flex-end;
 }
 .part-admin-card.is-deleted{
   opacity:.8;

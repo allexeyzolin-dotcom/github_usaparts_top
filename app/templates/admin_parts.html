@@ -8,6 +8,7 @@
 </div>
 
 <form method="get" class="card stack parts-filter-card" id="parts-filter-form">
+  <input type="hidden" name="page" id="parts-page-input" value="1">
   <div class="parts-toolbar parts-toolbar-compact">
     <div class="stack">
       <label class="field-label">Склад</label>
@@ -22,6 +23,15 @@
       <label class="field-label">Пошук по запчастинах</label>
       <input name="q" id="parts-search-input" value="{{ q }}" placeholder="OEM, опис, штрихкод або службова інформація">
       <div class="helper-note">Пошук спрацьовує автоматично після 3 символів.</div>
+    </div>
+    <div class="stack">
+      <label class="field-label">На сторінку</label>
+      <select name="per_page" id="parts-per-page-select">
+        {% for size in pagination.allowed_sizes %}
+        <option value="{{ size }}" {% if pagination.per_page == size %}selected{% endif %}>{{ size }}</option>
+        {% endfor %}
+      </select>
+      <div class="helper-note">Менше рядків - швидше відкриття списку.</div>
     </div>
   </div>
 </form>
@@ -114,9 +124,33 @@
   </aside>
 
   <section class="stack">
+    <div class="card parts-list-status">
+      <div>
+        <strong>{{ pagination.total }} позицій</strong>
+        <div class="muted">
+          {% if pagination.total %}
+          Показано {{ pagination.start_index }}-{{ pagination.end_index }} з {{ pagination.total }}
+          {% else %}
+          За поточним фільтром позицій немає
+          {% endif %}
+        </div>
+      </div>
+      <div class="parts-pagination">
+        {% if pagination.has_prev %}
+        <a class="btn ghost small" href="{{ url_for('admin_parts', warehouse_id=selected_scope, q=q, per_page=pagination.per_page, page=pagination.prev_page) }}">Назад</a>
+        {% endif %}
+        {% for page_number in pagination.page_numbers %}
+        <a class="btn small {% if page_number == pagination.page %}primary{% else %}ghost{% endif %}" href="{{ url_for('admin_parts', warehouse_id=selected_scope, q=q, per_page=pagination.per_page, page=page_number) }}">{{ page_number }}</a>
+        {% endfor %}
+        {% if pagination.has_next %}
+        <a class="btn ghost small" href="{{ url_for('admin_parts', warehouse_id=selected_scope, q=q, per_page=pagination.per_page, page=pagination.next_page) }}">Далі</a>
+        {% endif %}
+      </div>
+    </div>
+
     {% if show_all_goods %}
       {% for item in all_goods %}
-      <article class="card part-admin-card catalog-part-card editable-goods-card {% if item.isTemplateOnly %}template-only-card{% endif %}" data-goods-card>
+      <article class="card part-admin-card compact-part-row editable-goods-card {% if item.isTemplateOnly %}template-only-card{% endif %}" data-goods-card>
         <button class="goods-card-summary" type="button" data-goods-toggle>
           <div class="part-admin-head">
             <div class="part-admin-main">
@@ -130,11 +164,8 @@
                 <h3 data-summary-name>{{ clean_text(item.name) }}</h3>
                 <div class="muted" data-summary-brand>{{ clean_text(item.brand) }}{% if item.brand %} / {% endif %}{{ item.producerTypeLabel }}</div>
                 <div class="muted" data-summary-warehouses>{{ item.warehouseSummary }}</div>
-                {% if item.description %}
-                <div class="muted" data-summary-description>{{ clean_text(item.description) }}</div>
-                {% else %}
+                <div class="muted" data-summary-barcode>Штрихкод: {{ item.barcode or 'ще не згенеровано' }}</div>
                 <div class="muted hidden" data-summary-description></div>
-                {% endif %}
               </div>
             </div>
             <div class="part-admin-side">
@@ -149,21 +180,10 @@
           </div>
         </button>
 
-        <div class="part-card-divider"></div>
-
-        <div class="part-admin-foot">
-          <div class="muted" data-summary-barcode>Штрихкод: {{ item.barcode or 'ще не згенеровано' }}</div>
-          {% if item.crossNumbers %}
-          <div class="muted">Крос: {{ item.crossNumbers|join(', ') }}</div>
-          {% endif %}
-          {% if item.youtubeUrl %}
-          <a class="text-link" href="{{ item.youtubeUrl }}" target="_blank" rel="noopener">YouTube</a>
-          {% endif %}
-          {% if item.updatedAt %}
-          <div class="muted" data-summary-updated>Оновлено: {{ item.updatedAt }}</div>
-          {% else %}
-          <div class="muted" data-summary-updated>Оновлено: щойно</div>
-          {% endif %}
+        <div class="muted compact-row-meta">
+          {% if item.crossNumbers %}<span>Крос: {{ item.crossNumbers|join(', ') }}</span>{% endif %}
+          {% if item.youtubeUrl %}<a class="text-link" href="{{ item.youtubeUrl }}" target="_blank" rel="noopener">YouTube</a>{% endif %}
+          <span data-summary-updated>Оновлено: {{ item.updatedAt or 'щойно' }}</span>
         </div>
 
         <div class="hidden part-editor-block goods-editor-block" data-goods-editor>
@@ -333,6 +353,23 @@
         <div class="muted">У цьому складі поки немає активних запчастин за поточним пошуком.</div>
       </div>
       {% endfor %}
+    {% endif %}
+
+    {% if pagination.pages > 1 %}
+    <div class="card parts-list-status">
+      <div class="muted">Сторінка {{ pagination.page }} з {{ pagination.pages }}</div>
+      <div class="parts-pagination">
+        {% if pagination.has_prev %}
+        <a class="btn ghost small" href="{{ url_for('admin_parts', warehouse_id=selected_scope, q=q, per_page=pagination.per_page, page=pagination.prev_page) }}">Назад</a>
+        {% endif %}
+        {% for page_number in pagination.page_numbers %}
+        <a class="btn small {% if page_number == pagination.page %}primary{% else %}ghost{% endif %}" href="{{ url_for('admin_parts', warehouse_id=selected_scope, q=q, per_page=pagination.per_page, page=page_number) }}">{{ page_number }}</a>
+        {% endfor %}
+        {% if pagination.has_next %}
+        <a class="btn ghost small" href="{{ url_for('admin_parts', warehouse_id=selected_scope, q=q, per_page=pagination.per_page, page=pagination.next_page) }}">Далі</a>
+        {% endif %}
+      </div>
+    </div>
     {% endif %}
   </section>
 </div>
@@ -575,15 +612,23 @@ function promptPrintLabels(partId, defaultQty) {
   const form = document.getElementById('parts-filter-form');
   const searchInput = document.getElementById('parts-search-input');
   const warehouseSelect = document.getElementById('parts-warehouse-select');
+  const perPageSelect = document.getElementById('parts-per-page-select');
+  const pageInput = document.getElementById('parts-page-input');
   if (!form || !searchInput || !warehouseSelect) return;
   let timer = null;
 
-  warehouseSelect.addEventListener('change', () => form.submit());
+  function submitFilters() {
+    if (pageInput) pageInput.value = '1';
+    form.submit();
+  }
+
+  warehouseSelect.addEventListener('change', submitFilters);
+  perPageSelect?.addEventListener('change', submitFilters);
   searchInput.addEventListener('input', () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       const value = (searchInput.value || '').trim();
-      if (!value || value.length >= 3) form.submit();
+      if (!value || value.length >= 3) submitFilters();
     }, 320);
   });
 })();

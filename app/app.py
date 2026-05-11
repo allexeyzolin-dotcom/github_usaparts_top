@@ -1307,6 +1307,47 @@ def build_all_goods_cards(db, query_text: str = ""):
     return cards
 
 
+def admin_parts_pagination(page_value, per_page_value, total_items: int):
+    allowed_sizes = (10, 20, 50)
+    try:
+        per_page = int(per_page_value or 20)
+    except (TypeError, ValueError):
+        per_page = 20
+    if per_page not in allowed_sizes:
+        per_page = 20
+
+    try:
+        page = int(page_value or 1)
+    except (TypeError, ValueError):
+        page = 1
+    page = max(page, 1)
+
+    total = max(int(total_items or 0), 0)
+    pages = max((total + per_page - 1) // per_page, 1)
+    page = min(page, pages)
+    offset = (page - 1) * per_page
+    end_offset = min(offset + per_page, total)
+    window_start = max(1, page - 2)
+    window_end = min(pages, page + 2)
+
+    return {
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": pages,
+        "offset": offset,
+        "end_offset": end_offset,
+        "start_index": offset + 1 if total else 0,
+        "end_index": end_offset,
+        "has_prev": page > 1,
+        "has_next": page < pages,
+        "prev_page": max(1, page - 1),
+        "next_page": min(pages, page + 1),
+        "page_numbers": list(range(window_start, window_end + 1)),
+        "allowed_sizes": allowed_sizes,
+    }
+
+
 def warehouse_print_marks_map(db, warehouse_id: int | None):
     query = db.query(WarehousePrintMark)
     if warehouse_id is None:
@@ -8719,6 +8760,8 @@ def admin_parts():
         warehouses = db.query(Warehouse).order_by(Warehouse.name.asc()).all()
         query_text = request.args.get("q", "").strip()
         selected_scope = normalize_text(request.args.get("warehouse_id") or "").strip()
+        requested_page = request.args.get("page")
+        requested_per_page = request.args.get("per_page")
         if not selected_scope:
             selected_scope = str(warehouses[0].id) if warehouses else "all"
         show_all_goods = selected_scope == "all"
@@ -8726,9 +8769,12 @@ def admin_parts():
         selected_warehouse = None
         parts = []
         all_goods = []
+        pagination = admin_parts_pagination(requested_page, requested_per_page, 0)
         warehouse_stats = {"total": 0, "with_photo_pct": 0, "with_desc_pct": 0}
         if show_all_goods:
-            all_goods = build_all_goods_cards(db, query_text)
+            all_goods_full = build_all_goods_cards(db, query_text)
+            pagination = admin_parts_pagination(requested_page, requested_per_page, len(all_goods_full))
+            all_goods = all_goods_full[pagination["offset"]:pagination["end_offset"]]
             db.commit()
         else:
             selected_warehouse_id = int(selected_scope or 0)
@@ -8745,13 +8791,14 @@ def admin_parts():
                     | (Part.description.ilike(like))
                     | (Part.barcode.ilike(like))
                 )
-            parts = parts_query.all()
-            parts.sort(
-                key=lambda part: (
-                    0 if part.updated_at and part.created_at and part.updated_at > (part.created_at + timedelta(seconds=1)) else 1,
-                    -(part.updated_at.timestamp() if part.updated_at else 0),
-                    part.part_number.casefold(),
-                )
+            total_parts = parts_query.count()
+            pagination = admin_parts_pagination(requested_page, requested_per_page, total_parts)
+            parts = (
+                parts_query
+                .order_by(desc(Part.updated_at), Part.part_number.asc(), Part.id.asc())
+                .offset(pagination["offset"])
+                .limit(pagination["per_page"])
+                .all()
             )
             for part in parts:
                 ensure_part_barcode(db, part)
@@ -8769,6 +8816,7 @@ def admin_parts():
             q=query_text,
             stats=warehouse_stats,
             news=news,
+            pagination=pagination,
         )
     finally:
         db.close()

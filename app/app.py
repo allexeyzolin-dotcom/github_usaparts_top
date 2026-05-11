@@ -8037,8 +8037,8 @@ def seo_vehicle_category_page(category_slug, vehicle_slug):
         db.close()
 
 
-@app.route("/part/<int:part_id>")
-@app.route("/part/<int:part_id>/<slug>")
+@app.route("/part/<int:part_id>", methods=["GET"], strict_slashes=False)
+@app.route("/part/<int:part_id>/<path:slug>", methods=["GET"], strict_slashes=False)
 def part_detail(part_id, slug=None):
     db = SessionLocal()
     try:
@@ -8047,8 +8047,9 @@ def part_detail(part_id, slug=None):
             flash("Товар не знайдено", "error")
             return redirect(url_for("catalog"))
         canonical_slug = part_seo_slug(part)
-        if slug != canonical_slug:
-            return redirect(url_for("part_detail", part_id=part.id, slug=canonical_slug), code=301)
+        requested_slug = (slug or "").strip("/")
+        if requested_slug != canonical_slug:
+            return redirect(public_url_for("part_detail", part_id=part.id, slug=canonical_slug), code=301)
         warehouse = db.get(Warehouse, part.warehouse_id)
         part.views_24h += 1
         part.views_168h += 1
@@ -8081,8 +8082,8 @@ def part_detail(part_id, slug=None):
         db.close()
 
 
-@app.route("/cross/<cross_number>/<int:part_id>")
-@app.route("/cross/<cross_number>/<int:part_id>/<slug>")
+@app.route("/cross/<cross_number>/<int:part_id>", methods=["GET"], strict_slashes=False)
+@app.route("/cross/<cross_number>/<int:part_id>/<path:slug>", methods=["GET"], strict_slashes=False)
 def cross_part_detail(cross_number, part_id, slug=None):
     db = SessionLocal()
     try:
@@ -8095,8 +8096,9 @@ def cross_part_detail(cross_number, part_id, slug=None):
         if not template or compact_part_code(template.part_number or "") != compact_part_code(part.part_number or ""):
             return redirect(part_detail_url(part), code=302)
         canonical_slug = part_seo_slug_from_values(clean_cross, part.name)
-        if slug != canonical_slug:
-            return redirect(cross_part_detail_url(part, clean_cross), code=301)
+        requested_slug = (slug or "").strip("/")
+        if requested_slug != canonical_slug:
+            return redirect(absolute_public_url(cross_part_detail_url(part, clean_cross)), code=301)
         warehouse = db.get(Warehouse, part.warehouse_id)
         part.views_24h += 1
         part.views_168h += 1

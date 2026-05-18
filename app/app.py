@@ -7676,8 +7676,8 @@ def home():
             warehouse_catalogs=warehouse_catalogs[:18],
             seo_title=seo_title,
             seo_description=seo_description,
-            canonical_url=public_url_for("home"),
-            seo_noindex=bool(q) or page > 1,
+            canonical_url=public_url_for("home", page=page) if page > 1 and not q else public_url_for("home"),
+            seo_noindex=bool(q),
             json_ld=build_home_schema(seo_title, seo_description, featured),
         )
     finally:
@@ -7944,8 +7944,8 @@ def catalog():
             display_uah=display_uah,
             seo_title="Каталог запчастин | USAparts.top",
             seo_description="Каталог запчастин для авто з США. Пошук по OEM номеру, назві, бренду та швидке оформлення замовлення.",
-            canonical_url=public_url_for("catalog"),
-            seo_noindex=bool(q) or bool(condition),
+            canonical_url=public_url_for("catalog", condition=condition) if condition and not q else public_url_for("catalog"),
+            seo_noindex=bool(q),
         )
     finally:
         db.close()
@@ -8240,8 +8240,8 @@ def cars_public():
             safe_photo=safe_photo,
             seo_title=f"{status_label} | USAparts.top",
             seo_description="Авто з США: перегляд фото, опису, VIN та статусу авто в наявності або в дорозі.",
-            canonical_url=public_url_for("cars_public"),
-            seo_noindex=bool(status),
+            canonical_url=public_url_for("cars_public", status=status) if status else public_url_for("cars_public"),
+            seo_noindex=False,
         )
     finally:
         db.close()

@@ -1,0 +1,66 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div>
+    <h2>Відгуки товарів</h2>
+    <p class="muted">Схвалені відгуки показуються на сторінці товару і додають чесний aggregateRating у Product JSON-LD.</p>
+  </div>
+</div>
+
+<div class="review-filter-row">
+  <a class="stats-toggle-card {% if status == 'pending' %}is-active{% endif %}" href="{{ url_for('admin_reviews', status='pending') }}">
+    <span>Очікують</span>
+    <strong>{{ counts.pending }}</strong>
+  </a>
+  <a class="stats-toggle-card {% if status == 'approved' %}is-active{% endif %}" href="{{ url_for('admin_reviews', status='approved') }}">
+    <span>Схвалені</span>
+    <strong>{{ counts.approved }}</strong>
+  </a>
+  <a class="stats-toggle-card {% if status == 'rejected' %}is-active{% endif %}" href="{{ url_for('admin_reviews', status='rejected') }}">
+    <span>Відхилені</span>
+    <strong>{{ counts.rejected }}</strong>
+  </a>
+  <a class="stats-toggle-card {% if status == 'all' %}is-active{% endif %}" href="{{ url_for('admin_reviews', status='all') }}">
+    <span>Всі</span>
+    <strong>{{ counts.all }}</strong>
+  </a>
+</div>
+
+<div class="review-admin-list">
+  {% for review in reviews %}
+  <article class="card review-admin-card">
+    <div class="review-admin-head">
+      <div>
+        <div class="showcase-code">{{ clean_text(review.part_number) }}</div>
+        <h3>{{ clean_text(review.part.name if review.part else 'Товар не знайдено') }}</h3>
+        <div class="muted">{{ format_dt(review.created_at) }} • {{ clean_text(review.author_name) }}</div>
+      </div>
+      <div class="review-stars" aria-label="{{ review.rating }} з 5">
+        {% for _ in range(review.rating) %}★{% endfor %}{% for _ in range(5 - review.rating) %}☆{% endfor %}
+      </div>
+    </div>
+    <p class="review-body">{{ clean_text(review.body) }}</p>
+    <div class="review-status-row">
+      <span class="status-pill status-{{ review.status }}">{{ clean_text(review.status) }}</span>
+      {% if review.part %}
+      <a class="btn ghost small" href="{{ part_detail_url(review.part) }}" target="_blank" rel="noopener">Відкрити товар</a>
+      {% endif %}
+    </div>
+    <form class="button-row" method="post" action="{{ url_for('admin_review_status', review_id=review.id) }}">
+      <input type="hidden" name="status" value="{{ status }}">
+      {% if review.status != 'approved' %}
+      <button class="btn primary small" type="submit" name="action" value="approve">Схвалити</button>
+      {% endif %}
+      {% if review.status != 'rejected' %}
+      <button class="btn ghost small" type="submit" name="action" value="reject">Відхилити</button>
+      {% endif %}
+      <button class="btn danger small" type="submit" name="action" value="delete" onclick="return confirm('Видалити відгук?');">Видалити</button>
+    </form>
+  </article>
+  {% else %}
+  <div class="card">
+    <p class="muted">Відгуків у цьому статусі поки немає.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

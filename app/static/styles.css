@@ -241,6 +241,7 @@ body.admin-theme .admin-shell img[src]:not([src=""]):not([data-no-preview]){curs
   .policy-copy h3{font-size:24px}
   .image-preview-dialog{width:min(calc(100vw - 20px), 1400px);padding:12px}
   .image-preview-scroll{max-height:calc(100vh - 160px);padding:10px}
+  .review-filter-row{grid-template-columns:1fr 1fr}
 }
 
 .checkout-drawer{position:fixed;left:0;right:0;bottom:0;z-index:40;background:linear-gradient(180deg,rgba(20,27,38,.99),rgba(12,17,24,.99));border-top:1px solid rgba(255,255,255,.08);border-radius:24px 24px 0 0;padding:14px 16px 22px;max-height:85vh;overflow:auto;box-shadow:0 -20px 40px rgba(0,0,0,.35)}
@@ -1257,6 +1258,81 @@ body.admin-theme .stats-panel .muted{
   background:rgba(255,255,255,.03);
   color:#d8e1ec;
 }
+.product-reviews{margin-top:18px}
+.review-section-head,
+.review-admin-head,
+.review-card-head,
+.review-status-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:14px;
+  flex-wrap:wrap;
+}
+.review-summary-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 14px;
+  border-radius:999px;
+  background:rgba(255,179,0,.12);
+  border:1px solid rgba(255,179,0,.28);
+  color:#ffcf70;
+}
+.review-stars{
+  color:#ffb300;
+  letter-spacing:1px;
+  font-weight:900;
+  white-space:nowrap;
+}
+.review-list,
+.review-admin-list{
+  display:grid;
+  gap:12px;
+}
+.review-card{
+  padding:14px;
+  border-radius:16px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+}
+.review-card p,
+.review-body{
+  margin:10px 0;
+  line-height:1.55;
+  color:#d8e1ec;
+}
+.review-form{
+  display:grid;
+  gap:12px;
+  padding-top:14px;
+  border-top:1px solid rgba(255,255,255,.08);
+}
+.review-filter-row{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin-bottom:18px;
+}
+.review-admin-card{
+  display:grid;
+  gap:12px;
+}
+.status-pill{
+  display:inline-flex;
+  align-items:center;
+  padding:7px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  background:rgba(148,163,184,.16);
+  color:#cbd5e1;
+}
+.status-pill.status-approved{background:rgba(34,197,94,.16);color:#4ade80}
+.status-pill.status-pending{background:rgba(245,158,11,.16);color:#fbbf24}
+.status-pill.status-rejected{background:rgba(239,68,68,.16);color:#f87171}
 .phone-prefix-field{
   display:grid;
   grid-template-columns:auto 1fr;
@@ -1466,6 +1542,18 @@ body.admin-theme .field-label{
   font-weight:800;
   letter-spacing:.01em;
 }
+body.admin-theme .review-card,
+body.admin-theme .review-summary-badge{
+  background:#f8fafc;
+  border-color:#dbe4ee;
+}
+body.admin-theme .review-card p,
+body.admin-theme .review-body{
+  color:#182431;
+}
+body.admin-theme .status-pill.status-approved{background:#dcfce7;color:#166534}
+body.admin-theme .status-pill.status-pending{background:#fef3c7;color:#92400e}
+body.admin-theme .status-pill.status-rejected{background:#fee2e2;color:#991b1b}
 body.admin-theme .helper-note{
   padding:10px 12px;
   border-radius:12px;

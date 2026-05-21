@@ -307,6 +307,20 @@ class StatsEvent(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
+class ProductReview(Base):
+    __tablename__ = "product_reviews"
+    id = Column(Integer, primary_key=True)
+    part_id = Column(Integer, ForeignKey("parts.id", ondelete="CASCADE"), nullable=False, index=True)
+    part_number = Column(String(255), nullable=False, default="", index=True)
+    author_name = Column(String(255), nullable=False, default="")
+    rating = Column(Integer, nullable=False, default=5)
+    body = Column(Text, nullable=False, default="")
+    status = Column(String(32), nullable=False, default="pending", index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    approved_at = Column(DateTime, nullable=True)
+    part = relationship("Part")
+
+
 class ReceivingDraftItem(Base):
     __tablename__ = "receiving_draft_items"
     id = Column(Integer, primary_key=True)
@@ -6157,7 +6171,53 @@ def build_home_schema(title: str, description: str, featured: list[Part]) -> str
     )
 
 
-def build_part_product_schema(part: Part, warehouse: Warehouse | None, display_part_number: str | None = None, canonical_url: str | None = None) -> str:
+def approved_product_reviews(db, part_id: int, limit: int = 20) -> list[ProductReview]:
+    return (
+        db.query(ProductReview)
+        .filter(ProductReview.part_id == part_id, ProductReview.status == "approved")
+        .order_by(desc(ProductReview.approved_at), desc(ProductReview.created_at), desc(ProductReview.id))
+        .limit(limit)
+        .all()
+    )
+
+
+def product_review_summary(db, part_id: int) -> dict:
+    count, average = (
+        db.query(func.count(ProductReview.id), func.avg(ProductReview.rating))
+        .filter(ProductReview.part_id == part_id, ProductReview.status == "approved")
+        .one()
+    )
+    count = int(count or 0)
+    average_value = round(float(average or 0), 1) if count else 0
+    return {"count": count, "average": average_value}
+
+
+def build_review_schema(review: ProductReview) -> dict:
+    payload = {
+        "@type": "Review",
+        "author": {"@type": "Person", "name": normalize_text(review.author_name or "Покупець").strip() or "Покупець"},
+        "datePublished": (review.approved_at or review.created_at or now()).date().isoformat(),
+        "reviewRating": {
+            "@type": "Rating",
+            "ratingValue": int(review.rating or 5),
+            "bestRating": 5,
+            "worstRating": 1,
+        },
+    }
+    body = normalize_text(review.body or "").strip()
+    if body:
+        payload["reviewBody"] = compact_meta_text(body, limit=300)
+    return payload
+
+
+def build_part_product_schema(
+    part: Part,
+    warehouse: Warehouse | None,
+    display_part_number: str | None = None,
+    canonical_url: str | None = None,
+    review_summary: dict | None = None,
+    reviews: list[ProductReview] | None = None,
+) -> str:
     display_number = normalize_text(display_part_number or part.part_number or "").strip()
     part_url = canonical_url or public_part_url(part)
     gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
@@ -6207,6 +6267,21 @@ def build_part_product_schema(part: Part, warehouse: Warehouse | None, display_p
         product_payload["additionalProperty"].append(
             {"@type": "PropertyValue", "name": "Склад", "value": seo_clean_label(warehouse.name)}
         )
+    review_summary = review_summary or {}
+    review_count = int(review_summary.get("count") or 0)
+    review_average = float(review_summary.get("average") or 0)
+    if review_count > 0 and review_average > 0:
+        product_payload["aggregateRating"] = {
+            "@type": "AggregateRating",
+            "ratingValue": f"{review_average:.1f}",
+            "reviewCount": review_count,
+            "bestRating": 5,
+            "worstRating": 1,
+        }
+        visible_reviews = [build_review_schema(review) for review in (reviews or [])[:10]]
+        if visible_reviews:
+            product_payload["review"] = visible_reviews
+
     title = compact_meta_text(display_number, part.name, limit=90)
     description = compact_meta_text("Купити запчастину", display_number, part.name, f"наявність {int(part.qty or 0)} шт.", limit=160)
     return graph_json_ld(
@@ -7045,6 +7120,9 @@ def seed_if_empty():
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_stats_events_created_at ON stats_events (created_at)")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_stats_events_part_number ON stats_events (part_number)")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_stats_events_query_text ON stats_events (query_text)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_product_reviews_part_id ON product_reviews (part_id)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_product_reviews_status ON product_reviews (status)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_product_reviews_created_at ON product_reviews (created_at)")
         except Exception:
             pass
     db = SessionLocal()
@@ -7145,6 +7223,7 @@ def inject_globals():
     transit_open_count = 0
     orders_new_count = 0
     orders_active_count = 0
+    product_reviews_pending_count = 0
     if session.get("admin_auth"):
         db = SessionLocal()
         try:
@@ -7162,6 +7241,11 @@ def inject_globals():
             packing_open_count = (
                 db.query(PackingRequest)
                 .filter(PackingRequest.status.in_(["open", "in_progress", "ready", "issue", "packed"]))
+                .count()
+            )
+            product_reviews_pending_count = (
+                db.query(ProductReview)
+                .filter(ProductReview.status == "pending")
                 .count()
             )
             transit_open_count = (
@@ -7195,6 +7279,7 @@ def inject_globals():
         "transit_open_count": transit_open_count,
         "orders_new_count": orders_new_count,
         "orders_active_count": orders_active_count,
+        "product_reviews_pending_count": product_reviews_pending_count,
         "admin_email": session.get("admin_email", ""),
         "stock_status_label": stock_status_label,
         "format_dt": format_dt,
@@ -8096,6 +8181,8 @@ def part_detail(part_id, slug=None):
         part.views_168h += 1
         track_stats_event(db, "part_view", part=part)
         db.commit()
+        review_summary = product_review_summary(db, part.id)
+        reviews = approved_product_reviews(db, part.id)
         part_title = compact_meta_text(part.part_number, part.name, "купити запчастину з США", limit=95)
         part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
         part_og_image = absolute_public_url(primary_part_photo(part)) if primary_part_photo(part) else ""
@@ -8117,7 +8204,9 @@ def part_detail(part_id, slug=None):
             canonical_url=public_part_url(part),
             og_type="product",
             og_image_url=part_og_image,
-            json_ld=build_part_product_schema(part, warehouse),
+            review_summary=review_summary,
+            reviews=reviews,
+            json_ld=build_part_product_schema(part, warehouse, review_summary=review_summary, reviews=reviews),
         )
     finally:
         db.close()
@@ -8145,6 +8234,8 @@ def cross_part_detail(cross_number, part_id, slug=None):
         part.views_168h += 1
         track_stats_event(db, "part_view", part=part, meta={"crossNumber": clean_cross})
         db.commit()
+        review_summary = product_review_summary(db, part.id)
+        reviews = approved_product_reviews(db, part.id)
         part_title = compact_meta_text(clean_cross, part.name, "крос-номер запчастини з США", limit=95)
         part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
         part_og_image = absolute_public_url(primary_part_photo(part)) if primary_part_photo(part) else ""
@@ -8169,7 +8260,9 @@ def cross_part_detail(cross_number, part_id, slug=None):
             canonical_url=cross_url,
             og_type="product",
             og_image_url=part_og_image,
-            json_ld=build_part_product_schema(part, warehouse, display_part_number=clean_cross, canonical_url=cross_url),
+            review_summary=review_summary,
+            reviews=reviews,
+            json_ld=build_part_product_schema(part, warehouse, display_part_number=clean_cross, canonical_url=cross_url, review_summary=review_summary, reviews=reviews),
         )
     finally:
         db.close()
@@ -8219,6 +8312,58 @@ def part_seller_request(part_id):
         db.rollback()
         flash(f"Не вдалося відправити запит: {exc}", "error")
         return redirect(f"{url_for('part_detail', part_id=part_id)}#seller-request")
+    finally:
+        db.close()
+
+
+@app.route("/part/<int:part_id>/review", methods=["POST"])
+def part_review_submit(part_id):
+    db = SessionLocal()
+    try:
+        part = db.get(Part, part_id)
+        if not part or part.is_deleted:
+            flash("Товар не знайдено.", "error")
+            return redirect(url_for("catalog"))
+
+        author_name = normalize_text(request.form.get("author_name", "")).strip()
+        body = normalize_text(request.form.get("body", "")).strip()
+        try:
+            rating = int(request.form.get("rating", "5"))
+        except ValueError:
+            rating = 0
+        rating = max(1, min(rating, 5))
+
+        if len(author_name) < 2:
+            flash("Вкажіть ім'я для відгуку.", "error")
+            return redirect(f"{part_detail_url(part)}#reviews")
+        if len(body) < 10:
+            flash("Напишіть короткий реальний відгук про товар.", "error")
+            return redirect(f"{part_detail_url(part)}#reviews")
+
+        review = ProductReview(
+            part_id=part.id,
+            part_number=part.part_number,
+            author_name=author_name[:255],
+            rating=rating,
+            body=body[:2000],
+            status="pending",
+            created_at=now(),
+        )
+        db.add(review)
+        flash_news(
+            db,
+            "reviews",
+            "Новий відгук очікує модерації",
+            f"{part.part_number}: {rating}/5 від {author_name}",
+            "info",
+        )
+        db.commit()
+        flash("Дякуємо за відгук. Він з'явиться на сайті після перевірки менеджером.", "success")
+        return redirect(f"{part_detail_url(part)}#reviews")
+    except Exception as exc:
+        db.rollback()
+        flash(f"Не вдалося зберегти відгук: {exc}", "error")
+        return redirect(url_for("part_detail", part_id=part_id))
     finally:
         db.close()
 
@@ -8548,6 +8693,74 @@ def admin_account():
             return redirect(url_for("admin_account"))
         news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
         return render_template("admin_account.html", news=news)
+    finally:
+        db.close()
+
+
+@app.route("/admin/reviews")
+@admin_required
+def admin_reviews():
+    db = SessionLocal()
+    try:
+        status = (request.args.get("status") or "pending").strip().lower()
+        if status not in {"pending", "approved", "rejected", "all"}:
+            status = "pending"
+        query = db.query(ProductReview).outerjoin(Part, ProductReview.part_id == Part.id)
+        if status != "all":
+            query = query.filter(ProductReview.status == status)
+        reviews = query.order_by(desc(ProductReview.created_at), desc(ProductReview.id)).limit(200).all()
+        counts = {
+            "pending": db.query(ProductReview).filter(ProductReview.status == "pending").count(),
+            "approved": db.query(ProductReview).filter(ProductReview.status == "approved").count(),
+            "rejected": db.query(ProductReview).filter(ProductReview.status == "rejected").count(),
+            "all": db.query(ProductReview).count(),
+        }
+        news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
+        return render_template(
+            "admin_reviews.html",
+            news=news,
+            reviews=reviews,
+            status=status,
+            counts=counts,
+        )
+    finally:
+        db.close()
+
+
+@app.route("/admin/reviews/<int:review_id>/status", methods=["POST"])
+@admin_required
+def admin_review_status(review_id):
+    db = SessionLocal()
+    try:
+        review = db.get(ProductReview, review_id)
+        if not review:
+            flash("Відгук не знайдено.", "error")
+            return redirect(url_for("admin_reviews"))
+        action = (request.form.get("action") or "").strip().lower()
+        if action == "approve":
+            review.status = "approved"
+            review.approved_at = now()
+            flash_news(db, "reviews", "Відгук схвалено", f"{review.part_number}: {review.rating}/5", "success")
+            flash("Відгук схвалено і він доступний для Product structured data.", "success")
+        elif action == "reject":
+            review.status = "rejected"
+            review.approved_at = None
+            flash_news(db, "reviews", "Відгук відхилено", f"{review.part_number}: {review.rating}/5", "info")
+            flash("Відгук відхилено.", "info")
+        elif action == "delete":
+            part_number = review.part_number
+            db.delete(review)
+            flash_news(db, "reviews", "Відгук видалено", part_number, "info")
+            flash("Відгук видалено.", "info")
+        else:
+            flash("Невідома дія з відгуком.", "error")
+            return redirect(url_for("admin_reviews", status=request.form.get("status") or "pending"))
+        db.commit()
+        return redirect(url_for("admin_reviews", status=request.form.get("status") or "pending"))
+    except Exception as exc:
+        db.rollback()
+        flash(f"Не вдалося оновити відгук: {exc}", "error")
+        return redirect(url_for("admin_reviews"))
     finally:
         db.close()
 

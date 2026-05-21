@@ -94,6 +94,68 @@
       </div>
     </div>
   </div>
+
+  <section class="card stack product-reviews" id="reviews">
+    <div class="review-section-head">
+      <div>
+        <div class="field-label">Відгуки покупців</div>
+        <h3>Оцінка товару</h3>
+      </div>
+      {% if review_summary and review_summary.count %}
+      <div class="review-summary-badge">
+        <span class="review-stars">★</span>
+        <strong>{{ "%.1f"|format(review_summary.average) }}</strong>
+        <span>/ 5 • {{ review_summary.count }} відгук{% if review_summary.count != 1 %}ів{% endif %}</span>
+      </div>
+      {% else %}
+      <div class="muted">Ще немає схвалених відгуків.</div>
+      {% endif %}
+    </div>
+
+    {% if reviews %}
+    <div class="review-list">
+      {% for review in reviews %}
+      <article class="review-card">
+        <div class="review-card-head">
+          <strong>{{ clean_text(review.author_name) }}</strong>
+          <span class="review-stars" aria-label="{{ review.rating }} з 5">
+            {% for _ in range(review.rating) %}★{% endfor %}{% for _ in range(5 - review.rating) %}☆{% endfor %}
+          </span>
+        </div>
+        <p>{{ clean_text(review.body) }}</p>
+        <div class="muted">{{ format_dt(review.approved_at or review.created_at) }}</div>
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('part_review_submit', part_id=part.id) }}" class="review-form">
+      <div class="grid-2">
+        <div>
+          <label class="field-label">Ваше ім'я</label>
+          <input type="text" name="author_name" maxlength="255" placeholder="Ім'я" required>
+        </div>
+        <div>
+          <label class="field-label">Оцінка</label>
+          <select name="rating" required>
+            <option value="5">5 - відмінно</option>
+            <option value="4">4 - добре</option>
+            <option value="3">3 - нормально</option>
+            <option value="2">2 - є питання</option>
+            <option value="1">1 - погано</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="field-label">Відгук</label>
+        <textarea name="body" rows="4" minlength="10" maxlength="2000" placeholder="Напишіть короткий реальний відгук про товар" required></textarea>
+      </div>
+      <div class="button-row">
+        <button class="btn primary" type="submit">Надіслати відгук</button>
+        <span class="muted">Відгук з'явиться після перевірки менеджером.</span>
+      </div>
+    </form>
+  </section>
 </div>
 
 {% if gallery %}

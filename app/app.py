@@ -1362,6 +1362,39 @@ def admin_parts_pagination(page_value, per_page_value, total_items: int):
     }
 
 
+def public_catalog_pagination(page_value, total_items: int, per_page: int = 48):
+    try:
+        page = int(page_value or 1)
+    except (TypeError, ValueError):
+        page = 1
+    page = max(page, 1)
+
+    total = max(int(total_items or 0), 0)
+    per_page = max(int(per_page or 48), 1)
+    pages = max((total + per_page - 1) // per_page, 1)
+    page = min(page, pages)
+    offset = (page - 1) * per_page
+    end_offset = min(offset + per_page, total)
+    window_start = max(1, page - 2)
+    window_end = min(pages, page + 2)
+
+    return {
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": pages,
+        "offset": offset,
+        "end_offset": end_offset,
+        "start_index": offset + 1 if total else 0,
+        "end_index": end_offset,
+        "has_prev": page > 1,
+        "has_next": page < pages,
+        "prev_page": max(1, page - 1),
+        "next_page": min(pages, page + 1),
+        "page_numbers": list(range(window_start, window_end + 1)),
+    }
+
+
 def warehouse_print_marks_map(db, warehouse_id: int | None):
     query = db.query(WarehousePrintMark)
     if warehouse_id is None:
@@ -7997,6 +8030,7 @@ def catalog():
     try:
         q = request.args.get("q", "").strip()
         condition = request.args.get("condition", "").strip()
+        requested_page = request.args.get("page")
         parts_pool = (
             db.query(Part)
             .filter(Part.is_deleted == False, Part.in_stock == True)
@@ -8009,7 +8043,9 @@ def catalog():
         elif condition == "new":
             parts_pool = [part for part in parts_pool if producer_type_label(part.producer_type) == "OEM"]
         cross_map = cross_numbers_map_for_parts(db, parts_pool)
-        parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1), cross_map=cross_map)
+        all_matching_parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1), cross_map=cross_map)
+        pagination = public_catalog_pagination(requested_page, parts_total, per_page=48)
+        parts = all_matching_parts[pagination["offset"]:pagination["end_offset"]]
         warehouse_catalogs = seo_warehouse_catalog_entries(db)
         if q and parts_total == 0:
             needle = normalize_text(q).strip().casefold()
@@ -8017,9 +8053,27 @@ def catalog():
         if q:
             track_stats_event(db, "search", query_text=q, meta={"source": "catalog", "results": parts_total})
             db.commit()
+        def catalog_page_url(target_page):
+            values = {}
+            if q:
+                values["q"] = q
+            if condition:
+                values["condition"] = condition
+            if target_page > 1:
+                values["page"] = target_page
+            return url_for("catalog", **values)
+
+        canonical_values = {}
+        if condition and not q:
+            canonical_values["condition"] = condition
+        if pagination["page"] > 1 and not q:
+            canonical_values["page"] = pagination["page"]
         return render_template(
             "catalog.html",
             parts=parts,
+            parts_total=parts_total,
+            pagination=pagination,
+            catalog_page_url=catalog_page_url,
             q=q,
             condition=condition,
             warehouse_catalogs=warehouse_catalogs,
@@ -8029,7 +8083,7 @@ def catalog():
             display_uah=display_uah,
             seo_title="Каталог запчастин | USAparts.top",
             seo_description="Каталог запчастин для авто з США. Пошук по OEM номеру, назві, бренду та швидке оформлення замовлення.",
-            canonical_url=public_url_for("catalog", condition=condition) if condition and not q else public_url_for("catalog"),
+            canonical_url=public_url_for("catalog", **canonical_values),
             seo_noindex=bool(q),
         )
     finally:

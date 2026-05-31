@@ -34,6 +34,28 @@
   </section>
   {% endif %}
 
+  {% if pagination %}
+  <div class="catalog-pagination card" aria-label="Навігація каталогу">
+    <div class="catalog-pagination-summary">
+      <strong>{{ pagination.total }} позицій</strong>
+      <span class="muted">Показано {{ pagination.start_index }}-{{ pagination.end_index }} з {{ pagination.total }}</span>
+    </div>
+    {% if pagination.pages > 1 %}
+    <nav class="catalog-page-links" aria-label="Сторінки каталогу">
+      {% if pagination.has_prev %}
+      <a class="page-link" href="{{ catalog_page_url(pagination.prev_page) }}">Попередня</a>
+      {% endif %}
+      {% for page_number in pagination.page_numbers %}
+      <a class="page-link {% if page_number == pagination.page %}is-active{% endif %}" href="{{ catalog_page_url(page_number) }}">{{ page_number }}</a>
+      {% endfor %}
+      {% if pagination.has_next %}
+      <a class="page-link" href="{{ catalog_page_url(pagination.next_page) }}">Наступна</a>
+      {% endif %}
+    </nav>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="showcase-grid">
     {% for part in parts %}
     <div class="showcase-card">
@@ -65,5 +87,25 @@
     </div>
     {% endfor %}
   </div>
+
+  {% if pagination and pagination.pages > 1 %}
+  <div class="catalog-pagination catalog-pagination-bottom card" aria-label="Навігація каталогу внизу сторінки">
+    <div class="catalog-pagination-summary">
+      <strong>Сторінка {{ pagination.page }} з {{ pagination.pages }}</strong>
+      <span class="muted">На сторінці {{ pagination.per_page }} товарів</span>
+    </div>
+    <nav class="catalog-page-links" aria-label="Сторінки каталогу">
+      {% if pagination.has_prev %}
+      <a class="page-link" href="{{ catalog_page_url(pagination.prev_page) }}">Попередня</a>
+      {% endif %}
+      {% for page_number in pagination.page_numbers %}
+      <a class="page-link {% if page_number == pagination.page %}is-active{% endif %}" href="{{ catalog_page_url(page_number) }}">{{ page_number }}</a>
+      {% endfor %}
+      {% if pagination.has_next %}
+      <a class="page-link" href="{{ catalog_page_url(pagination.next_page) }}">Наступна</a>
+      {% endif %}
+    </nav>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

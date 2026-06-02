@@ -1110,7 +1110,7 @@ def rebalance_template_assignment_qty(template: PartTemplate | None, before_qty:
     return template_unassigned_qty(template)
 
 
-def sync_template_from_part(db, part: Part):
+def sync_template_from_part(db, part: Part, prefer_part_values: bool = False):
     if not part or not (part.part_number or "").strip():
         return None
 
@@ -1135,7 +1135,18 @@ def sync_template_from_part(db, part: Part):
         "youtube_url": normalize_text(part.youtube_url or "").strip(),
     }
 
-    if existing_template:
+    if existing_template and prefer_part_values:
+        payload = {
+            "brand": payload["brand"] or existing_template.brand,
+            "producer_type": producer_type_label(payload["producer_type"] or existing_template.producer_type or "OEM"),
+            "name": payload["name"] or existing_template.name,
+            "description": payload["description"] or existing_template.description,
+            "price_usd": payload["price_usd"],
+            "photo_urls": payload["photo_urls"] or existing_template.photo_urls,
+            "showcase_photo_urls": merged_gallery or template_gallery_urls(existing_template),
+            "youtube_url": payload["youtube_url"] or existing_template.youtube_url,
+        }
+    elif existing_template:
         payload = {
             "brand": merge_master_value(existing_template.brand, payload["brand"]),
             "producer_type": producer_type_label(existing_template.producer_type or payload["producer_type"] or "OEM"),
@@ -7084,6 +7095,47 @@ def parse_avtopro_csv(file_storage):
     return normalize_import_rows(reader)
 
 
+def import_payload_differs_from_part(part: Part | None, payload: dict) -> bool:
+    if not part:
+        return True
+    if part.is_deleted:
+        return True
+
+    def same_text(left, right) -> bool:
+        return normalize_text(left or "").strip() == normalize_text(right or "").strip()
+
+    def same_price(left, right) -> bool:
+        try:
+            return round(float(left or 0), 2) == round(float(right or 0), 2)
+        except Exception:
+            return False
+
+    if not same_price(part.price_usd, payload.get("price_usd")):
+        return True
+    if int(part.qty or 0) != int(payload.get("qty") or 0):
+        return True
+    if bool(part.in_stock) != bool(payload.get("in_stock")):
+        return True
+    if not same_text(part.brand, payload.get("brand")):
+        return True
+    if producer_type_label(part.producer_type) != producer_type_label(payload.get("producer_type")):
+        return True
+    if not same_text(part.name, payload.get("name")):
+        return True
+    if not same_text(part.brand_export, payload.get("brand_export")):
+        return True
+    if not same_text(part.part_number_export, payload.get("part_number_export")):
+        return True
+
+    incoming_photo = safe_photo(payload.get("photo_urls") or "")
+    if incoming_photo and safe_photo(part.photo_urls) != incoming_photo:
+        return True
+    incoming_gallery = parse_media_urls(payload.get("showcase_photo_urls") or [])
+    if incoming_gallery and parse_media_urls(part.showcase_photo_urls) != incoming_gallery:
+        return True
+    return False
+
+
 
 def wait_for_db(max_attempts=30, delay=2):
     last_error = None
@@ -12055,11 +12107,20 @@ def import_preview():
         db.add(session_row)
         db.commit()
         db.refresh(session_row)
-        existing = {p.part_number: p for p in db.query(Part).filter(Part.warehouse_id == warehouse_id).all()}
+        existing = {
+            normalize_text(p.part_number or "").strip().upper(): p
+            for p in db.query(Part).filter(Part.warehouse_id == warehouse_id).all()
+        }
         new_rows = changed_rows = same_rows = 0
         for item in rows:
+            item["part_number"] = normalize_text(item.get("part_number") or "").strip().upper()
             prev = existing.get(item["part_number"])
             if not prev:
+                ctype = "new"
+                apply_change = True
+                new_rows += 1
+                before_price = before_qty = before_stock = None
+            elif prev.is_deleted:
                 ctype = "new"
                 apply_change = True
                 new_rows += 1
@@ -12068,7 +12129,7 @@ def import_preview():
                 before_price = float(prev.price_usd)
                 before_qty = int(prev.qty)
                 before_stock = bool(prev.in_stock)
-                changed = before_price != item["price_usd"] or before_qty != item["qty"] or before_stock != item["in_stock"]
+                changed = import_payload_differs_from_part(prev, item)
                 ctype = "changed" if changed else "same"
                 apply_change = changed
                 changed_rows += int(changed)
@@ -12258,7 +12319,7 @@ def confirm_import(session_id):
                 part.avtopro_flag_4 = payload["avtopro_flag_4"]
                 part.raw_import_row = payload["raw_import_row"]
                 ensure_part_barcode(db, part)
-                sync_template_from_part(db, part)
+                sync_template_from_part(db, part, prefer_part_values=True)
                 part.updated_at = now()
             else:
                 new_part = Part(
@@ -12289,7 +12350,7 @@ def confirm_import(session_id):
                 )
                 db.add(new_part)
                 ensure_part_barcode(db, new_part)
-                sync_template_from_part(db, new_part)
+                sync_template_from_part(db, new_part, prefer_part_values=True)
             applied += 1
         session_row.status = "confirmed"
         warehouse = db.get(Warehouse, session_row.warehouse_id)

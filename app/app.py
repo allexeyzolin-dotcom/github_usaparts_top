@@ -6998,8 +6998,27 @@ def parse_avtopro_csv(file_storage):
         return rows
 
     def looks_like_header(row):
-        first_cells = " ".join(normalize_text(item).casefold() for item in row[:4])
-        return any(token in first_cells for token in ["oem", "номер", "артикул", "опис", "цена", "ціна"])
+        cells = [normalize_text(item or "").strip().casefold() for item in row[:8]]
+        first = cells[0] if cells else ""
+        joined = " ".join(cells)
+        header_first_tokens = {
+            "oem",
+            "oem номер",
+            "номер",
+            "номер виробника",
+            "артикул",
+            "код",
+            "part number",
+            "part_number",
+        }
+        if first in header_first_tokens:
+            return True
+        if any(token in first for token in ["номер", "артикул", "part number"]):
+            return True
+        return (
+            any(token in joined for token in ["ціна", "цена", "price"])
+            and any(token in joined for token in ["кількість", "количество", "qty", "quantity"])
+        )
 
     def normalize_import_rows(raw_rows):
         rows = []

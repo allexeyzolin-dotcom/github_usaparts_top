@@ -144,6 +144,7 @@ th{color:#ffce55}
 .flashes{margin-bottom:16px}
 .row-problem{background:rgba(127,29,29,.18)}
 .row-diff{background:rgba(127,29,29,.24)}
+.row-description{background:rgba(202,138,4,.18)}
 .row-new-strong{background:rgba(22,101,52,.18)}
 .filter-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .filter-chip{display:inline-flex;align-items:center;justify-content:center;padding:9px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#e2e8f0;font-weight:700;font-size:13px}
@@ -1695,6 +1696,10 @@ body.admin-theme .row-diff td,
 body.admin-theme .row-diff{
   background:#fff7ed;
 }
+body.admin-theme .row-description td,
+body.admin-theme .row-description{
+  background:#fffbeb;
+}
 body.admin-theme .row-new-strong td,
 body.admin-theme .row-new-strong{
   background:#eefaf2;
@@ -1791,7 +1796,7 @@ body.admin-theme .text-link:hover{
 }
 .import-summary-grid{
   display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
+  grid-template-columns:repeat(5,minmax(0,1fr));
   gap:12px;
 }
 .summary-chip{
@@ -2525,6 +2530,10 @@ body.admin-theme .row-problem{
 
 body.admin-theme .row-diff{
   background:rgba(255,237,213,.78);
+}
+
+body.admin-theme .row-description{
+  background:rgba(254,243,199,.82);
 }
 
 body.admin-theme .row-new-strong{

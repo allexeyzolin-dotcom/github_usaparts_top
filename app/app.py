@@ -7103,54 +7103,58 @@ def parse_avtopro_csv(file_storage):
             })
         return rows
 
+    def collapse_import_rows(rows):
+        by_part_number = {}
+        order = []
+        for item in rows:
+            part_number = normalize_text(item.get("part_number") or "").strip().upper()
+            if not part_number:
+                continue
+            item["part_number"] = part_number
+            if part_number not in by_part_number:
+                order.append(part_number)
+            # Keep the same effective result as applying the imported file top-to-bottom.
+            by_part_number[part_number] = item
+        return [by_part_number[part_number] for part_number in order]
+
     raw = file_storage.read()
     raw_bytes = raw.encode("utf-8") if isinstance(raw, str) else raw
     filename = normalize_text(getattr(file_storage, "filename", "") or "").strip().lower()
     if filename.endswith((".xlsx", ".xlsm")) or raw_bytes[:2] == b"PK":
-        return normalize_import_rows(read_xlsx_rows(raw_bytes))
+        return collapse_import_rows(normalize_import_rows(read_xlsx_rows(raw_bytes)))
 
     content = raw if isinstance(raw, str) else raw.decode("utf-8-sig", errors="ignore")
     reader = csv.reader(io.StringIO(content), delimiter=";")
-    return normalize_import_rows(reader)
+    return collapse_import_rows(normalize_import_rows(reader))
 
 
-def import_payload_differs_from_part(part: Part | None, payload: dict) -> bool:
-    if not part:
+def import_same_text(left, right) -> bool:
+    return normalize_text(left or "").strip() == normalize_text(right or "").strip()
+
+
+def import_same_price(left, right) -> bool:
+    try:
+        return round(float(left or 0), 2) == round(float(right or 0), 2)
+    except Exception:
+        return False
+
+
+def import_payload_inventory_differs_from_part(part: Part | None, payload: dict) -> bool:
+    if not part or part.is_deleted:
         return True
-    if part.is_deleted:
-        return True
-
-    def same_text(left, right) -> bool:
-        return normalize_text(left or "").strip() == normalize_text(right or "").strip()
-
-    def same_price(left, right) -> bool:
-        try:
-            return round(float(left or 0), 2) == round(float(right or 0), 2)
-        except Exception:
-            return False
-
-    if not same_price(part.price_usd, payload.get("price_usd")):
+    if not import_same_price(part.price_usd, payload.get("price_usd")):
         return True
     if int(part.qty or 0) != int(payload.get("qty") or 0):
         return True
     if bool(part.in_stock) != bool(payload.get("in_stock")):
         return True
-    if not same_text(part.brand, payload.get("brand")):
-        return True
-    if producer_type_label(part.producer_type) != producer_type_label(payload.get("producer_type")):
-        return True
-    if not same_text(part.name, payload.get("name")):
-        return True
-    if not same_text(part.brand_export, payload.get("brand_export")):
-        return True
-    if not same_text(part.part_number_export, payload.get("part_number_export")):
-        return True
+    return False
 
-    incoming_photo = safe_photo(payload.get("photo_urls") or "")
-    if incoming_photo and safe_photo(part.photo_urls) != incoming_photo:
+
+def import_payload_card_differs_from_part(part: Part | None, payload: dict) -> bool:
+    if not part or part.is_deleted:
         return True
-    incoming_gallery = parse_media_urls(payload.get("showcase_photo_urls") or [])
-    if incoming_gallery and parse_media_urls(part.showcase_photo_urls) != incoming_gallery:
+    if not import_same_text(part.name, payload.get("name")):
         return True
     return False
 
@@ -12130,7 +12134,7 @@ def import_preview():
             normalize_text(p.part_number or "").strip().upper(): p
             for p in db.query(Part).filter(Part.warehouse_id == warehouse_id).all()
         }
-        new_rows = changed_rows = same_rows = 0
+        new_rows = changed_rows = description_rows = same_rows = 0
         for item in rows:
             item["part_number"] = normalize_text(item.get("part_number") or "").strip().upper()
             prev = existing.get(item["part_number"])
@@ -12148,11 +12152,18 @@ def import_preview():
                 before_price = float(prev.price_usd)
                 before_qty = int(prev.qty)
                 before_stock = bool(prev.in_stock)
-                changed = import_payload_differs_from_part(prev, item)
-                ctype = "changed" if changed else "same"
-                apply_change = changed
-                changed_rows += int(changed)
-                same_rows += int(not changed)
+                inventory_changed = import_payload_inventory_differs_from_part(prev, item)
+                card_changed = import_payload_card_differs_from_part(prev, item)
+                if inventory_changed:
+                    ctype = "changed"
+                    changed_rows += 1
+                elif card_changed:
+                    ctype = "description"
+                    description_rows += 1
+                else:
+                    ctype = "same"
+                    same_rows += 1
+                apply_change = ctype != "same"
             db.add(ImportChange(
                 import_session_id=session_row.id,
                 part_number=item["part_number"],
@@ -12171,7 +12182,7 @@ def import_preview():
         session_row.new_rows = new_rows
         session_row.changed_rows = changed_rows
         session_row.same_rows = same_rows
-        flash_news(db, "import", "Сформовано preview імпорту", f"{warehouse.name}: нових {new_rows}, змінених {changed_rows}.", "info")
+        flash_news(db, "import", "Сформовано preview імпорту", f"{warehouse.name}: нових {new_rows}, розбіжностей {changed_rows}, змінених описів {description_rows}.", "info")
         db.commit()
         return redirect(url_for("import_review", session_id=session_row.id))
     except Exception as e:
@@ -12191,20 +12202,43 @@ def import_review(session_id):
         session_row = db.get(ImportSession, session_id)
         changes = db.query(ImportChange).filter(ImportChange.import_session_id == session_id).all()
         if only == "diff":
-            changes = [c for c in changes if c.change_type in ("changed", "new")]
+            changes = [c for c in changes if c.change_type == "changed"]
         elif only == "new":
             changes = [c for c in changes if c.change_type == "new"]
-        elif only == "changed":
-            changes = [c for c in changes if c.change_type == "changed"]
+        elif only in {"changed", "description"}:
+            changes = [c for c in changes if c.change_type == "description"]
         elif only == "same":
             changes = [c for c in changes if c.change_type == "same"]
-        priority = {"changed": 0, "new": 1, "same": 2}
+        priority = {"changed": 0, "description": 1, "new": 2, "same": 3}
         changes = sorted(changes, key=lambda c: (priority.get(c.change_type, 9), c.part_number or ""))
+        part_numbers = [
+            normalize_text(c.part_number or "").strip().upper()
+            for c in changes
+            if normalize_text(c.part_number or "").strip()
+        ]
+        existing_parts = {}
+        if session_row and part_numbers:
+            existing_parts = {
+                normalize_text(part.part_number or "").strip().upper(): part
+                for part in db.query(Part)
+                .filter(Part.warehouse_id == session_row.warehouse_id, Part.part_number.in_(part_numbers))
+                .all()
+            }
+        for change in changes:
+            try:
+                payload = json.loads(change.payload_json or "{}")
+            except Exception:
+                payload = {}
+            part = existing_parts.get(normalize_text(change.part_number or "").strip().upper())
+            change.before_name = normalize_text(part.name if part else "").strip()
+            change.after_name = normalize_text(payload.get("name") or "").strip()
         all_changes = db.query(ImportChange).filter(ImportChange.import_session_id == session_id).all()
         summary = {
             "all": len(all_changes),
             "new": len([c for c in all_changes if c.change_type == "new"]),
-            "changed": len([c for c in all_changes if c.change_type == "changed"]),
+            "diff": len([c for c in all_changes if c.change_type == "changed"]),
+            "changed": len([c for c in all_changes if c.change_type == "description"]),
+            "description": len([c for c in all_changes if c.change_type == "description"]),
             "same": len([c for c in all_changes if c.change_type == "same"]),
             "selected": len([c for c in all_changes if c.apply_change]),
         }
@@ -12229,7 +12263,9 @@ def toggle_import_change_ajax(change_id):
         summary = {
             "all": len(all_changes),
             "new": len([c for c in all_changes if c.change_type == "new"]),
-            "changed": len([c for c in all_changes if c.change_type == "changed"]),
+            "diff": len([c for c in all_changes if c.change_type == "changed"]),
+            "changed": len([c for c in all_changes if c.change_type == "description"]),
+            "description": len([c for c in all_changes if c.change_type == "description"]),
             "same": len([c for c in all_changes if c.change_type == "same"]),
             "selected": len([c for c in all_changes if c.apply_change]),
         }
@@ -12248,6 +12284,10 @@ def bulk_import_action_ajax(session_id):
         changes = db.query(ImportChange).filter(ImportChange.import_session_id == session_id).all()
         if action == "select_changed":
             for c in changes:
+                if c.change_type == "description":
+                    c.apply_change = True
+        elif action == "select_inventory":
+            for c in changes:
                 if c.change_type == "changed":
                     c.apply_change = True
         elif action == "select_new":
@@ -12256,7 +12296,7 @@ def bulk_import_action_ajax(session_id):
                     c.apply_change = True
         elif action == "select_diff":
             for c in changes:
-                if c.change_type in ("changed", "new"):
+                if c.change_type in ("changed", "description", "new"):
                     c.apply_change = True
         elif action == "clear_same":
             for c in changes:
@@ -12269,7 +12309,9 @@ def bulk_import_action_ajax(session_id):
         summary = {
             "all": len(changes),
             "new": len([c for c in changes if c.change_type == "new"]),
-            "changed": len([c for c in changes if c.change_type == "changed"]),
+            "diff": len([c for c in changes if c.change_type == "changed"]),
+            "changed": len([c for c in changes if c.change_type == "description"]),
+            "description": len([c for c in changes if c.change_type == "description"]),
             "same": len([c for c in changes if c.change_type == "same"]),
             "selected": len([c for c in changes if c.apply_change]),
         }

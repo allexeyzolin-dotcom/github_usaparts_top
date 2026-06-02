@@ -4,7 +4,7 @@
   <div>
     <a class="backlink" href="{{ url_for('admin_products') }}">← До складів</a>
     <h2>Імпорт CSV</h2>
-    <div class="muted">Показані тільки позиції, де змінилася ціна або кількість. Кількість з імпорту можна відредагувати перед застосуванням.</div>
+    <div class="muted">Імпорт розділено за типами: нові позиції, розбіжності в ціні або кількості, та зміни опису. Кількість з імпорту можна відредагувати перед застосуванням.</div>
   </div>
   <div class="badge neutral">Файл: {{ session.file_name }}</div>
 </div>
@@ -13,14 +13,16 @@
   <div class="import-summary-grid">
     <div class="summary-chip">Усього рядків: <strong>{{ summary.all }}</strong></div>
     <div class="summary-chip">Нових: <strong>{{ summary.new }}</strong></div>
-    <div class="summary-chip">Змінених: <strong>{{ summary.changed }}</strong></div>
+    <div class="summary-chip">Розбіжностей: <strong>{{ summary.diff }}</strong></div>
+    <div class="summary-chip">Змін опису: <strong>{{ summary.changed }}</strong></div>
     <div class="summary-chip">Буде застосовано: <strong>{{ summary.selected }}</strong></div>
   </div>
 
   <div class="filter-bar">
     <a class="filter-chip {{ 'active' if only == 'diff' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='diff') }}">Розбіжності</a>
     <a class="filter-chip {{ 'active' if only == 'new' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='new') }}">Нові</a>
-    <a class="filter-chip {{ 'active' if only == 'changed' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='changed') }}">Змінені</a>
+    <a class="filter-chip {{ 'active' if only in ['changed', 'description'] else '' }}" href="{{ url_for('import_review', session_id=session.id, only='description') }}">Змінені</a>
+    <a class="filter-chip {{ 'active' if only == 'same' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='same') }}">Без змін</a>
     <a class="filter-chip {{ 'active' if only == 'all' else '' }}" href="{{ url_for('import_review', session_id=session.id, only='all') }}">Усі</a>
   </div>
 
@@ -38,7 +40,7 @@
         </thead>
         <tbody>
           {% for c in changes %}
-          <tr class="{% if c.change_type == 'changed' %}row-diff{% elif c.change_type == 'new' %}row-new-strong{% endif %}">
+          <tr class="{% if c.change_type == 'changed' %}row-diff{% elif c.change_type == 'description' %}row-description{% elif c.change_type == 'new' %}row-new-strong{% endif %}">
             <td>
               <label class="choice">
                 <input type="checkbox" name="apply_{{ c.id }}" {% if c.apply_change %}checked{% endif %} disabled>
@@ -49,24 +51,28 @@
             <td>
               <div>Ціна: {{ c.before_price if c.before_price is not none else '—' }}</div>
               <div>Кількість: {{ c.before_qty if c.before_qty is not none else '—' }}</div>
+              <div class="muted" style="margin-top:8px">Опис: {{ c.before_name or '—' }}</div>
             </td>
             <td>
               <div>Ціна: {{ c.after_price }}</div>
               <label class="field-label" style="margin-top:8px;display:block">Кількість</label>
               <input type="number" min="0" step="1" name="after_qty_{{ c.id }}" value="{{ c.after_qty }}">
+              <div class="muted" style="margin-top:8px">Опис: {{ c.after_name or '—' }}</div>
             </td>
             <td>
               {% if c.change_type == 'new' %}
               <span class="badge success">Нова позиція</span>
               {% elif c.change_type == 'changed' %}
               <span class="badge warn">Зміна ціни / кількості</span>
+              {% elif c.change_type == 'description' %}
+              <span class="badge warn">Зміна опису</span>
               {% else %}
               <span class="badge neutral">Без змін</span>
               {% endif %}
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="5" class="muted">Розбіжностей не знайдено.</td></tr>
+          <tr><td colspan="5" class="muted">Позицій за поточним фільтром не знайдено.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -75,7 +81,7 @@
     <div class="button-row">
       <button class="btn danger" name="action" value="skip_all" type="submit">Скасувати імпорт</button>
       <button class="btn primary" name="action" value="selected" type="submit">Прийняти зміни</button>
-      <button class="btn ghost" name="action" value="all" type="submit">Прийняти все з розбіжностями</button>
+      <button class="btn ghost" name="action" value="all" type="submit">Прийняти всі зміни</button>
     </div>
   </form>
 </div>

@@ -7606,6 +7606,13 @@ def sitemap_parts_xml():
         db.close()
 
 
+@app.route("/sitemap/parts-<int:page>.xml")
+def sitemap_parts_legacy_xml(page):
+    if page == 1:
+        return redirect(public_url_for("sitemap_parts_xml"), code=301)
+    return sitemap_xml_response([])
+
+
 @app.route("/sitemap/cross-parts.xml")
 def sitemap_cross_parts_xml():
     db = SessionLocal()

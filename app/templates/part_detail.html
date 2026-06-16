@@ -60,7 +60,7 @@
       {% if main_part_number is defined and main_part_number and main_part_number != visible_part_number %}
       <div class="muted">Основний OEM: {{ main_part_number }}</div>
       {% endif %}
-      <h2>{{ clean_text(part.name) }}</h2>
+      <h1 class="part-detail-title">{{ visible_part_number }} {{ clean_text(part.name) }}</h1>
       <div class="price-row big">{{ display_public_price_uah(part.price_usd, warehouse.markup_percent) }}</div>
       <div class="muted">Кількість: {{ part.qty }} | Наявність: {{ 'Так' if part.in_stock else 'Ні' }}</div>
       <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">

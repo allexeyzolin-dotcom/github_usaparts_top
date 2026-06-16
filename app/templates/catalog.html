@@ -3,7 +3,7 @@
 <div class="container">
   <div class="panel-header">
     <div>
-      <h2>Каталог запчастин</h2>
+      <h1 class="catalog-title">Каталог запчастин для авто з США</h1>
       <div class="muted">Пошук, перегляд галереї і швидке оформлення замовлення.</div>
     </div>
   </div>
@@ -31,6 +31,38 @@
       <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
       {% endfor %}
     </div>
+  </section>
+  {% endif %}
+
+  {% if seo_entries and (seo_entries.categories or seo_entries.brands) %}
+  <section class="seo-hub-strip card" aria-label="Розділи каталогу">
+    <div class="warehouse-catalog-head">
+      <div>
+        <span class="eyebrow">Структура каталогу</span>
+        <h2>Запчастини за категоріями та брендами</h2>
+      </div>
+      <div class="muted">Ці сторінки індексуються окремо і ведуть до товарних карток.</div>
+    </div>
+    {% if seo_entries.categories %}
+    <div class="seo-hub-block">
+      <h3>Категорії</h3>
+      <div class="seo-chip-row">
+        {% for item in seo_entries.categories[:18] %}
+        <a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if seo_entries.brands %}
+    <div class="seo-hub-block">
+      <h3>Бренди</h3>
+      <div class="seo-chip-row">
+        {% for item in seo_entries.brands[:18] %}
+        <a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </section>
   {% endif %}
 
@@ -69,8 +101,8 @@
         {% endif %}
       </a>
       <div class="showcase-body">
-        <div class="showcase-code">{{ part.part_number }}</div>
-        <h3>{{ clean_text(part.name) }}</h3>
+        <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
+        <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) }}</a></h3>
         <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent) }}</div>
         <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
           <button class="btn primary full" type="submit">Додати в кошик</button>

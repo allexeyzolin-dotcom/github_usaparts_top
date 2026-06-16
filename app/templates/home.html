@@ -55,7 +55,39 @@
     </section>
     {% endif %}
 
-    <div class="showcase-grid showcase-grid-home" data-nosnippet>
+    {% if seo_entries and (seo_entries.categories or seo_entries.brands) %}
+    <section class="seo-hub-strip card" aria-label="Популярні розділи каталогу">
+      <div class="warehouse-catalog-head">
+        <div>
+          <span class="eyebrow">SEO каталог</span>
+          <h2>Швидкий перехід до запчастин</h2>
+        </div>
+        <a class="text-link" href="{{ url_for('catalog') }}">Весь каталог</a>
+      </div>
+      {% if seo_entries.categories %}
+      <div class="seo-hub-block">
+        <h3>Категорії запчастин</h3>
+        <div class="seo-chip-row">
+          {% for item in seo_entries.categories[:16] %}
+          <a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if seo_entries.brands %}
+      <div class="seo-hub-block">
+        <h3>Бренди та виробники</h3>
+        <div class="seo-chip-row">
+          {% for item in seo_entries.brands[:16] %}
+          <a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <div class="showcase-grid showcase-grid-home">
       {% for part in featured %}
       <div class="showcase-card home-product-card">
         <a href="{{ part_detail_url(part) }}">
@@ -68,8 +100,8 @@
           {% endif %}
         </a>
         <div class="showcase-body">
-          <div class="showcase-code">{{ part.part_number }}</div>
-          <h3>{{ clean_text(part.name) }}</h3>
+          <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
+          <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) }}</a></h3>
           <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent) }}</div>
           <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}" class="home-buy-form">
             <button class="btn primary full" type="submit">Додати в кошик</button>

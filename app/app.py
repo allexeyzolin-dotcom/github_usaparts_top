@@ -6087,21 +6087,22 @@ def website_schema_payload() -> dict:
 
 def merchant_return_policy_payload() -> dict:
     country = (os.getenv("SEO_RETURN_COUNTRY") or "UA").strip().upper()[:2] or "UA"
-    policy = (os.getenv("SEO_RETURN_POLICY") or "not_permitted").strip().casefold()
-    if policy in {"finite", "window", "return_window", "allowed"}:
-        days = max(int(os.getenv("SEO_RETURN_DAYS") or 14), 1)
+    policy = (os.getenv("SEO_RETURN_POLICY") or "finite").strip().casefold()
+    if policy in {"not_permitted", "none", "disabled"}:
         return {
             "@type": "MerchantReturnPolicy",
             "applicableCountry": country,
-            "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
-            "merchantReturnDays": days,
-            "returnMethod": "https://schema.org/ReturnByMail",
-            "returnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
+            "returnPolicyCategory": "https://schema.org/MerchantReturnNotPermitted",
         }
+    days = max(int(os.getenv("SEO_RETURN_DAYS") or 14), 1)
     return {
         "@type": "MerchantReturnPolicy",
         "applicableCountry": country,
-        "returnPolicyCategory": "https://schema.org/MerchantReturnNotPermitted",
+        "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+        "merchantReturnDays": days,
+        "returnMethod": "https://schema.org/ReturnByMail",
+        "returnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
+        "refundType": "https://schema.org/FullRefund",
     }
 
 
@@ -6273,8 +6274,14 @@ def build_part_product_schema(
         "@id": f"{part_url}#product",
         "name": compact_meta_text(display_number, part.name, limit=120),
         "url": part_url,
+        "productID": display_number,
         "sku": display_number,
         "mpn": display_number,
+        "identifier": {
+            "@type": "PropertyValue",
+            "propertyID": "OEM",
+            "value": display_number,
+        },
         "brand": {"@type": "Brand", "name": brand_name or "USAparts.top"},
         "description": compact_meta_text(part.description or part.name, display_number, limit=300),
         "mainEntityOfPage": {"@id": f"{part_url}#webpage"},
@@ -7853,6 +7860,7 @@ def home():
             db.query(Warehouse).order_by(Warehouse.name.asc()).all()
         )
         warehouse_catalogs = seo_warehouse_catalog_entries(db)
+        seo_entries = seo_collect_entries(best_unique_public_parts(parts_pool))
         if q and page == 1:
             track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
             db.commit()
@@ -7874,6 +7882,7 @@ def home():
             cars_random=cars_random,
             vehicle_warehouses=vehicle_warehouses,
             warehouse_catalogs=warehouse_catalogs[:18],
+            seo_entries=seo_entries,
             seo_title=seo_title,
             seo_description=seo_description,
             canonical_url=public_url_for("home", page=page) if page > 1 and not q else public_url_for("home"),
@@ -8129,6 +8138,7 @@ def catalog():
         pagination = public_catalog_pagination(requested_page, parts_total, per_page=48)
         parts = all_matching_parts[pagination["offset"]:pagination["end_offset"]]
         warehouse_catalogs = seo_warehouse_catalog_entries(db)
+        seo_entries = seo_collect_entries(best_unique_public_parts(parts_pool))
         if q and parts_total == 0:
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
@@ -8150,6 +8160,9 @@ def catalog():
             canonical_values["condition"] = condition
         if pagination["page"] > 1 and not q:
             canonical_values["page"] = pagination["page"]
+        catalog_canonical_url = public_url_for("catalog", **canonical_values)
+        catalog_title = "Каталог запчастин для авто з США"
+        catalog_description = "Каталог запчастин для авто з США. Пошук по OEM номеру, назві, бренду та швидке оформлення замовлення."
         return render_template(
             "catalog.html",
             parts=parts,
@@ -8159,14 +8172,16 @@ def catalog():
             q=q,
             condition=condition,
             warehouse_catalogs=warehouse_catalogs,
+            seo_entries=seo_entries,
             search_found_without_photo=search_found_without_photo,
             safe_photo=safe_photo,
             display_usd=display_usd,
             display_uah=display_uah,
-            seo_title="Каталог запчастин | USAparts.top",
-            seo_description="Каталог запчастин для авто з США. Пошук по OEM номеру, назві, бренду та швидке оформлення замовлення.",
-            canonical_url=public_url_for("catalog", **canonical_values),
+            seo_title=f"{catalog_title} | USAparts.top",
+            seo_description=catalog_description,
+            canonical_url=catalog_canonical_url,
             seo_noindex=bool(q),
+            json_ld="" if q else seo_listing_schema(catalog_title, catalog_description, catalog_canonical_url, all_matching_parts),
         )
     finally:
         db.close()

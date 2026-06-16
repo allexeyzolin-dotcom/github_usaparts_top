@@ -26,6 +26,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-usa}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-usa_auto_parts}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       FLASK_ENV: production
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-https://usaparts.top}
       BACKUP_DIR: /app/backups
       BACKUP_SCHEDULER_ENABLED: ${BACKUP_SCHEDULER_ENABLED:-1}
       BACKUP_AUTO_ENABLED: ${BACKUP_AUTO_ENABLED:-1}
@@ -35,7 +36,7 @@ services:
       BACKUP_SYNC_ENABLED: ${BACKUP_SYNC_ENABLED:-0}
       RCLONE_CONFIG: /config/rclone/rclone.conf
     ports:
-      - "${APP_PORT:-8081}:8080"
+      - "${APP_PORT:-8080}:8080"
     volumes:
       - uploads:/app/app/uploads
       - backups:/app/backups

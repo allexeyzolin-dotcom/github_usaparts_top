@@ -30,12 +30,13 @@ services:
       DATABASE_URL: postgresql://usa:usa123@db:5432/usa_auto_parts
       SECRET_KEY: usa-auto-parts-v3-secret
       FLASK_ENV: production
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-http://localhost:8080}
       BACKUP_DIR: /app/backups
       BACKUP_SCHEDULER_ENABLED: "1"
       BACKUP_AUTO_ENABLED: "1"
       RCLONE_CONFIG: /config/rclone/rclone.conf
     ports:
-      - "8081:8080"
+      - "8080:8080"
     volumes:
       - ./app/uploads:/app/app/uploads
       - ./backups:/app/backups

@@ -6064,11 +6064,19 @@ def seo_json_dumps(payload) -> str:
 def organization_schema_payload() -> dict:
     base_url = public_site_base_url()
     return {
-        "@type": "Organization",
+        "@type": "OnlineStore",
         "@id": f"{base_url}/#organization",
         "name": "USAparts.top",
         "url": base_url,
         "logo": public_url_for("static", filename="usaparts-logo-transparent.png"),
+        "contactPoint": {
+            "@type": "ContactPoint",
+            "contactType": "Customer Service",
+            "telephone": "+380960865846",
+            "areaServed": "UA",
+            "availableLanguage": ["uk", "ru"],
+        },
+        "hasMerchantReturnPolicy": merchant_return_policy_payload(),
     }
 
 
@@ -6086,23 +6094,45 @@ def website_schema_payload() -> dict:
 
 
 def merchant_return_policy_payload() -> dict:
+    base_url = public_site_base_url()
     country = (os.getenv("SEO_RETURN_COUNTRY") or "UA").strip().upper()[:2] or "UA"
     policy = (os.getenv("SEO_RETURN_POLICY") or "finite").strip().casefold()
     if policy in {"not_permitted", "none", "disabled"}:
         return {
             "@type": "MerchantReturnPolicy",
+            "@id": f"{base_url}/#return-policy",
+            "merchantReturnLink": f"{base_url}/#policy-return",
             "applicableCountry": country,
             "returnPolicyCategory": "https://schema.org/MerchantReturnNotPermitted",
         }
     days = max(int(os.getenv("SEO_RETURN_DAYS") or 14), 1)
     return {
         "@type": "MerchantReturnPolicy",
+        "@id": f"{base_url}/#return-policy",
+        "merchantReturnLink": f"{base_url}/#policy-return",
         "applicableCountry": country,
+        "returnPolicyCountry": country,
         "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
         "merchantReturnDays": days,
-        "returnMethod": "https://schema.org/ReturnByMail",
+        "itemCondition": [
+            "https://schema.org/NewCondition",
+            "https://schema.org/UsedCondition",
+            "https://schema.org/DamagedCondition",
+        ],
+        "returnMethod": [
+            "https://schema.org/ReturnByMail",
+            "https://schema.org/ReturnInStore",
+        ],
         "returnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
-        "refundType": "https://schema.org/FullRefund",
+        "returnLabelSource": "https://schema.org/ReturnLabelCustomerResponsibility",
+        "customerRemorseReturnFees": "https://schema.org/ReturnFeesCustomerResponsibility",
+        "customerRemorseReturnLabelSource": "https://schema.org/ReturnLabelCustomerResponsibility",
+        "itemDefectReturnFees": "https://schema.org/FreeReturn",
+        "itemDefectReturnLabelSource": "https://schema.org/ReturnLabelCustomerResponsibility",
+        "refundType": [
+            "https://schema.org/FullRefund",
+            "https://schema.org/ExchangeRefund",
+        ],
     }
 
 

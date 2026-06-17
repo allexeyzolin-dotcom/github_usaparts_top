@@ -24,22 +24,31 @@
       <aside class="fitment-card">
         <img class="fitment-logo" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
         <h2>Підберіть деталь для вашого авто</h2>
-        <p>Оберіть склад-авто або категорію. Це відкриє SEO-сторінку з прямими посиланнями на товари.</p>
-        <div class="fitment-selects">
-          <select onchange="if(this.value) window.location.href=this.value">
-            <option value="">Оберіть авто / склад</option>
-            {% for item in warehouse_catalogs[:40] %}
-            <option value="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</option>
-            {% endfor %}
-          </select>
-          <select onchange="if(this.value) window.location.href=this.value">
-            <option value="">Оберіть категорію</option>
-            {% for item in seo_entries.categories[:40] %}
-            <option value="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <a class="btn ghost full" href="{{ url_for('catalog') }}">Відкрити весь каталог</a>
+        <p>Логіка проста: спочатку авто, потім категорія. Якщо знаєте OEM номер - введіть його і шукайте напряму.</p>
+        <form class="fitment-form" action="{{ url_for('fitment_redirect') }}" method="get">
+          <label>
+            <span>1. Авто / склад</span>
+            <select name="vehicle_slug" id="fitmentVehicle">
+              <option value="">Оберіть авто</option>
+              {% for item in fitment_options %}
+              <option value="{{ item.slug }}">{{ item.label }} • {{ item.count }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>2. Категорія для вибраного авто</span>
+            <select name="category_slug" id="fitmentCategory" disabled>
+              <option value="">Спочатку оберіть авто</option>
+            </select>
+          </label>
+          <label>
+            <span>Або OEM / назва</span>
+            <input name="q" id="fitmentQuery" placeholder="Наприклад 68235664AA">
+          </label>
+          <button class="btn primary full" type="submit">Підібрати деталь</button>
+          <div class="fitment-hint" id="fitmentHint">Без категорії відкриємо всі запчастини вибраного авто.</div>
+        </form>
+        <script type="application/json" id="fitment-data">{{ fitment_options|tojson }}</script>
       </aside>
     </div>
 
@@ -247,4 +256,63 @@
     {% endif %}
   </div>
 </section>
+<script>
+(() => {
+  const dataNode = document.getElementById('fitment-data');
+  const vehicleSelect = document.getElementById('fitmentVehicle');
+  const categorySelect = document.getElementById('fitmentCategory');
+  const queryInput = document.getElementById('fitmentQuery');
+  const hint = document.getElementById('fitmentHint');
+  const form = vehicleSelect?.closest('form');
+  if (!dataNode || !vehicleSelect || !categorySelect || !form) return;
+
+  let fitmentRows = [];
+  try {
+    fitmentRows = JSON.parse(dataNode.textContent || '[]');
+  } catch (error) {
+    fitmentRows = [];
+  }
+
+  function renderCategories() {
+    const vehicle = fitmentRows.find((row) => row.slug === vehicleSelect.value);
+    categorySelect.innerHTML = '';
+    if (!vehicle) {
+      categorySelect.disabled = true;
+      categorySelect.append(new Option('Спочатку оберіть авто', ''));
+      if (hint) hint.textContent = 'Оберіть авто, щоб показати доступні категорії саме для цього складу.';
+      return;
+    }
+
+    categorySelect.disabled = false;
+    categorySelect.append(new Option('Усі категорії цього авто', ''));
+    (vehicle.categories || []).forEach((category) => {
+      categorySelect.append(new Option(`${category.label} • ${category.count}`, category.slug));
+    });
+    if (hint) hint.textContent = categorySelect.options.length > 1
+      ? 'Виберіть категорію або залиште порожньою, щоб відкрити всі товари цього авто.'
+      : 'Для цього авто поки немає категорій, відкриємо всі товари авто.';
+  }
+
+  vehicleSelect.addEventListener('change', renderCategories);
+  queryInput?.addEventListener('input', () => {
+    const hasQuery = (queryInput.value || '').trim().length > 0;
+    if (hint) hint.textContent = hasQuery
+      ? 'Пошук по OEM / назві має пріоритет і відкриє загальний каталог.'
+      : 'Без категорії відкриємо всі запчастини вибраного авто.';
+  });
+
+  form.addEventListener('submit', (event) => {
+    const hasQuery = (queryInput?.value || '').trim().length > 0;
+    if (hasQuery || vehicleSelect.value || categorySelect.value) return;
+    event.preventDefault();
+    if (hint) hint.textContent = 'Оберіть авто, категорію або введіть OEM номер для пошуку.';
+    vehicleSelect.focus();
+  });
+
+  if (fitmentRows.length === 1 && fitmentRows[0].slug === 'all') {
+    vehicleSelect.value = 'all';
+  }
+  renderCategories();
+})();
+</script>
 {% endblock %}

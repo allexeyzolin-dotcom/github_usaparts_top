@@ -3641,9 +3641,38 @@ body.admin-theme .transit-batch-actions{
   gap:10px;
 }
 
+.fitment-form{
+  display:grid;
+  gap:12px;
+}
+
+.fitment-form label{
+  display:grid;
+  gap:6px;
+}
+
+.fitment-form label span{
+  color:#d8e3f3;
+  font-size:13px;
+  font-weight:900;
+}
+
+.fitment-form input,
 .fitment-card select{
   min-height:48px;
   border-color:rgba(255,255,255,.18);
+}
+
+.fitment-card select:disabled{
+  opacity:.72;
+  cursor:not-allowed;
+}
+
+.fitment-hint{
+  min-height:36px;
+  color:#cbd5e1;
+  font-size:13px;
+  line-height:1.4;
 }
 
 .public-shop-theme .cars-ribbon{
@@ -4126,8 +4155,16 @@ body.admin-theme .transit-batch-actions{
   .fitment-card p{
     font-size:13px;
   }
+  .fitment-form{
+    gap:9px;
+  }
+  .fitment-form input,
   .fitment-card select{
     min-height:42px;
+  }
+  .fitment-hint{
+    min-height:0;
+    font-size:12px;
   }
   .public-shop-theme .showcase-grid,
   .public-shop-theme .showcase-grid-home{

@@ -6752,6 +6752,84 @@ def seo_collect_entries(parts: list[Part]):
     }
 
 
+def build_fitment_options(parts: list[Part]) -> list[dict]:
+    vehicles: dict[str, dict] = {}
+    all_categories: dict[str, dict] = {}
+    for part in parts:
+        for category in seo_part_categories(part):
+            all_row = all_categories.setdefault(
+                category["slug"],
+                {
+                    "slug": category["slug"],
+                    "label": category["label"],
+                    "count": 0,
+                },
+            )
+            all_row["count"] += 1
+
+        vehicle_label = seo_vehicle_label_from_part(part)
+        vehicle_slug = seo_slug(vehicle_label) if vehicle_label else ""
+        if not vehicle_slug:
+            continue
+        updated_at = part.updated_at or part.created_at
+        vehicle_row = vehicles.setdefault(
+            vehicle_slug,
+            {
+                "slug": vehicle_slug,
+                "label": vehicle_label,
+                "count": 0,
+                "lastmod": updated_at,
+                "categories": {},
+            },
+        )
+        vehicle_row["count"] += 1
+        if updated_at and (not vehicle_row["lastmod"] or updated_at > vehicle_row["lastmod"]):
+            vehicle_row["lastmod"] = updated_at
+
+        for category in seo_part_categories(part):
+            category_row = vehicle_row["categories"].setdefault(
+                category["slug"],
+                {
+                    "slug": category["slug"],
+                    "label": category["label"],
+                    "count": 0,
+                },
+            )
+            category_row["count"] += 1
+
+    rows = []
+    for vehicle in vehicles.values():
+        categories = sorted(
+            vehicle["categories"].values(),
+            key=lambda row: (-row["count"], row["label"].casefold()),
+        )
+        if not categories:
+            continue
+        rows.append(
+            {
+                "slug": vehicle["slug"],
+                "label": vehicle["label"],
+                "count": vehicle["count"],
+                "categories": categories,
+            }
+        )
+    rows = sorted(rows, key=lambda row: (-row["count"], row["label"].casefold()))
+    if all_categories:
+        rows.insert(
+            0,
+            {
+                "slug": "all",
+                "label": "Усі авто / всі склади",
+                "count": len(parts),
+                "categories": sorted(
+                    all_categories.values(),
+                    key=lambda row: (-row["count"], row["label"].casefold()),
+                ),
+            },
+        )
+    return rows
+
+
 def seo_part_link_entries(parts: list[Part], limit: int = 80) -> list[dict]:
     entries = []
     seen: set[str] = set()
@@ -7966,6 +8044,25 @@ def sitemap_vehicle_categories_xml():
         db.close()
 
 
+@app.route("/fitment")
+def fitment_redirect():
+    query_text = normalize_text(request.args.get("q", "")).strip()
+    vehicle_slug = normalize_text(request.args.get("vehicle_slug", "")).strip()
+    category_slug = normalize_text(request.args.get("category_slug", "")).strip()
+    if vehicle_slug == "all":
+        vehicle_slug = ""
+
+    if query_text:
+        return redirect(url_for("catalog", q=query_text), code=302)
+    if vehicle_slug and category_slug:
+        return redirect(url_for("seo_vehicle_category_page", category_slug=category_slug, vehicle_slug=vehicle_slug), code=302)
+    if vehicle_slug:
+        return redirect(url_for("seo_vehicle_page", slug=vehicle_slug), code=302)
+    if category_slug:
+        return redirect(url_for("seo_category_page", slug=category_slug), code=302)
+    return redirect(url_for("catalog"), code=302)
+
+
 @app.route("/")
 def home():
     db = SessionLocal()
@@ -7996,6 +8093,7 @@ def home():
         warehouse_catalogs = seo_warehouse_catalog_entries(db)
         unique_public_parts = best_unique_public_parts(parts_pool)
         seo_entries = seo_collect_entries(unique_public_parts)
+        fitment_options = build_fitment_options(unique_public_parts)
         if q and page == 1:
             track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
             db.commit()
@@ -8018,6 +8116,7 @@ def home():
             vehicle_warehouses=vehicle_warehouses,
             warehouse_catalogs=warehouse_catalogs[:18],
             seo_entries=seo_entries,
+            fitment_options=fitment_options[:80],
             seo_part_links=seo_part_link_entries(unique_public_parts, limit=72),
             seo_title=seo_title,
             seo_description=seo_description,

@@ -34,12 +34,12 @@
   </section>
   {% endif %}
 
-  {% if seo_entries and (seo_entries.categories or seo_entries.brands) %}
+  {% if seo_entries and (seo_entries.categories or seo_entries.brands or seo_entries.vehicles or seo_entries.vehicle_categories or seo_entries.brand_categories or seo_part_links) %}
   <section class="seo-hub-strip card" aria-label="Розділи каталогу">
     <div class="warehouse-catalog-head">
       <div>
         <span class="eyebrow">Структура каталогу</span>
-        <h2>Запчастини за категоріями та брендами</h2>
+        <h2>Запчастини за категоріями, авто, брендами та OEM</h2>
       </div>
       <div class="muted">Ці сторінки індексуються окремо і ведуть до товарних карток.</div>
     </div>
@@ -47,7 +47,7 @@
     <div class="seo-hub-block">
       <h3>Категорії</h3>
       <div class="seo-chip-row">
-        {% for item in seo_entries.categories[:18] %}
+        {% for item in seo_entries.categories[:48] %}
         <a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
         {% endfor %}
       </div>
@@ -57,8 +57,51 @@
     <div class="seo-hub-block">
       <h3>Бренди</h3>
       <div class="seo-chip-row">
-        {% for item in seo_entries.brands[:18] %}
+        {% for item in seo_entries.brands[:48] %}
         <a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if seo_entries.vehicles %}
+    <div class="seo-hub-block">
+      <h3>Авто / склади</h3>
+      <div class="seo-chip-row">
+        {% for item in seo_entries.vehicles[:48] %}
+        <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if seo_entries.vehicle_categories %}
+    <div class="seo-hub-block">
+      <h3>Категорія + авто</h3>
+      <div class="seo-chip-row">
+        {% for item in seo_entries.vehicle_categories[:72] %}
+        <a class="seo-chip" href="{{ url_for('seo_vehicle_category_page', category_slug=item.category_slug, vehicle_slug=item.vehicle_slug) }}">{{ item.category_label }} {{ item.vehicle_label }} • {{ item.count }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if seo_entries.brand_categories %}
+    <div class="seo-hub-block">
+      <h3>Бренд + категорія</h3>
+      <div class="seo-chip-row">
+        {% for item in seo_entries.brand_categories[:72] %}
+        <a class="seo-chip" href="{{ url_for('seo_brand_category_page', brand_slug=item.brand_slug, category_slug=item.category_slug) }}">{{ item.category_label }} {{ item.brand_label }} • {{ item.count }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if seo_part_links %}
+    <div class="seo-hub-block seo-oem-hub">
+      <h3>OEM номери в каталозі</h3>
+      <div class="seo-oem-grid">
+        {% for item in seo_part_links %}
+        <a class="seo-oem-link" href="{{ part_detail_url(item.part) }}">
+          <strong>{{ item.number }}</strong>
+          <span>{{ clean_text(item.part.name) }}</span>
+        </a>
         {% endfor %}
       </div>
     </div>

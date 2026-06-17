@@ -6743,6 +6743,92 @@ def seo_collect_entries(parts: list[Part]):
     }
 
 
+def seo_part_link_entries(parts: list[Part], limit: int = 80) -> list[dict]:
+    entries = []
+    seen: set[str] = set()
+    for part in parts:
+        number = seo_clean_label(part.part_number).upper()
+        if not number or number in seen:
+            continue
+        seen.add(number)
+        entries.append(
+            {
+                "part": part,
+                "number": number,
+                "label": compact_meta_text(number, part.name, limit=96),
+            }
+        )
+        if len(entries) >= limit:
+            break
+    return entries
+
+
+def seo_listing_faq_items(title: str, parts: list[Part]) -> list[dict]:
+    sample_numbers = [entry["number"] for entry in seo_part_link_entries(parts, limit=6)]
+    sample_text = ", ".join(sample_numbers)
+    count = len(parts)
+    return [
+        {
+            "question": f"Як підібрати {title}?",
+            "answer": (
+                "Найточніший спосіб підбору - звірити OEM номер запчастини, фото товару "
+                "та сумісність з автомобілем. Якщо номеру немає під рукою, менеджер допоможе "
+                "перевірити деталь за описом або VIN."
+            ),
+        },
+        {
+            "question": f"Чи є {title} в наявності?",
+            "answer": (
+                f"На цій сторінці показано {count} активних позицій з бази USAparts.top. "
+                "Наявність і ціна оновлюються автоматично з карток товарів."
+            ),
+        },
+        {
+            "question": "Які OEM номери є в цьому розділі?",
+            "answer": (
+                f"Серед доступних номерів: {sample_text}."
+                if sample_text
+                else "OEM номери з'являються на сторінці автоматично після додавання товарів у базу."
+            ),
+        },
+    ]
+
+
+def seo_links_for_part(part: Part) -> list[dict]:
+    links = []
+    seen: set[str] = set()
+
+    def add(label: str, url: str):
+        if not label or not url or url in seen:
+            return
+        seen.add(url)
+        links.append({"label": label, "url": url})
+
+    brand_label = seo_part_brand(part)
+    brand_slug = seo_slug(brand_label) if brand_label else ""
+    if brand_label and brand_slug:
+        add(f"Запчастини {brand_label}", url_for("seo_brand_page", slug=brand_slug))
+
+    vehicle_label = seo_vehicle_label_from_part(part)
+    vehicle_slug = seo_slug(vehicle_label) if vehicle_label else ""
+    if vehicle_label and vehicle_slug:
+        add(f"Запчастини {vehicle_label}", url_for("seo_vehicle_page", slug=vehicle_slug))
+
+    for category in seo_part_categories(part):
+        add(category["label"], url_for("seo_category_page", slug=category["slug"]))
+        if brand_slug:
+            add(
+                f"{category['label']} {brand_label}",
+                url_for("seo_brand_category_page", brand_slug=brand_slug, category_slug=category["slug"]),
+            )
+        if vehicle_slug:
+            add(
+                f"{category['label']} {vehicle_label}",
+                url_for("seo_vehicle_category_page", category_slug=category["slug"], vehicle_slug=vehicle_slug),
+            )
+    return links[:10]
+
+
 def seo_filter_parts(parts: list[Part], *, brand_slug: str = "", category_slug: str = "", vehicle_slug: str = "") -> list[Part]:
     filtered = []
     for part in parts:
@@ -6791,14 +6877,22 @@ def seo_listing_schema(title: str, description: str, url: str, parts: list[Part]
 
 def render_seo_listing(parts: list[Part], title: str, description: str, canonical_url: str, *, intro: str = "", related=None):
     related = related or {}
+    visible_parts = parts[:72]
     return render_template(
         "seo_listing.html",
         title=title,
         description=description,
         intro=intro or description,
-        parts=parts[:72],
+        parts=visible_parts,
         total_count=len(parts),
         related=related,
+        breadcrumbs=[
+            {"label": "Головна", "url": url_for("home")},
+            {"label": "Каталог", "url": url_for("catalog")},
+            {"label": title, "url": canonical_url},
+        ],
+        seo_part_links=seo_part_link_entries(parts, limit=96),
+        seo_faq_items=seo_listing_faq_items(title, parts),
         display_usd=display_usd,
         display_uah=display_uah,
         seo_title=f"{title} | USAparts.top",
@@ -7890,7 +7984,8 @@ def home():
             db.query(Warehouse).order_by(Warehouse.name.asc()).all()
         )
         warehouse_catalogs = seo_warehouse_catalog_entries(db)
-        seo_entries = seo_collect_entries(best_unique_public_parts(parts_pool))
+        unique_public_parts = best_unique_public_parts(parts_pool)
+        seo_entries = seo_collect_entries(unique_public_parts)
         if q and page == 1:
             track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
             db.commit()
@@ -7913,6 +8008,7 @@ def home():
             vehicle_warehouses=vehicle_warehouses,
             warehouse_catalogs=warehouse_catalogs[:18],
             seo_entries=seo_entries,
+            seo_part_links=seo_part_link_entries(unique_public_parts, limit=72),
             seo_title=seo_title,
             seo_description=seo_description,
             canonical_url=public_url_for("home", page=page) if page > 1 and not q else public_url_for("home"),
@@ -8168,7 +8264,8 @@ def catalog():
         pagination = public_catalog_pagination(requested_page, parts_total, per_page=48)
         parts = all_matching_parts[pagination["offset"]:pagination["end_offset"]]
         warehouse_catalogs = seo_warehouse_catalog_entries(db)
-        seo_entries = seo_collect_entries(best_unique_public_parts(parts_pool))
+        unique_public_parts = best_unique_public_parts(parts_pool)
+        seo_entries = seo_collect_entries(unique_public_parts)
         if q and parts_total == 0:
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
@@ -8203,6 +8300,7 @@ def catalog():
             condition=condition,
             warehouse_catalogs=warehouse_catalogs,
             seo_entries=seo_entries,
+            seo_part_links=seo_part_link_entries(unique_public_parts, limit=96),
             search_found_without_photo=search_found_without_photo,
             safe_photo=safe_photo,
             display_usd=display_usd,
@@ -8387,6 +8485,7 @@ def part_detail(part_id, slug=None):
             og_image_url=part_og_image,
             review_summary=review_summary,
             reviews=reviews,
+            part_seo_links=seo_links_for_part(part),
             json_ld=build_part_product_schema(part, warehouse, review_summary=review_summary, reviews=reviews),
         )
     finally:
@@ -8443,6 +8542,7 @@ def cross_part_detail(cross_number, part_id, slug=None):
             og_image_url=part_og_image,
             review_summary=review_summary,
             reviews=reviews,
+            part_seo_links=seo_links_for_part(part),
             json_ld=build_part_product_schema(part, warehouse, display_part_number=clean_cross, canonical_url=cross_url, review_summary=review_summary, reviews=reviews),
         )
     finally:

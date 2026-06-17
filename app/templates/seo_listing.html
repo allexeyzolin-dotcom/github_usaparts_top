@@ -1,6 +1,19 @@
 {% extends 'base_public.html' %}
 {% block content %}
 <div class="container seo-listing-page">
+  {% if breadcrumbs %}
+  <nav class="seo-breadcrumbs" aria-label="Навігація сторінки">
+    {% for crumb in breadcrumbs %}
+      {% if not loop.last %}
+      <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+      <span>/</span>
+      {% else %}
+      <span>{{ crumb.label }}</span>
+      {% endif %}
+    {% endfor %}
+  </nav>
+  {% endif %}
+
   <section class="seo-listing-hero card">
     <span class="eyebrow">USAparts.top • SEO каталог</span>
     <h1>{{ title }}</h1>
@@ -49,6 +62,26 @@
   </section>
   {% endif %}
 
+  {% if seo_part_links %}
+  <section class="card seo-oem-index" aria-label="OEM номери в розділі">
+    <div class="warehouse-catalog-head">
+      <div>
+        <span class="eyebrow">OEM індекс</span>
+        <h2>Номери запчастин у цьому розділі</h2>
+      </div>
+      <div class="muted">Кожен номер веде на окрему картку товару.</div>
+    </div>
+    <div class="seo-oem-grid">
+      {% for item in seo_part_links %}
+      <a class="seo-oem-link" href="{{ part_detail_url(item.part) }}">
+        <strong>{{ item.number }}</strong>
+        <span>{{ clean_text(item.part.name) }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <div class="showcase-grid seo-product-grid">
     {% for part in parts %}
     <div class="showcase-card">
@@ -75,6 +108,21 @@
     </div>
     {% endfor %}
   </div>
+
+  {% if seo_faq_items %}
+  <section class="card seo-faq-section">
+    <span class="eyebrow">Підбір і замовлення</span>
+    <h2>Питання по розділу</h2>
+    <div class="seo-faq-grid">
+      {% for item in seo_faq_items %}
+      <article class="seo-faq-card">
+        <h3>{{ item.question }}</h3>
+        <p>{{ item.answer }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
   <section class="card seo-source-note">
     <h2>Як формується сторінка</h2>

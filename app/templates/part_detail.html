@@ -61,8 +61,19 @@
       <div class="muted">Основний OEM: {{ main_part_number }}</div>
       {% endif %}
       <h1 class="part-detail-title">{{ visible_part_number }} {{ clean_text(part.name) }}</h1>
+      <div class="product-code-panel">
+        <span>Код товару / OEM номер</span>
+        <strong>{{ visible_part_number }}</strong>
+      </div>
       <div class="price-row big">{{ display_public_price_uah(part.price_usd, warehouse.markup_percent) }}</div>
       <div class="muted">Кількість: {{ part.qty }} | Наявність: {{ 'Так' if part.in_stock else 'Ні' }}</div>
+      {% if part_seo_links %}
+      <div class="product-seo-links" aria-label="Пов'язані розділи каталогу">
+        {% for link in part_seo_links %}
+        <a class="seo-chip" href="{{ link.url }}">{{ link.label }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
       <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
         <button class="btn primary">Додати в кошик</button>
       </form>

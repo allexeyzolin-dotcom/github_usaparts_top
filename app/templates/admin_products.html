@@ -12,7 +12,9 @@
     <h3>Створити склад</h3>
     <form method="post" action="{{ url_for('create_warehouse') }}" class="stack">
       <input name="name" placeholder="Назва складу" required>
+      <input name="showcase_name" placeholder="Назва для вітрини (якщо відрізняється)">
       <input name="markup_percent" type="number" step="0.01" value="0" placeholder="Націнка, %">
+      <div class="helper-note">Назва складу лишається службовою. Назва для вітрини використовується в каталозі, SEO та публічних сторінках.</div>
       <button class="btn primary" type="submit">Створити склад</button>
     </form>
   </section>
@@ -23,13 +25,14 @@
       <select name="warehouse_id" required>
         <option value="">Оберіть склад</option>
         {% for warehouse, stats in warehouse_cards %}
-        <option value="{{ warehouse.id }}" data-name="{{ warehouse.name }}" data-markup="{{ warehouse.markup_percent }}">{{ warehouse.name }}</option>
+        <option value="{{ warehouse.id }}" data-name="{{ warehouse.name }}" data-showcase-name="{{ warehouse.showcase_name or '' }}" data-markup="{{ warehouse.markup_percent }}">{{ warehouse.name }}</option>
         {% endfor %}
       </select>
       <input name="name" placeholder="Нова назва складу" required>
+      <input name="showcase_name" placeholder="Назва для вітрини">
       <input name="markup_percent" type="hidden" value="0">
       <input type="hidden" name="next" value="{{ url_for('admin_products') }}">
-      <div class="helper-note">Після перейменування SEO-каталог автоматично отримає нову назву зі складу.</div>
+      <div class="helper-note">SEO-каталог бере назву для вітрини. Якщо вона порожня, використовується службова назва складу.</div>
       <button class="btn primary" type="submit">Зберегти назву</button>
     </form>
   </section>
@@ -97,6 +100,7 @@
       <thead>
         <tr>
           <th>Склад</th>
+          <th>Назва для вітрини</th>
           <th>Позицій</th>
           <th>Фото</th>
           <th>Опис</th>
@@ -108,6 +112,7 @@
         {% for warehouse, stats in warehouse_cards %}
         <tr>
           <td><a class="text-link" href="{{ url_for('admin_parts', warehouse_id=warehouse.id) }}">{{ warehouse.name }}</a></td>
+          <td>{{ warehouse.showcase_name or '—' }}</td>
           <td>{{ stats.total }}</td>
           <td>{{ stats.with_photo_pct }}%</td>
           <td>{{ stats.with_desc_pct }}%</td>
@@ -123,6 +128,7 @@
           <td>
             <form method="post" action="{{ url_for('update_warehouse', warehouse_id=warehouse.id) }}" class="warehouse-rename-inline">
               <input name="name" value="{{ warehouse.name }}" aria-label="Назва складу" required>
+              <input name="showcase_name" value="{{ warehouse.showcase_name or '' }}" aria-label="Назва для вітрини" placeholder="Назва для вітрини">
               <input name="markup_percent" type="number" step="0.01" value="{{ warehouse.markup_percent }}" aria-label="Націнка %">
               <input type="hidden" name="next" value="{{ url_for('admin_products') }}">
               <button class="btn ghost small" type="submit">Зберегти</button>
@@ -130,7 +136,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted">Складів поки немає.</td></tr>
+        <tr><td colspan="7" class="muted">Складів поки немає.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -167,6 +173,7 @@ function submitWarehouseExport(form) {
 function submitWarehouseRename(form) {
   const select = form.querySelector('select[name="warehouse_id"]');
   const nameInput = form.querySelector('input[name="name"]');
+  const showcaseInput = form.querySelector('input[name="showcase_name"]');
   const markupInput = form.querySelector('input[name="markup_percent"]');
   if (!select.value) {
     window.alert('Оберіть склад для перейменування.');
@@ -178,6 +185,7 @@ function submitWarehouseRename(form) {
   }
   const option = select.options[select.selectedIndex];
   markupInput.value = option.dataset.markup || '0';
+  if (showcaseInput) showcaseInput.value = showcaseInput.value.trim();
   form.action = `/admin/warehouse/${select.value}/update`;
   return true;
 }
@@ -186,7 +194,9 @@ document.querySelector('form[onsubmit="return submitWarehouseRename(this)"] sele
   const form = event.target.closest('form');
   const option = event.target.options[event.target.selectedIndex];
   const input = form?.querySelector('input[name="name"]');
+  const showcaseInput = form?.querySelector('input[name="showcase_name"]');
   if (input && option?.dataset.name) input.value = option.dataset.name;
+  if (showcaseInput) showcaseInput.value = option?.dataset.showcaseName || '';
 });
 
 </script>

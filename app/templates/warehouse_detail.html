@@ -25,7 +25,9 @@
   <h3>Налаштування складу</h3>
   <form method="post" action="{{ url_for('update_warehouse', warehouse_id=warehouse.id) }}" class="grid-2">
     <input name="name" value="{{ warehouse.name }}" placeholder="Назва складу" required>
+    <input name="showcase_name" value="{{ warehouse.showcase_name or '' }}" placeholder="Назва для вітрини">
     <input name="markup_percent" type="number" step="0.01" value="{{ warehouse.markup_percent }}" placeholder="Націнка %">
+    <div class="helper-note">Якщо назва для вітрини порожня, покупці та SEO-каталог бачать звичайну назву складу.</div>
     <button class="btn primary" type="submit">Зберегти зміни</button>
   </form>
 </div>

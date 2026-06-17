@@ -79,6 +79,7 @@ class Warehouse(Base):
     __tablename__ = "warehouses"
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False, unique=True)
+    showcase_name = Column(String(255), nullable=False, default="")
     markup_percent = Column(Numeric(8, 2), nullable=False, default=0)
     revision_status = Column(String(32), nullable=False, default="not_started")
     revision_percent = Column(Integer, nullable=False, default=0)
@@ -6345,8 +6346,9 @@ def build_part_product_schema(
     if categories:
         product_payload["category"] = ", ".join(category["label"] for category in categories[:3])
     if warehouse:
+        warehouse_label = warehouse_public_name(warehouse) or seo_clean_label(warehouse.name)
         product_payload["additionalProperty"].append(
-            {"@type": "PropertyValue", "name": "Склад", "value": seo_clean_label(warehouse.name)}
+            {"@type": "PropertyValue", "name": "Склад", "value": warehouse_label}
         )
     review_summary = review_summary or {}
     review_count = int(review_summary.get("count") or 0)
@@ -6521,6 +6523,12 @@ def seo_clean_label(value: str) -> str:
     return re.sub(r"\s+", " ", normalize_text(value or "").strip())
 
 
+def warehouse_public_name(warehouse: Warehouse | None) -> str:
+    if not warehouse:
+        return ""
+    return seo_clean_label(getattr(warehouse, "showcase_name", "") or warehouse.name)
+
+
 def seo_normalized_tokens(value: str) -> list[str]:
     normalized = re.sub(r"[^A-ZА-ЯІЇЄҐ0-9]+", " ", (value or "").upper()).strip()
     return [token for token in normalized.split() if token]
@@ -6569,7 +6577,7 @@ def best_unique_public_parts(parts) -> list[Part]:
 
 
 def seo_part_text(part: Part) -> str:
-    warehouse_name = part.warehouse.name if getattr(part, "warehouse", None) else ""
+    warehouse_name = warehouse_public_name(part.warehouse) if getattr(part, "warehouse", None) else ""
     return " ".join(
         [
             seo_clean_label(part.part_number),
@@ -6595,7 +6603,7 @@ def seo_part_brand(part: Part) -> str:
 def seo_vehicle_label_from_warehouse(warehouse: Warehouse | None) -> str:
     if not warehouse:
         return ""
-    name = seo_clean_label(warehouse.name)
+    name = warehouse_public_name(warehouse)
     if not name:
         return ""
     upper = name.upper()
@@ -6633,6 +6641,7 @@ def seo_warehouse_catalog_entries(db) -> list[dict]:
         if not parts:
             continue
         latest = max((part.updated_at or part.created_at for part in parts if part.updated_at or part.created_at), default=warehouse.updated_at)
+        public_name = warehouse_public_name(warehouse) or seo_clean_label(warehouse.name)
         row = grouped.setdefault(
             slug,
             {
@@ -6644,7 +6653,7 @@ def seo_warehouse_catalog_entries(db) -> list[dict]:
             },
         )
         row["count"] += len(parts)
-        row["warehouses"].append(warehouse.name)
+        row["warehouses"].append(public_name)
         if latest and (not row["lastmod"] or latest > row["lastmod"]):
             row["lastmod"] = latest
     return sorted(grouped.values(), key=lambda row: (-row["count"], row["label"].casefold()))
@@ -7329,6 +7338,7 @@ def seed_if_empty():
             conn.exec_driver_sql("ALTER TABLE order_items ALTER COLUMN part_id DROP NOT NULL")
             conn.exec_driver_sql("ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS revision_current_index INTEGER NOT NULL DEFAULT 0")
             conn.exec_driver_sql("ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS revision_started_at TIMESTAMP NULL")
+            conn.exec_driver_sql("ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS showcase_name VARCHAR(255) NOT NULL DEFAULT ''")
             conn.exec_driver_sql("ALTER TABLE parts ADD COLUMN IF NOT EXISTS barcode VARCHAR(8) NOT NULL DEFAULT ''")
             conn.exec_driver_sql("ALTER TABLE parts ADD COLUMN IF NOT EXISTS showcase_photo_urls TEXT NOT NULL DEFAULT '[]'")
             conn.exec_driver_sql("ALTER TABLE parts ADD COLUMN IF NOT EXISTS youtube_url VARCHAR(500) NOT NULL DEFAULT ''")
@@ -9982,11 +9992,12 @@ def create_warehouse():
     db = SessionLocal()
     try:
         name = request.form.get("name", "").strip()
+        showcase_name = normalize_text(request.form.get("showcase_name", "")).strip()
         markup = float(request.form.get("markup_percent", "0") or 0)
         if not name:
             flash("Р’РєР°Р¶С–С‚СЊ РЅР°Р·РІСѓ СЃРєР»Р°РґСѓ", "error")
             return redirect(url_for("admin_products"))
-        db.add(Warehouse(name=name, markup_percent=markup, created_at=now(), updated_at=now()))
+        db.add(Warehouse(name=name, showcase_name=showcase_name, markup_percent=markup, created_at=now(), updated_at=now()))
         flash_news(db, "warehouse", "РЎС‚РІРѕСЂРµРЅРѕ СЃРєР»Р°Рґ", f"РЎС‚РІРѕСЂРµРЅРѕ СЃРєР»Р°Рґ {name}.", "info")
         db.commit()
         flash("РЎРєР»Р°Рґ СЃС‚РІРѕСЂРµРЅРѕ", "success")
@@ -10090,6 +10101,8 @@ def update_warehouse(warehouse_id):
             flash("РЎРєР»Р°Рґ РЅРµ Р·РЅР°Р№РґРµРЅРѕ", "error")
             return redirect(url_for("admin_products"))
         warehouse.name = request.form.get("name", warehouse.name).strip() or warehouse.name
+        if "showcase_name" in request.form:
+            warehouse.showcase_name = normalize_text(request.form.get("showcase_name", "")).strip()
         warehouse.markup_percent = float(request.form.get("markup_percent", warehouse.markup_percent) or 0)
         warehouse.updated_at = now()
         flash_news(db, "warehouse", "РћРЅРѕРІР»РµРЅРѕ СЃРєР»Р°Рґ", f"РЎРєР»Р°Рґ {warehouse.name} РѕРЅРѕРІР»РµРЅРѕ.", "info")

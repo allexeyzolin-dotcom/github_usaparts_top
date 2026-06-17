@@ -1,7 +1,48 @@
 {% extends 'base_public.html' %}
 {% block content %}
-<section class="hero premium-hero home-shot-layout">
+<section class="hero premium-hero home-shot-layout shop-home">
   <div class="container home-shot-container">
+    <div class="shop-hero-grid">
+      <div class="shop-hero-card">
+        <span class="eyebrow">USAparts.top • авторозбірка • склад</span>
+        <h1 class="home-main-title">Запчастини для авто з США</h1>
+        <p class="hero-text">
+          Шукайте деталь по OEM номеру, назві, бренду або VIN. На вітрині показуємо тільки позиції,
+          які можна додати в кошик або уточнити у менеджера.
+        </p>
+        <form class="search-row hero-search-centered" method="get" action="{{ url_for('home') }}">
+          <input name="q" value="{{ q }}" placeholder="Наприклад 68235664AA, фара, бампер або Jeep">
+          <button class="btn primary" type="submit">Знайти</button>
+        </form>
+        <div class="shop-hero-stats">
+          <a href="{{ url_for('catalog') }}"><strong>{{ featured_total }}</strong><span>позицій у вітрині</span></a>
+          <a href="{{ url_for('cars_public', status='in_stock') }}"><strong>{{ cars_stock }}</strong><span>авто в наявності</span></a>
+          <a href="{{ url_for('cars_public', status='in_transit') }}"><strong>{{ cars_transit }}</strong><span>авто в дорозі</span></a>
+        </div>
+      </div>
+
+      <aside class="fitment-card">
+        <img class="fitment-logo" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
+        <h2>Підберіть деталь для вашого авто</h2>
+        <p>Оберіть склад-авто або категорію. Це відкриє SEO-сторінку з прямими посиланнями на товари.</p>
+        <div class="fitment-selects">
+          <select onchange="if(this.value) window.location.href=this.value">
+            <option value="">Оберіть авто / склад</option>
+            {% for item in warehouse_catalogs[:40] %}
+            <option value="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</option>
+            {% endfor %}
+          </select>
+          <select onchange="if(this.value) window.location.href=this.value">
+            <option value="">Оберіть категорію</option>
+            {% for item in seo_entries.categories[:40] %}
+            <option value="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <a class="btn ghost full" href="{{ url_for('catalog') }}">Відкрити весь каталог</a>
+      </aside>
+    </div>
+
     {% if cars_random %}
     <div class="cars-ribbon">
       {% for car in cars_random %}
@@ -23,24 +64,9 @@
     </div>
     {% endif %}
 
-    <div class="home-title-block">
-      <img class="home-brand-logo" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
-      <span class="eyebrow">USA авторозбірка • запчастини • поставки</span>
-      <h1 class="home-main-title">Запчастини для авто з США</h1>
-    </div>
-
-    <form class="search-row hero-search-centered" method="get" action="{{ url_for('home') }}">
-      <input name="q" value="{{ q }}" placeholder="Пошук по номеру, назві або бренду">
-      <button class="btn primary" type="submit">Знайти</button>
-    </form>
-
-    <div class="home-catalog-actions">
-      <a class="btn ghost" href="{{ url_for('catalog') }}">Відкрити весь каталог запчастин</a>
-    </div>
-
     <div class="showcase-section-head">
       <div>
-        <span class="eyebrow">Вітрина</span>
+        <span class="eyebrow">Популярні деталі</span>
         <h2>Запчастини в наявності</h2>
       </div>
       <a class="text-link" href="{{ url_for('catalog') }}">Перейти в каталог</a>
@@ -48,8 +74,10 @@
 
     <div class="showcase-grid showcase-grid-home">
       {% for part in featured %}
+      {% set gallery = part_gallery_urls(part) %}
       <div class="showcase-card home-product-card">
-        <a href="{{ part_detail_url(part) }}">
+        <a class="product-card-media" href="{{ part_detail_url(part) }}">
+          <span class="product-card-badge">{{ producer_type_label(part.producer_type) }}</span>
           {% if primary_part_photo(part) %}
           <span class="watermarked-photo">
             <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
@@ -57,13 +85,19 @@
           {% else %}
           <div class="showcase-img placeholder">Фото</div>
           {% endif %}
+          {% if gallery|length > 1 %}
+          <span class="photo-count-badge">{{ gallery|length }} фото</span>
+          {% endif %}
         </a>
         <div class="showcase-body">
+          <div class="product-card-label">Код товару</div>
           <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
+          <div class="product-card-brand">{{ clean_text(part.brand or producer_type_label(part.producer_type)) }}</div>
           <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) }}</a></h3>
           <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent) }}</div>
+          <div class="product-card-stock">В наявності: {{ part.qty }} шт.</div>
           <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}" class="home-buy-form">
-            <button class="btn primary full" type="submit">Додати в кошик</button>
+            <button class="btn primary full" type="submit">Купити</button>
           </form>
         </div>
       </div>

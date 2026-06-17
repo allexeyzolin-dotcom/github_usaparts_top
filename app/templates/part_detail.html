@@ -3,8 +3,14 @@
 {% set gallery = part_gallery_urls(part) %}
 {% set video_url = youtube_embed_url(part.youtube_url) %}
 {% set visible_part_number = display_part_number|default(part.part_number) %}
-<div class="container">
-  <div class="detail-grid">
+<div class="container product-page">
+  <div class="product-breadcrumb">
+    <a href="{{ url_for('catalog') }}">Каталог</a>
+    <span>/</span>
+    <span>{{ visible_part_number }}</span>
+  </div>
+
+  <div class="detail-grid product-detail-grid">
     <div class="card stack part-photo-panel">
       <div class="part-photo-toolbar">
         <div>
@@ -55,18 +61,34 @@
       {% endif %}
     </div>
 
-    <div class="card stack">
-      <div class="showcase-code">{{ visible_part_number }}</div>
+    <div class="card stack product-shop-panel">
+      <div class="product-detail-status">
+        <span class="product-card-badge">{{ producer_type_label(part.producer_type) }}</span>
+        <span class="stock-pill {{ 'ok' if part.in_stock and part.qty else 'danger' }}">{{ 'Є в наявності' if part.in_stock and part.qty else 'Немає в наявності' }}</span>
+      </div>
+      <div class="product-card-label">Код товару / OEM номер</div>
+      <div class="showcase-code product-detail-code">{{ visible_part_number }}</div>
       {% if main_part_number is defined and main_part_number and main_part_number != visible_part_number %}
       <div class="muted">Основний OEM: {{ main_part_number }}</div>
       {% endif %}
       <h1 class="part-detail-title">{{ visible_part_number }} {{ clean_text(part.name) }}</h1>
-      <div class="product-code-panel">
-        <span>Код товару / OEM номер</span>
-        <strong>{{ visible_part_number }}</strong>
+      <div class="price-row big">{{ display_public_price_uah(part.price_usd, warehouse.markup_percent if warehouse else 0) }}</div>
+
+      <div class="part-detail-meta-grid">
+        <div>
+          <span>Кількість</span>
+          <strong>{{ part.qty }} шт.</strong>
+        </div>
+        <div>
+          <span>Тип</span>
+          <strong>{{ producer_type_label(part.producer_type) }}</strong>
+        </div>
+        <div>
+          <span>Бренд</span>
+          <strong>{{ clean_text(part.brand or 'USAparts.top') }}</strong>
+        </div>
       </div>
-      <div class="price-row big">{{ display_public_price_uah(part.price_usd, warehouse.markup_percent) }}</div>
-      <div class="muted">Кількість: {{ part.qty }} | Наявність: {{ 'Так' if part.in_stock else 'Ні' }}</div>
+
       {% if part_seo_links %}
       <div class="product-seo-links" aria-label="Пов'язані розділи каталогу">
         {% for link in part_seo_links %}
@@ -74,10 +96,26 @@
         {% endfor %}
       </div>
       {% endif %}
-      <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
-        <button class="btn primary">Додати в кошик</button>
+      <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}" class="product-buy-form">
+        <button class="btn primary full">Купити</button>
       </form>
       <button class="btn seller-request-toggle" type="button" id="seller-request-toggle">Запитати у продавця</button>
+
+      <div class="commerce-info-grid">
+        <div>
+          <strong>Доставка</strong>
+          <span>Нова Пошта, Delivery або самовивіз</span>
+        </div>
+        <div>
+          <strong>Оплата</strong>
+          <span>При отриманні, карткою або на складi</span>
+        </div>
+        <div>
+          <strong>Гарантія</strong>
+          <span>14 днів на обмін / повернення</span>
+        </div>
+      </div>
+
       <div class="seller-request-card hidden" id="seller-request">
         <div class="field-label">Запит у продавця</div>
         <form method="post" action="{{ url_for('part_seller_request', part_id=part.id) }}" class="stack seller-request-form">

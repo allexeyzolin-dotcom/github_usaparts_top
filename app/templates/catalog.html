@@ -1,18 +1,19 @@
 {% extends 'base_public.html' %}
 {% block content %}
-<div class="container">
-  <div class="panel-header">
+<div class="container shop-catalog-page">
+  <div class="panel-header catalog-shop-head">
     <div>
+      <span class="eyebrow">Каталог запчастин</span>
       <h1 class="catalog-title">Каталог запчастин для авто з США</h1>
-      <div class="muted">Пошук, перегляд галереї і швидке оформлення замовлення.</div>
+      <div class="muted">Пошук по OEM номеру, назві, бренду або крос-номеру. Картки відкриваються напряму для Google та покупців.</div>
     </div>
   </div>
-  <form class="search-row card" method="get">
-    <input name="q" value="{{ q }}" placeholder="Пошук по номеру, назві або бренду">
+  <form class="search-row card catalog-filter-card" method="get">
+    <input name="q" value="{{ q }}" placeholder="Наприклад 5QM145803D, фара, кронштейн або BMW">
     <select name="condition">
-      <option value="">Усі</option>
+      <option value="">Усі товари</option>
       <option value="used" {% if condition=='used' %}selected{% endif %}>Запчастини Б/У</option>
-      <option value="new" {% if condition=='new' %}selected{% endif %}>Запчастини нові</option>
+      <option value="new" {% if condition=='new' %}selected{% endif %}>OEM / нові</option>
     </select>
     <button class="btn primary" type="submit">Пошук</button>
   </form>
@@ -41,8 +42,10 @@
 
   <div class="showcase-grid">
     {% for part in parts %}
+    {% set gallery = part_gallery_urls(part) %}
     <div class="showcase-card">
-      <a href="{{ part_detail_url(part) }}">
+      <a class="product-card-media" href="{{ part_detail_url(part) }}">
+        <span class="product-card-badge">{{ producer_type_label(part.producer_type) }}</span>
         {% if primary_part_photo(part) %}
         <span class="watermarked-photo">
           <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
@@ -50,13 +53,19 @@
         {% else %}
         <div class="showcase-img placeholder">Фото</div>
         {% endif %}
+        {% if gallery|length > 1 %}
+        <span class="photo-count-badge">{{ gallery|length }} фото</span>
+        {% endif %}
       </a>
       <div class="showcase-body">
+        <div class="product-card-label">Код товару</div>
         <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
+        <div class="product-card-brand">{{ clean_text(part.brand or producer_type_label(part.producer_type)) }}</div>
         <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) }}</a></h3>
         <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent) }}</div>
+        <div class="product-card-stock">В наявності: {{ part.qty }} шт.</div>
         <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
-          <button class="btn primary full" type="submit">Додати в кошик</button>
+          <button class="btn primary full" type="submit">Купити</button>
         </form>
       </div>
     </div>

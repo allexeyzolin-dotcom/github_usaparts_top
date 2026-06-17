@@ -42,33 +42,55 @@
   <link rel="icon" href="{{ url_for('favicon_ico') }}" sizes="any">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('apple_touch_icon') }}">
   <link rel="manifest" href="{{ url_for('site_webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=20260617-storefront-cleanup">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=20260617-autogo-storefront">
   {% if json_ld|default('') %}
   <script type="application/ld+json">{{ json_ld|safe }}</script>
   {% endif %}
 </head>
-<body>
+<body class="public-shop-theme">
   <!-- Google Tag Manager (noscript) -->
   <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-NMTDSFSZ"
   height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <!-- End Google Tag Manager (noscript) -->
-  <header class="topbar topbar-salvage">
-    <div class="header-left">
+  <header class="store-header">
+    <div class="store-top-strip">
+      <div class="container store-top-inner">
+        <div class="store-top-note">Запчастини для авто з США • авторозбірка • поставки</div>
+        <div class="store-top-links">
+          <span>Пн-Пт: 9:00-18:00</span>
+          <a href="tel:+380960865846">+38 (096) 086 5846</a>
+          <a href="#policy-delivery">Оплата і доставка</a>
+          <a href="#policy-return">Обмін та повернення</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="container store-mainbar">
       <a href="{{ url_for('home') }}" class="logo site-logo" aria-label="USAparts.top">
         <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
       </a>
+
+      <form class="store-header-search" method="get" action="{{ url_for('catalog') }}">
+        <input name="q" value="{{ request.args.get('q', '') }}" placeholder="Номер запчастини, назва, бренд або VIN">
+        <button class="btn primary" type="submit">Пошук</button>
+      </form>
+
+      <div class="store-actions">
+        <button type="button" class="tracking-btn" id="openTracking">Трекінг</button>
+        <a class="nav-link cart-link" href="{{ url_for('cart_view') }}">Кошик {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
+        <a class="cabinet" href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}">Кабінет</a>
+      </div>
     </div>
-    <nav class="header-center">
-      <a class="nav-link" href="{{ url_for('catalog') }}">Каталог запчастин</a>
-      <a class="nav-link" href="{{ url_for('cars_public', status='in_stock') }}">Авто в наявності</a>
-      <a class="nav-link" href="{{ url_for('cars_public', status='in_transit') }}">Авто в дорозі</a>
+
+    <nav class="store-nav">
+      <div class="container store-nav-inner">
+        <a class="store-catalog-button" href="{{ url_for('catalog') }}">Каталог запчастин</a>
+        <a class="nav-link" href="{{ url_for('cars_public', status='in_stock') }}">Авто в наявності</a>
+        <a class="nav-link" href="{{ url_for('cars_public', status='in_transit') }}">Авто в дорозі</a>
+        <a class="nav-link" href="#policyTabs">Покупцю</a>
+        <a class="nav-link phone-link" href="tel:+380960865846">Зворотній зв'язок</a>
+      </div>
     </nav>
-    <div class="header-right">
-      <a class="nav-link phone-link" href="tel:+380960865846">+38 (096) 086 5846</a>
-      <button type="button" class="tracking-btn" id="openTracking">Трекінг</button>
-      <a class="nav-link cart-link" href="{{ url_for('cart_view') }}">Кошик {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
-      <a class="cabinet" href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}">Кабінет</a>
-    </div>
   </header>
 
   <main class="page">

@@ -9062,6 +9062,18 @@ def admin_statistics():
         by_type = {}
         for event in events:
             by_type.setdefault(event.event_type, []).append(event)
+        card_view_events = [
+            event
+            for event in by_type.get("part_view", [])
+            if event.part_id or normalize_text(event.part_number or "").strip()
+        ]
+        card_view_event_ids = {event.id for event in card_view_events}
+        visible_recent_events = [
+            event
+            for event in events
+            if event.event_type != "guest_visit"
+            and (event.event_type != "part_view" or event.id in card_view_event_ids)
+        ][:80]
 
         daily_rows = {}
         for event in events:
@@ -9080,7 +9092,7 @@ def admin_statistics():
             )
             if event.event_type == "guest_visit" and event.visitor_id:
                 row["guests"].add(event.visitor_id)
-            elif event.event_type == "part_view":
+            elif event.event_type == "part_view" and event.id in card_view_event_ids:
                 row["part_views"] += 1
             elif event.event_type == "search":
                 row["searches"] += 1
@@ -9098,7 +9110,7 @@ def admin_statistics():
 
         summary = {
             "guests": len({event.visitor_id for event in by_type.get("guest_visit", []) if event.visitor_id}),
-            "part_views": len(by_type.get("part_view", [])),
+            "part_views": len(card_view_events),
             "searches": len(by_type.get("search", [])),
             "seller_requests": len(by_type.get("seller_request", [])),
             "cart_adds": sum(max(int(event.quantity or 0), 0) for event in by_type.get("cart_add", [])),
@@ -9106,7 +9118,7 @@ def admin_statistics():
         }
         event_labels = {
             "guest_visit": "Гість",
-            "part_view": "Перегляд товару",
+            "part_view": "Відкриття картки товару",
             "search": "Пошук",
             "seller_request": "Запит продавцю",
             "cart_add": "Додано в кошик",
@@ -9121,11 +9133,11 @@ def admin_statistics():
             summary=summary,
             day_stats=day_stats,
             search_stats=aggregate_search_stats(by_type.get("search", [])),
-            viewed_parts=aggregate_part_stats(by_type.get("part_view", [])),
+            viewed_parts=aggregate_part_stats(card_view_events),
             seller_parts=aggregate_part_stats(by_type.get("seller_request", [])),
             cart_parts=aggregate_part_stats(by_type.get("cart_add", [])),
             ordered_parts=aggregate_part_stats(by_type.get("order_item", [])),
-            recent_events=events[:80],
+            recent_events=visible_recent_events,
             event_labels=event_labels,
             news=news,
         )

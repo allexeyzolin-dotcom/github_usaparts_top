@@ -50,7 +50,7 @@
     </div>
     <div class="stats-hero-metrics">
       <div><strong>{{ summary.searches }}</strong><span>пошуків</span></div>
-      <div><strong>{{ summary.part_views }}</strong><span>переглядів товарів</span></div>
+      <div><strong>{{ summary.part_views }}</strong><span>відкриттів карток</span></div>
       <div><strong>{{ summary.seller_requests }}</strong><span>запитів продавцю</span></div>
     </div>
   </div>
@@ -84,13 +84,13 @@
   </article>
 
   <article class="card stats-insight-card">
-    <span class="field-label">Найбільше дивилися</span>
+    <span class="field-label">Найчастіше відкривали картку</span>
     {% if top_viewed %}
     <strong>{{ top_viewed.part_number }}</strong>
-    <small>{{ top_viewed.part_name }} • {{ top_viewed.count }} перегляд(ів)</small>
+    <small>{{ top_viewed.part_name }} • {{ top_viewed.count }} відкриття(ів)</small>
     {% else %}
-    <strong>Переглядів ще немає</strong>
-    <small>Тут буде найцікавіший товар за період.</small>
+    <strong>Відкриттів карток ще немає</strong>
+    <small>Тут буде товар, картку якого найчастіше відкривали.</small>
     {% endif %}
   </article>
 
@@ -125,7 +125,7 @@
       <strong>{{ row.date }}</strong>
       <span>Гості: {{ row.guests_count }}</span>
       <span>Пошук: {{ row.searches }}</span>
-      <span>Перегляди: {{ row.part_views }}</span>
+      <span>Картки: {{ row.part_views }}</span>
       <span>Замовлено: {{ row.orders }}</span>
     </div>
     {% else %}
@@ -147,7 +147,7 @@
       <strong>{{ search_stats|length }}</strong>
     </button>
     <button class="stats-toggle-card" type="button" data-stats-toggle="views" aria-controls="stats-panel-views" aria-expanded="false">
-      <span>Номери товарів, які дивилися</span>
+      <span>Картки товарів, які відкривали</span>
       <strong>{{ viewed_parts|length }}</strong>
     </button>
     <button class="stats-toggle-card" type="button" data-stats-toggle="events" aria-controls="stats-panel-events" aria-expanded="false">
@@ -190,17 +190,17 @@
 
     <section class="card stats-panel hidden" id="stats-panel-views" data-stats-panel="views">
       <div class="stats-panel-head">
-        <h3>Номери товарів, які дивилися</h3>
+        <h3>Картки товарів, які відкривали</h3>
         <span>{{ viewed_parts|length }}</span>
       </div>
       <div class="stats-table-wrap">
         <table>
-          <thead><tr><th>OEM номер</th><th>Опис</th><th>Переглядів</th></tr></thead>
+          <thead><tr><th>OEM номер</th><th>Опис</th><th>Відкриттів картки</th></tr></thead>
           <tbody>
             {% for row in viewed_parts %}
             <tr><td><strong>{{ row.part_number }}</strong></td><td>{{ row.part_name }}</td><td>{{ row.count }}</td></tr>
             {% else %}
-            <tr><td colspan="3" class="muted">Переглядів товарів немає.</td></tr>
+            <tr><td colspan="3" class="muted">Відкриттів карток товарів немає.</td></tr>
             {% endfor %}
           </tbody>
         </table>

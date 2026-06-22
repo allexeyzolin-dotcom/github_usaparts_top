@@ -7023,6 +7023,37 @@ def sitemap_index_response(locations: list[tuple[str, str]]) -> Response:
     return response
 
 
+def sitemap_index_locations() -> list[tuple[str, str]]:
+    today = datetime.utcnow().date().isoformat()
+    return [
+        (public_url_for("sitemap_pages_xml"), today),
+        (public_url_for("sitemap_catalog_xml"), today),
+        (public_url_for("sitemap_priority_parts_xml"), today),
+        (public_url_for("sitemap_parts_xml"), today),
+        (public_url_for("sitemap_images_xml"), today),
+        (public_url_for("sitemap_cars_xml"), today),
+        (public_url_for("sitemap_brands_xml"), today),
+        (public_url_for("sitemap_categories_xml"), today),
+        (public_url_for("sitemap_vehicles_xml"), today),
+        (public_url_for("sitemap_brand_categories_xml"), today),
+        (public_url_for("sitemap_vehicle_categories_xml"), today),
+        (public_url_for("sitemap_cross_parts_xml"), today),
+    ]
+
+
+def sitemap_priority_parts(parts: list[Part], limit: int = 300) -> list[Part]:
+    def score(part: Part):
+        updated = part.updated_at or part.created_at or datetime(1970, 1, 1)
+        return (
+            1 if primary_part_photo(part) else 0,
+            max(int(part.qty or 0), 0),
+            updated.timestamp(),
+            part.id,
+        )
+
+    return sorted(parts, key=score, reverse=True)[:limit]
+
+
 def build_main_sitemap_nodes(db) -> list[str]:
     nodes: list[str] = []
     seen: set[str] = set()
@@ -7676,16 +7707,6 @@ def robots_txt():
         "Allow: /favicon-96.png",
         "",
         f"Sitemap: {base_url}/sitemap.xml",
-        f"Sitemap: {base_url}/sitemap-index.xml",
-        f"Sitemap: {base_url}/sitemap/parts.xml",
-        f"Sitemap: {base_url}/sitemap/cross-parts.xml",
-        f"Sitemap: {base_url}/sitemap/images.xml",
-        f"Sitemap: {base_url}/sitemap/cars.xml",
-        f"Sitemap: {base_url}/sitemap/brands.xml",
-        f"Sitemap: {base_url}/sitemap/categories.xml",
-        f"Sitemap: {base_url}/sitemap/vehicles.xml",
-        f"Sitemap: {base_url}/sitemap/brand-categories.xml",
-        f"Sitemap: {base_url}/sitemap/vehicle-categories.xml",
         "",
     ])
     response = Response(content, mimetype="text/plain")
@@ -7764,33 +7785,12 @@ def site_webmanifest():
 
 @app.route("/sitemap.xml")
 def sitemap_xml():
-    db = SessionLocal()
-    try:
-        nodes = build_main_sitemap_nodes(db)
-        if not nodes:
-            nodes = [sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0")]
-        return sitemap_xml_response(nodes)
-    finally:
-        db.close()
+    return sitemap_index_response(sitemap_index_locations())
 
 
 @app.route("/sitemap-index.xml")
 def sitemap_index_xml():
-    today = datetime.utcnow().date().isoformat()
-    locations = [
-        (public_url_for("sitemap_xml"), today),
-        (public_url_for("sitemap_pages_xml"), today),
-        (public_url_for("sitemap_parts_xml"), today),
-        (public_url_for("sitemap_cross_parts_xml"), today),
-        (public_url_for("sitemap_images_xml"), today),
-        (public_url_for("sitemap_cars_xml"), today),
-        (public_url_for("sitemap_brands_xml"), today),
-        (public_url_for("sitemap_categories_xml"), today),
-        (public_url_for("sitemap_vehicles_xml"), today),
-        (public_url_for("sitemap_brand_categories_xml"), today),
-        (public_url_for("sitemap_vehicle_categories_xml"), today),
-    ]
-    return sitemap_index_response(locations)
+    return sitemap_index_response(sitemap_index_locations())
 
 
 @app.route("/sitemap/pages.xml")
@@ -7801,6 +7801,59 @@ def sitemap_pages_xml():
         sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
     ]
     return sitemap_xml_response(nodes)
+
+
+@app.route("/sitemap/catalog.xml")
+def sitemap_catalog_xml():
+    db = SessionLocal()
+    try:
+        entries = seo_collect_entries(public_active_parts(db))
+        nodes = [
+            sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
+        ]
+        for entry in entries["categories"]:
+            nodes.append(
+                sitemap_url_node(
+                    public_url_for("seo_category_page", slug=entry["slug"]),
+                    lastmod=sitemap_lastmod(entry["lastmod"]),
+                    changefreq="weekly",
+                    priority="0.75",
+                )
+            )
+        for entry in entries["brands"]:
+            nodes.append(
+                sitemap_url_node(
+                    public_url_for("seo_brand_page", slug=entry["slug"]),
+                    lastmod=sitemap_lastmod(entry["lastmod"]),
+                    changefreq="weekly",
+                    priority="0.7",
+                )
+            )
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
+
+
+@app.route("/sitemap/priority-parts.xml")
+def sitemap_priority_parts_xml():
+    db = SessionLocal()
+    try:
+        parts = sitemap_priority_parts(best_unique_public_parts(public_active_parts(db)))
+        nodes = []
+        for part in parts:
+            nodes.append(
+                sitemap_url_node(
+                    public_part_url(part),
+                    lastmod=sitemap_lastmod(part.updated_at or part.created_at),
+                    changefreq="daily",
+                    priority="0.9",
+                )
+            )
+        if not nodes:
+            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
+        return sitemap_xml_response(nodes)
+    finally:
+        db.close()
 
 
 @app.route("/sitemap/parts.xml")

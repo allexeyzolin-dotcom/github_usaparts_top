@@ -7066,6 +7066,7 @@ def build_main_sitemap_nodes(db) -> list[str]:
 
     add(public_url_for("home"), changefreq="daily", priority="1.0")
     add(public_url_for("catalog"), changefreq="daily", priority="0.9")
+    add(public_url_for("delivery_calculator"), changefreq="monthly", priority="0.6")
     add(public_url_for("cars_public"), changefreq="weekly", priority="0.7")
 
     parts = best_unique_public_parts(public_active_parts(db))
@@ -7798,6 +7799,7 @@ def sitemap_pages_xml():
     nodes = [
         sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"),
         sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
+        sitemap_url_node(public_url_for("delivery_calculator"), changefreq="monthly", priority="0.6"),
         sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
     ]
     return sitemap_xml_response(nodes)
@@ -8114,6 +8116,26 @@ def fitment_redirect():
     if category_slug:
         return redirect(url_for("seo_category_page", slug=category_slug), code=302)
     return redirect(url_for("catalog"), code=302)
+
+
+@app.route("/delivery-calculator")
+def delivery_calculator():
+    seo_title = "Калькулятор доставки авто зі США | USAparts.top"
+    seo_description = "Калькулятор доставки авто зі США: розрахунок суходолу до порту, морського фрахту, коду клієнта та історії розрахунків."
+    return render_template(
+        "delivery_calculator.html",
+        seo_title=seo_title,
+        seo_description=seo_description,
+        canonical_url=public_url_for("delivery_calculator"),
+        seo_noindex=False,
+    )
+
+
+@app.route("/delivery-calculator/app")
+def delivery_calculator_app():
+    response = Response(render_template("route_calculator_admin_button.html"), mimetype="text/html")
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
 
 
 @app.route("/")

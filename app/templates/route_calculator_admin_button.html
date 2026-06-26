@@ -5,15 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Калькулятор маршруту</title>
 <style>
-  :root{--bg:#f7f7f8;--card:#fff;--text:#111827;--muted:#6b7280;--line:#d8dde6;--accent:#111827;--soft:#f1f3f6;--bad:#b91c1c;--good:#047857}
+  :root{--bg:#f4f4f5;--card:#fff;--text:#061226;--muted:#667085;--line:#d5dbe6;--accent:#111827;--soft:#f1f3f6;--bad:#b91c1c;--good:#047857}
   *{box-sizing:border-box}
   body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
-  .wrap{max-width:860px;margin:28px auto;padding:0 14px}
-  .top{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px}
-  h1{font-size:26px;line-height:1.15;margin:0;font-weight:760}
+  .wrap{max-width:760px;margin:0 auto;padding:16px 20px 14px;display:grid;grid-template-columns:258px minmax(260px,1fr);gap:28px;align-items:start}
+  .top{grid-column:1/-1;display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:0}
+  h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.02em}
   .top-actions{display:flex;gap:8px;align-items:center;white-space:nowrap}
   .code-pill{font-size:13px;color:var(--muted);border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 10px}
-  .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:0}
   label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
   input,select,button,textarea{font:inherit;border-radius:10px}
   input,select,textarea{width:100%;border:1px solid var(--line);background:#fff;color:var(--text);padding:11px;outline:none}
@@ -21,13 +21,13 @@
   button{border:0;background:var(--accent);color:#fff;padding:11px 14px;cursor:pointer;font-weight:700}
   button:hover{opacity:.92}.btn-sm{padding:8px 10px;font-size:13px;border-radius:9px}.btn-light{background:#fff;color:var(--text);border:1px solid var(--line)}.btn-danger{background:#b91c1c}.btn-green{background:#047857}.btn-muted{background:#4b5563}
   .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
-  .actions{margin-top:12px;display:flex;gap:10px}.actions button{width:auto;min-width:150px}.result{min-height:94px}.empty{color:var(--muted)}
-  .total{font-size:40px;line-height:1;font-weight:800;margin-bottom:10px}.route{font-size:16px;font-weight:700;margin-bottom:6px}.small{color:var(--muted);font-size:14px}.warn{color:#92400e}.ok{color:var(--good)}.err{color:var(--bad)}
+  .actions{margin-top:12px;display:flex;gap:10px}.actions button{width:auto;min-width:150px}.result{align-self:center;min-height:82px;border:0;border-radius:0;padding:12px 10px;background:#fff}.empty{color:transparent}
+  .total{font-size:42px;line-height:.95;font-weight:900;margin-bottom:8px;letter-spacing:-.04em}.route{font-size:16px;font-weight:800;margin-bottom:0;color:#020817}.small{color:var(--muted);font-size:14px}.warn{color:#92400e}.ok{color:var(--good)}.err{color:var(--bad)}
   table{width:100%;border-collapse:collapse;margin-top:14px;font-size:14px}th,td{text-align:left;padding:9px 7px;border-bottom:1px solid var(--line);vertical-align:middle}th{color:var(--muted);font-size:12px;font-weight:700}tr.best-row td{font-weight:800}.num{text-align:right}.nowrap{white-space:nowrap}.hidden{display:none!important}.muted{color:var(--muted)}
-  .admin-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 14px}.admin-title h2{margin:0;font-size:22px}.section-title{font-size:17px;margin:6px 0 10px}.hr{height:1px;background:var(--line);margin:16px 0}.mini{font-size:12px;color:var(--muted)}
+  #adminPanel{grid-column:1/-1}.admin-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 14px}.admin-title h2{margin:0;font-size:22px}.section-title{font-size:17px;margin:6px 0 10px}.hr{height:1px;background:var(--line);margin:16px 0}.mini{font-size:12px;color:var(--muted)}
   .admin-table input{padding:8px;border-radius:8px}.admin-table button{width:auto}.admin-table .tiny{width:86px}.admin-table .port{width:82px}.admin-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.change-box{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:10px;background:#fafafa;margin-top:10px}.tag{display:inline-block;border:1px solid var(--line);background:var(--soft);border-radius:999px;padding:3px 8px;font-size:12px}.tag.add{color:#047857}.tag.change{color:#92400e}.tag.remove{color:#b91c1c}.tabbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.tabbar button{width:auto}.tabbar .active{background:#111827;color:#fff}.panel{display:none}.panel.active{display:block}
   .modal{position:fixed;inset:0;background:rgba(17,24,39,.42);display:none;align-items:center;justify-content:center;padding:18px;z-index:20}.modal.open{display:flex}.dialog{width:min(420px,100%);background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 14px 40px rgba(0,0,0,.18)}.dialog h2{margin:0 0 12px;font-size:22px}.dialog .row{margin-bottom:12px}.dialog .hint{font-size:13px;color:var(--muted);margin-top:10px}.file-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.file-row input{width:auto;flex:1;min-width:260px}.history-controls{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.history-controls>div{min-width:180px}
-  @media(max-width:680px){.wrap{margin:18px auto}.top{align-items:flex-start;flex-direction:column}.top-actions{width:100%;justify-content:space-between}.grid-2,.grid-3,.grid-4,.grid-5{grid-template-columns:1fr}.actions{flex-direction:column}.actions button{width:100%}.total{font-size:34px}table{font-size:13px}.admin-table{display:block;overflow:auto}.file-row input{min-width:100%}}
+  @media(max-width:680px){.wrap{grid-template-columns:1fr;gap:12px;padding:14px}.top{align-items:flex-start;flex-direction:column}.top-actions{width:100%;justify-content:flex-start;flex-wrap:wrap}.grid-2,.grid-3,.grid-4,.grid-5{grid-template-columns:1fr}.actions{flex-direction:column}.actions button{width:100%}.result{padding:14px 0}.total{font-size:38px}table{font-size:13px}.admin-table{display:block;overflow:auto}.file-row input{min-width:100%}}
 </style>
 </head>
 <body>
@@ -215,17 +215,10 @@ function buildRoutes(ms){
 function calculate(logIt){
   if(!currentUser()){result.innerHTML='<div class="empty">Введіть активний код користувача.</div>';return}
   const ms=matches(input.value);const routes=buildRoutes(ms);
-  if(norm(input.value).length<3){result.innerHTML='<div class="empty">Введіть мінімум 3 символи та виберіть локацію.</div>';return}
-  if(!routes.length){result.innerHTML='<div class="empty">Локацію не знайдено або для портів немає морського фрахту.</div>';return}
+  if(norm(input.value).length<3){result.innerHTML='<div class="empty">&nbsp;</div>';return}
+  if(!routes.length){result.innerHTML='<div class="empty">Локацію не знайдено</div>';return}
   const best=routes[0], r=best.record;
-  const hasButton=routes.some(x=>num(x.button)!==0);
-  const rows=routes.slice(0,6).map((x,i)=>hasButton
-    ? `<tr class="${i===0?'best-row':''}"><td>${esc(x.port)}</td><td>${money(x.land)}</td><td>${money(x.sea)}</td><td>${money(x.button)}</td><td>${money(x.total)}</td></tr>`
-    : `<tr class="${i===0?'best-row':''}"><td>${esc(x.port)}</td><td>${money(x.land)}</td><td>${money(x.sea)}</td><td>${money(x.total)}</td></tr>`
-  ).join('');
-  const buttonText=hasButton?` + кнопка ${money(best.button)}`:'';
-  const head=hasButton?'<tr><th>Порт</th><th>Суходіл</th><th>Море</th><th>Кнопка</th><th>Разом</th></tr>':'<tr><th>Порт</th><th>Суходіл</th><th>Море</th><th>Разом</th></tr>';
-  result.innerHTML=`<div class="total">${money(best.total)}</div><div class="route">${esc(r.auction)} — ${esc(r.location)} → ${esc(best.port)}</div><div class="small">Суходіл ${money(best.land)} + море ${money(best.sea)}${buttonText}</div><table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  result.innerHTML=`<div class="total">${money(best.total)}</div><div class="route">${esc(r.auction)} — ${esc(r.location)} → ${esc(best.port)}</div>`;
   if(logIt) addHistory(best);
 }
 function addHistory(best){
@@ -388,8 +381,12 @@ document.getElementById('exportHistoryBtn').addEventListener('click',exportHisto
 document.getElementById('clearHistoryBtn').addEventListener('click',clearHistory);
 document.querySelectorAll('.tabbar button').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 
+if(!currentUser() && state.settings.users.DEMO && state.settings.users.DEMO.active){
+  state.currentCode='DEMO';
+  localStorage.setItem(STORAGE_CODE,'DEMO');
+}
 updateCodeBadge();renderAdmin();
-if(!currentUser())openCodeModal();else calculate(false);
+calculate(false);
 </script>
 </body>
 </html>

@@ -4021,6 +4021,11 @@ body.admin-theme .transit-batch-actions{
 }
 
 @media (max-width: 900px){
+  .store-header{
+    position:relative;
+    top:auto;
+    z-index:20;
+  }
   .store-top-inner,
   .store-top-links,
   .store-nav-inner{
@@ -4067,6 +4072,9 @@ body.admin-theme .transit-batch-actions{
   .public-shop-theme .container{
     width:min(100% - 20px,1240px);
   }
+  .store-header{
+    box-shadow:0 8px 22px rgba(15,23,42,.14);
+  }
   .store-top-note,
   .store-top-links a[href^="#policy"]{
     display:none;
@@ -4085,18 +4093,22 @@ body.admin-theme .transit-batch-actions{
   }
   .store-mainbar{
     min-height:0;
-    gap:9px;
-    padding:10px 0;
+    gap:8px;
+    padding:8px 0;
   }
   .public-shop-theme .site-logo-img{
-    width:178px;
-    height:44px;
+    width:158px;
+    height:38px;
   }
   .store-header-search{
     gap:8px;
   }
   .store-header-search input{
-    min-height:44px;
+    min-height:40px;
+  }
+  .store-header-search .btn{
+    min-height:40px;
+    padding:9px 12px;
   }
   .store-actions{
     display:flex;
@@ -4114,16 +4126,16 @@ body.admin-theme .transit-batch-actions{
     flex-direction:row;
     align-items:center;
     gap:8px;
-    min-height:46px;
-    padding:7px 0;
+    min-height:42px;
+    padding:6px 0;
     overflow-x:auto;
   }
   .store-nav-inner .nav-link,
   .store-catalog-button{
     flex:0 0 auto;
     white-space:nowrap;
-    min-height:36px;
-    padding:8px 12px;
+    min-height:34px;
+    padding:7px 11px;
   }
   .shop-home{
     padding-top:18px;

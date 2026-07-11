@@ -7726,6 +7726,8 @@ def redirect_to_primary_domain():
 @app.route("/robots.txt")
 def robots_txt():
     base_url = public_site_base_url()
+    sitemap_lines = [f"Sitemap: {base_url}/sitemap.xml"]
+    sitemap_lines.extend(f"Sitemap: {location}" for location, _lastmod in sitemap_index_locations())
     content = "\n".join([
         "User-agent: Googlebot-Image",
         "Allow: /favicon.ico",
@@ -7755,7 +7757,7 @@ def robots_txt():
         "Allow: /favicon-48.png",
         "Allow: /favicon-96.png",
         "",
-        f"Sitemap: {base_url}/sitemap.xml",
+        *sitemap_lines,
         "",
     ])
     response = Response(content, mimetype="text/plain")

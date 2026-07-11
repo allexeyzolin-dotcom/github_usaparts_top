@@ -26,7 +26,7 @@ from tempfile import TemporaryDirectory
 
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session, Response
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -446,6 +446,8 @@ def apply_crawl_headers(response):
     private_paths = ("/admin", "/api", "/cart", "/checkout")
     if request.path == "/cart" or request.path == "/checkout" or request.path.startswith(private_paths):
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    if external_request_host() in {"usaparts.top", "www.usaparts.top"}:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
 
 
@@ -5987,6 +5989,52 @@ def public_site_base_url() -> str:
     return f"{scheme}://{host}".rstrip("/")
 
 
+def _first_header_value(name: str) -> str:
+    value = (request.headers.get(name) or "").split(",")[0].strip()
+    return value
+
+
+def _forwarded_header_values() -> dict[str, str]:
+    forwarded = (request.headers.get("Forwarded") or "").split(",")[0].strip()
+    result: dict[str, str] = {}
+    for chunk in forwarded.split(";"):
+        if "=" not in chunk:
+            continue
+        key, value = chunk.split("=", 1)
+        result[key.strip().lower()] = value.strip().strip('"')
+    return result
+
+
+def external_request_host() -> str:
+    forwarded = _forwarded_header_values()
+    host = (
+        forwarded.get("host")
+        or _first_header_value("X-Forwarded-Host")
+        or _first_header_value("X-Original-Host")
+        or request.headers.get("Host")
+        or request.host
+        or ""
+    )
+    return host.split(":", 1)[0].strip().lower()
+
+
+def external_request_scheme() -> str:
+    forwarded = _forwarded_header_values()
+    scheme = (
+        forwarded.get("proto")
+        or _first_header_value("X-Forwarded-Proto")
+        or _first_header_value("X-Forwarded-Scheme")
+        or _first_header_value("X-Url-Scheme")
+        or request.scheme
+        or "http"
+    ).strip().lower()
+    if (request.headers.get("X-Forwarded-Ssl") or "").strip().lower() in {"on", "1", "true"}:
+        scheme = "https"
+    if (request.headers.get("Front-End-Https") or "").strip().lower() in {"on", "1", "true"}:
+        scheme = "https"
+    return scheme
+
+
 def absolute_public_url(path_or_url: str) -> str:
     value = normalize_text(path_or_url or "").strip()
     if not value:
@@ -6548,6 +6596,7 @@ def seo_is_service_warehouse_name(value: str) -> bool:
 def public_active_parts(db):
     return (
         db.query(Part)
+        .options(joinedload(Part.warehouse))
         .filter(Part.is_deleted == False, Part.in_stock == True, Part.qty > 0)
         .order_by(desc(Part.updated_at), desc(Part.id))
         .all()
@@ -7664,10 +7713,9 @@ def inject_globals():
 
 @app.before_request
 def redirect_to_primary_domain():
-    host = request.host.split(":", 1)[0].lower()
-    forwarded_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
-    scheme = forwarded_proto or request.scheme or "http"
-    if host == "www.usaparts.top" or (host == "usaparts.top" and scheme == "http"):
+    host = external_request_host()
+    scheme = external_request_scheme()
+    if host in {"usaparts.top", "www.usaparts.top"} and (host != "usaparts.top" or scheme != "https"):
         target = f"https://usaparts.top{request.full_path}"
         if target.endswith("?"):
             target = target[:-1]
@@ -8148,6 +8196,7 @@ def home():
         search_found_without_photo = False
         parts_pool = (
             db.query(Part)
+            .options(joinedload(Part.warehouse))
             .filter(Part.in_stock == True, Part.is_deleted == False)
             .order_by(desc(Part.updated_at), desc(Part.id))
             .all()

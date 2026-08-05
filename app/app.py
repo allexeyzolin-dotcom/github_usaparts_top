@@ -7245,6 +7245,107 @@ def parse_avtopro_csv(file_storage):
             return True
         return default
 
+    def import_header_key(value: str) -> str:
+        text = normalize_text(value or "").strip().lstrip("\ufeff").casefold()
+        text = text.replace("ё", "е").replace("і", "и").replace("ї", "и").replace("є", "е")
+        return re.sub(r"[^a-zа-я0-9]+", "", text)
+
+    header_aliases = {
+        "brand": {
+            "производитель", "виробник", "бренд", "марка", "brand", "manufacturer", "producer",
+        },
+        "part_number": {
+            "код", "oem", "oemномер", "номер", "номервиробника", "номерпроизводителя",
+            "артикул", "partnumber", "part_number", "sku",
+        },
+        "price_usd": {
+            "цена", "цина", "ціна", "price", "priceusd", "ценадол", "цинадол", "usd",
+        },
+        "qty": {
+            "количество", "килькисть", "кількість", "qty", "quantity", "остаток", "наличие", "наявнисть",
+        },
+        "name": {
+            "описание", "опис", "название", "назва", "title", "name", "description",
+        },
+        "photo_urls": {
+            "фото", "photo", "photos", "image", "images", "фотографии", "зображення",
+        },
+        "used": {
+            "бу", "був", "боу", "б/у", "used",
+        },
+        "restored": {
+            "реставрация", "реставрація", "restored", "remanufactured",
+        },
+    }
+
+    def build_import_header_map(row):
+        by_key = {import_header_key(value): index for index, value in enumerate(row)}
+        header_map = {}
+        for field, aliases in header_aliases.items():
+            for alias in aliases:
+                key = import_header_key(alias)
+                if key in by_key:
+                    header_map[field] = by_key[key]
+                    break
+        required = {"part_number", "price_usd", "qty", "name"}
+        return header_map if required.issubset(header_map) else {}
+
+    def mapped_value(row, header_map, field, default=""):
+        index = header_map.get(field)
+        if index is None or index >= len(row):
+            return default
+        return row[index]
+
+    def producer_type_from_mapped_row(brand: str, used_value: str = "", restored_value: str = "") -> str:
+        brand_upper = normalize_text(brand or "").strip().upper()
+        aftermarket_brands = {
+            "SIGNEDA", "POLCAR", "TYG", "TONG YANG", "GORDON", "DEPO", "BLIC",
+            "VAN WEZEL", "PRASCO", "API", "AIC", "DIEDERICHS", "KLOKKERHOLM",
+        }
+        if bool_cell(used_value, False):
+            return producer_type_label("OEM")
+        if bool_cell(restored_value, False):
+            return producer_type_label("Замінник")
+        if brand_upper in aftermarket_brands:
+            return producer_type_label("Замінник")
+        return producer_type_label("OEM")
+
+    def normalize_mapped_import_row(row, header_map):
+        part_number = mapped_value(row, header_map, "part_number").strip().upper()
+        if not part_number:
+            return None
+        brand = mapped_value(row, header_map, "brand").strip()
+        name = mapped_value(row, header_map, "name").strip()
+        price_usd = to_float(mapped_value(row, header_map, "price_usd"))
+        qty = to_int(mapped_value(row, header_map, "qty"))
+        in_stock = qty > 0
+        gallery = parse_media_urls(mapped_value(row, header_map, "photo_urls"))
+        used_value = mapped_value(row, header_map, "used")
+        restored_value = mapped_value(row, header_map, "restored")
+        views_seed = int(hashlib.md5(part_number.encode()).hexdigest()[:4], 16)
+        return {
+            "brand": brand,
+            "part_number": part_number,
+            "name": name,
+            "price_usd": price_usd,
+            "qty": qty,
+            "in_stock": in_stock,
+            "photo_urls": gallery[0] if gallery else "",
+            "showcase_photo_urls": dump_media_urls(gallery),
+            "has_photo": bool(gallery),
+            "has_description": False,
+            "producer_type": producer_type_from_mapped_row(brand, used_value, restored_value),
+            "brand_export": brand,
+            "part_number_export": part_number,
+            "avtopro_flag_1": used_value,
+            "avtopro_flag_2": restored_value,
+            "avtopro_flag_3": "",
+            "avtopro_flag_4": "1" if gallery else "0",
+            "raw_import_row": ";".join(row),
+            "views_24h": views_seed % 40,
+            "views_168h": (views_seed % 120) + 20,
+        }
+
     def xlsx_cell_text(cell, shared_strings):
         value_node = cell.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v")
         raw_value = value_node.text if value_node is not None else ""
@@ -7321,11 +7422,21 @@ def parse_avtopro_csv(file_storage):
 
     def normalize_import_rows(raw_rows):
         rows = []
+        header_map = {}
         for row in raw_rows:
             row = [normalize_text(item or "").strip() for item in row]
             if not row or not any(row):
                 continue
             if looks_like_header(row):
+                mapped_headers = build_import_header_map(row)
+                if mapped_headers:
+                    header_map = mapped_headers
+                continue
+
+            if header_map:
+                mapped_item = normalize_mapped_import_row(row, header_map)
+                if mapped_item:
+                    rows.append(mapped_item)
                 continue
 
             # New Avtopro XLSX price-list layout:

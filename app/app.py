@@ -6050,6 +6050,15 @@ def public_url_for(endpoint: str, **values) -> str:
     return absolute_public_url(url_for(endpoint, **values))
 
 
+def canonical_redirect(location: str, code: int = 301):
+    target = absolute_public_url(location)
+    response = redirect(target, code=code)
+    response.headers["Link"] = f"<{target}>; rel=\"canonical\""
+    if code in {301, 308}:
+        response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
 def compact_meta_text(*parts, limit: int = 160) -> str:
     text = normalize_text(" ".join(str(part or "") for part in parts)).strip()
     text = re.sub(r"\s+", " ", text)
@@ -8817,7 +8826,7 @@ def part_detail(part_id, slug=None):
         canonical_slug = part_seo_slug(part)
         requested_slug = (slug or "").strip("/")
         if requested_slug != canonical_slug:
-            return redirect(public_url_for("part_detail", part_id=part.id, slug=canonical_slug), code=301)
+            return canonical_redirect(public_url_for("part_detail", part_id=part.id, slug=canonical_slug), code=301)
         warehouse = db.get(Warehouse, part.warehouse_id)
         part.views_24h += 1
         part.views_168h += 1
@@ -8871,7 +8880,7 @@ def cross_part_detail(cross_number, part_id, slug=None):
         canonical_slug = part_seo_slug_from_values(clean_cross, part.name)
         requested_slug = (slug or "").strip("/")
         if requested_slug != canonical_slug:
-            return redirect(absolute_public_url(cross_part_detail_url(part, clean_cross)), code=301)
+            return canonical_redirect(absolute_public_url(cross_part_detail_url(part, clean_cross)), code=301)
         warehouse = db.get(Warehouse, part.warehouse_id)
         part.views_24h += 1
         part.views_168h += 1

@@ -24,7 +24,7 @@ from functools import wraps
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session, Response, has_request_context
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
 from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -37,6 +37,26 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
+
+PUBLIC_CACHE_TTL_SECONDS = max(int(os.getenv("PUBLIC_CACHE_TTL_SECONDS", "180") or 0), 0)
+SITEMAP_CACHE_TTL_SECONDS = max(int(os.getenv("SITEMAP_CACHE_TTL_SECONDS", "1800") or 0), 0)
+PUBLIC_CACHE_MAX_ITEMS = max(int(os.getenv("PUBLIC_CACHE_MAX_ITEMS", "128") or 0), 16)
+_PUBLIC_CACHE: dict[tuple, tuple[float, object]] = {}
+_PUBLIC_CACHE_LOCK = threading.RLock()
+CRAWLER_USER_AGENT_MARKERS = (
+    "googlebot",
+    "bingbot",
+    "yandexbot",
+    "duckduckbot",
+    "baiduspider",
+    "facebookexternalhit",
+    "twitterbot",
+    "linkedinbot",
+    "slurp",
+    "semrushbot",
+    "ahrefsbot",
+    "mj12bot",
+)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://usa:usa123@localhost:5433/usa_auto_parts")
 engine = create_engine(DATABASE_URL, future=True)
@@ -432,6 +452,59 @@ def now():
     return datetime.utcnow()
 
 
+def public_cache_get(key: tuple):
+    current_time = time.monotonic()
+    with _PUBLIC_CACHE_LOCK:
+        cached = _PUBLIC_CACHE.get(key)
+        if not cached:
+            return None
+        expires_at, value = cached
+        if expires_at <= current_time:
+            _PUBLIC_CACHE.pop(key, None)
+            return None
+        return value
+
+
+def public_cache_set(key: tuple, value, ttl_seconds: int | None = None):
+    ttl = PUBLIC_CACHE_TTL_SECONDS if ttl_seconds is None else max(int(ttl_seconds or 0), 0)
+    if ttl <= 0:
+        return value
+    current_time = time.monotonic()
+    with _PUBLIC_CACHE_LOCK:
+        if len(_PUBLIC_CACHE) >= PUBLIC_CACHE_MAX_ITEMS:
+            expired_keys = [item_key for item_key, (expires_at, _value) in _PUBLIC_CACHE.items() if expires_at <= current_time]
+            for item_key in expired_keys:
+                _PUBLIC_CACHE.pop(item_key, None)
+            while len(_PUBLIC_CACHE) >= PUBLIC_CACHE_MAX_ITEMS:
+                _PUBLIC_CACHE.pop(next(iter(_PUBLIC_CACHE)))
+        _PUBLIC_CACHE[key] = (current_time + ttl, value)
+    return value
+
+
+def public_cache_remember(key: tuple, builder, ttl_seconds: int | None = None):
+    cached = public_cache_get(key)
+    if cached is not None:
+        return cached
+    return public_cache_set(key, builder(), ttl_seconds=ttl_seconds)
+
+
+def public_cache_clear(prefix: tuple | None = None):
+    with _PUBLIC_CACHE_LOCK:
+        if not prefix:
+            _PUBLIC_CACHE.clear()
+            return
+        for key in list(_PUBLIC_CACHE):
+            if key[: len(prefix)] == prefix:
+                _PUBLIC_CACHE.pop(key, None)
+
+
+def is_crawler_request() -> bool:
+    if not has_request_context():
+        return False
+    user_agent = (request.headers.get("User-Agent") or "").casefold()
+    return any(marker in user_agent for marker in CRAWLER_USER_AGENT_MARKERS)
+
+
 def admin_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -446,6 +519,9 @@ def apply_crawl_headers(response):
     private_paths = ("/admin", "/api", "/cart", "/checkout")
     if request.path == "/cart" or request.path == "/checkout" or request.path.startswith(private_paths):
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and response.status_code < 400:
+        if request.path.startswith(("/admin", "/api/mobile", "/checkout")):
+            public_cache_clear()
     if external_request_host() in {"usaparts.top", "www.usaparts.top"}:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
@@ -5842,6 +5918,8 @@ def track_stats_event(
     order_id: int | None = None,
     meta: dict | None = None,
 ):
+    if is_crawler_request():
+        return None
     clean_event = normalize_text(event_type or "").strip()
     if not clean_event:
         return None
@@ -5868,6 +5946,8 @@ def track_stats_event(
 
 
 def should_track_guest_visit() -> bool:
+    if is_crawler_request():
+        return False
     endpoint = request.endpoint or ""
     return request.method == "GET" and endpoint in {
         "home",
@@ -6612,6 +6692,26 @@ def public_active_parts(db):
     )
 
 
+def home_active_parts(db):
+    return (
+        db.query(Part)
+        .options(joinedload(Part.warehouse))
+        .filter(Part.is_deleted == False, Part.in_stock == True)
+        .order_by(desc(Part.updated_at), desc(Part.id))
+        .all()
+    )
+
+
+def catalog_active_parts(db):
+    return (
+        db.query(Part)
+        .options(joinedload(Part.warehouse))
+        .filter(Part.is_deleted == False, Part.in_stock == True)
+        .order_by(desc(Part.views_168h), Part.part_number.asc())
+        .all()
+    )
+
+
 def best_unique_public_parts(parts) -> list[Part]:
     best_by_number: dict[str, Part] = {}
     for part in parts:
@@ -6632,6 +6732,25 @@ def best_unique_public_parts(parts) -> list[Part]:
         if not current or candidate_score > current_score:
             best_by_number[key] = part
     return sorted(best_by_number.values(), key=lambda part: (seo_clean_label(part.part_number).upper(), part.id))
+
+
+def cached_public_active_parts(db) -> list[Part]:
+    return public_cache_remember(("parts", "public_active"), lambda: public_active_parts(db))
+
+
+def cached_home_active_parts(db) -> list[Part]:
+    return public_cache_remember(("parts", "home_active"), lambda: home_active_parts(db))
+
+
+def cached_catalog_active_parts(db) -> list[Part]:
+    return public_cache_remember(("parts", "catalog_active"), lambda: catalog_active_parts(db))
+
+
+def cached_unique_public_parts(db) -> list[Part]:
+    return public_cache_remember(
+        ("parts", "unique_public"),
+        lambda: best_unique_public_parts(cached_public_active_parts(db)),
+    )
 
 
 def seo_part_text(part: Part) -> str:
@@ -6888,6 +7007,50 @@ def build_fitment_options(parts: list[Part]) -> list[dict]:
     return rows
 
 
+def cached_warehouse_catalog_entries(db) -> list[dict]:
+    return public_cache_remember(("seo", "warehouse_catalogs"), lambda: seo_warehouse_catalog_entries(db))
+
+
+def cached_seo_entries(db) -> dict:
+    return public_cache_remember(
+        ("seo", "entries"),
+        lambda: seo_collect_entries(cached_unique_public_parts(db)),
+    )
+
+
+def cached_fitment_options(db) -> list[dict]:
+    return public_cache_remember(
+        ("seo", "fitment_options"),
+        lambda: build_fitment_options(cached_unique_public_parts(db)),
+    )
+
+
+def cached_vehicle_names_from_warehouses(db) -> list[str]:
+    return public_cache_remember(
+        ("seo", "vehicle_warehouse_names"),
+        lambda: vehicle_names_from_warehouses(db.query(Warehouse).order_by(Warehouse.name.asc()).all()),
+    )
+
+
+def cached_cross_numbers_map_for_parts(db, parts: list[Part], scope: str = "public") -> dict[str, list[str]]:
+    part_numbers = sorted(
+        {
+            normalize_text(part.part_number or "").strip().upper()
+            for part in parts or []
+            if part and normalize_text(part.part_number or "").strip()
+        }
+    )
+    fingerprint = (
+        hashlib.sha1("|".join(part_numbers).encode("utf-8", errors="ignore")).hexdigest()
+        if part_numbers
+        else "empty"
+    )
+    return public_cache_remember(
+        ("cross_map", scope, len(part_numbers), fingerprint),
+        lambda: cross_numbers_map_for_parts(db, parts),
+    )
+
+
 def seo_part_link_entries(parts: list[Part], limit: int = 80) -> list[dict]:
     entries = []
     seen: set[str] = set()
@@ -7081,6 +7244,21 @@ def sitemap_index_response(locations: list[tuple[str, str]]) -> Response:
     return response
 
 
+def sitemap_cached_response(cache_name: str, builder) -> Response:
+    cache_key = ("sitemap_body", public_site_base_url(), cache_name)
+    cached_body = public_cache_get(cache_key)
+    if cached_body is not None:
+        response = Response(cached_body, mimetype="application/xml")
+        response.headers["Cache-Control"] = f"public, max-age={SITEMAP_CACHE_TTL_SECONDS}"
+        response.headers["X-Cache"] = "HIT"
+        return response
+
+    response = builder()
+    public_cache_set(cache_key, response.get_data(as_text=True), ttl_seconds=SITEMAP_CACHE_TTL_SECONDS)
+    response.headers["X-Cache"] = "MISS"
+    return response
+
+
 def sitemap_index_locations() -> list[tuple[str, str]]:
     today = datetime.utcnow().date().isoformat()
     return [
@@ -7127,7 +7305,7 @@ def build_main_sitemap_nodes(db) -> list[str]:
     add(public_url_for("delivery_calculator"), changefreq="monthly", priority="0.6")
     add(public_url_for("cars_public"), changefreq="weekly", priority="0.7")
 
-    parts = best_unique_public_parts(public_active_parts(db))
+    parts = cached_unique_public_parts(db)
     for part in parts:
         add(
             public_part_url(part),
@@ -7136,7 +7314,7 @@ def build_main_sitemap_nodes(db) -> list[str]:
             priority="0.8",
         )
 
-    cross_map = cross_numbers_map_for_parts(db, parts)
+    cross_map = cached_cross_numbers_map_for_parts(db, parts, "main_sitemap")
     for part in parts:
         part_number = normalize_text(part.part_number or "").strip().upper()
         for cross_number in cross_map.get(part_number, []):
@@ -7156,7 +7334,7 @@ def build_main_sitemap_nodes(db) -> list[str]:
             priority="0.7",
         )
 
-    entries = seo_collect_entries(parts)
+    entries = cached_seo_entries(db)
     for entry in entries["brands"]:
         add(
             public_url_for("seo_brand_page", slug=entry["slug"]),
@@ -7171,7 +7349,7 @@ def build_main_sitemap_nodes(db) -> list[str]:
             changefreq="weekly",
             priority="0.65",
         )
-    for entry in seo_warehouse_catalog_entries(db):
+    for entry in cached_warehouse_catalog_entries(db):
         add(
             public_url_for("seo_vehicle_page", slug=entry["slug"]),
             lastmod=sitemap_lastmod(entry["lastmod"]),
@@ -7956,98 +8134,110 @@ def site_webmanifest():
 
 @app.route("/sitemap.xml")
 def sitemap_xml():
-    return sitemap_index_response(sitemap_index_locations())
+    return sitemap_cached_response("index", lambda: sitemap_index_response(sitemap_index_locations()))
 
 
 @app.route("/sitemap-index.xml")
 def sitemap_index_xml():
-    return sitemap_index_response(sitemap_index_locations())
+    return sitemap_cached_response("index-legacy", lambda: sitemap_index_response(sitemap_index_locations()))
 
 
 @app.route("/sitemap/pages.xml")
 def sitemap_pages_xml():
-    nodes = [
-        sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"),
-        sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
-        sitemap_url_node(public_url_for("delivery_calculator"), changefreq="monthly", priority="0.6"),
-        sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
-    ]
-    return sitemap_xml_response(nodes)
+    def build_response():
+        nodes = [
+            sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"),
+            sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
+            sitemap_url_node(public_url_for("delivery_calculator"), changefreq="monthly", priority="0.6"),
+            sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
+        ]
+        return sitemap_xml_response(nodes)
+
+    return sitemap_cached_response("pages", build_response)
 
 
 @app.route("/sitemap/catalog.xml")
 def sitemap_catalog_xml():
-    db = SessionLocal()
-    try:
-        entries = seo_collect_entries(public_active_parts(db))
-        nodes = [
-            sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
-        ]
-        for entry in entries["categories"]:
-            nodes.append(
-                sitemap_url_node(
-                    public_url_for("seo_category_page", slug=entry["slug"]),
-                    lastmod=sitemap_lastmod(entry["lastmod"]),
-                    changefreq="weekly",
-                    priority="0.75",
+    def build_response():
+        db = SessionLocal()
+        try:
+            entries = cached_seo_entries(db)
+            nodes = [
+                sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
+            ]
+            for entry in entries["categories"]:
+                nodes.append(
+                    sitemap_url_node(
+                        public_url_for("seo_category_page", slug=entry["slug"]),
+                        lastmod=sitemap_lastmod(entry["lastmod"]),
+                        changefreq="weekly",
+                        priority="0.75",
+                    )
                 )
-            )
-        for entry in entries["brands"]:
-            nodes.append(
-                sitemap_url_node(
-                    public_url_for("seo_brand_page", slug=entry["slug"]),
-                    lastmod=sitemap_lastmod(entry["lastmod"]),
-                    changefreq="weekly",
-                    priority="0.7",
+            for entry in entries["brands"]:
+                nodes.append(
+                    sitemap_url_node(
+                        public_url_for("seo_brand_page", slug=entry["slug"]),
+                        lastmod=sitemap_lastmod(entry["lastmod"]),
+                        changefreq="weekly",
+                        priority="0.7",
+                    )
                 )
-            )
-        return sitemap_xml_response(nodes)
-    finally:
-        db.close()
+            return sitemap_xml_response(nodes)
+        finally:
+            db.close()
+
+    return sitemap_cached_response("catalog", build_response)
 
 
 @app.route("/sitemap/priority-parts.xml")
 def sitemap_priority_parts_xml():
-    db = SessionLocal()
-    try:
-        parts = sitemap_priority_parts(best_unique_public_parts(public_active_parts(db)))
-        nodes = []
-        for part in parts:
-            nodes.append(
-                sitemap_url_node(
-                    public_part_url(part),
-                    lastmod=sitemap_lastmod(part.updated_at or part.created_at),
-                    changefreq="daily",
-                    priority="0.9",
+    def build_response():
+        db = SessionLocal()
+        try:
+            parts = sitemap_priority_parts(cached_unique_public_parts(db))
+            nodes = []
+            for part in parts:
+                nodes.append(
+                    sitemap_url_node(
+                        public_part_url(part),
+                        lastmod=sitemap_lastmod(part.updated_at or part.created_at),
+                        changefreq="daily",
+                        priority="0.9",
+                    )
                 )
-            )
-        if not nodes:
-            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
-        return sitemap_xml_response(nodes)
-    finally:
-        db.close()
+            if not nodes:
+                nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
+            return sitemap_xml_response(nodes)
+        finally:
+            db.close()
+
+    return sitemap_cached_response("priority-parts", build_response)
 
 
 @app.route("/sitemap/parts.xml")
 def sitemap_parts_xml():
-    db = SessionLocal()
-    try:
-        parts = best_unique_public_parts(public_active_parts(db))
-        nodes = []
-        for part in parts:
-            nodes.append(
-                sitemap_url_node(
-                    public_part_url(part),
-                    lastmod=sitemap_lastmod(part.updated_at),
-                    changefreq="weekly",
-                    priority="0.8",
+    def build_response():
+        db = SessionLocal()
+        try:
+            parts = cached_unique_public_parts(db)
+            nodes = []
+            for part in parts:
+                nodes.append(
+                    sitemap_url_node(
+                        public_part_url(part),
+                        lastmod=sitemap_lastmod(part.updated_at),
+                        changefreq="weekly",
+                        priority="0.8",
+                    )
                 )
-            )
-        if not nodes:
-            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
-        return sitemap_xml_response(nodes)
-    finally:
-        db.close()
+            if not nodes:
+                nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
+            return sitemap_xml_response(nodes)
+        finally:
+            db.close()
+
+    return sitemap_cached_response("parts", build_response)
 
 
 @app.route("/sitemap/parts-<int:page>.xml")
@@ -8059,27 +8249,30 @@ def sitemap_parts_legacy_xml(page):
 
 @app.route("/sitemap/cross-parts.xml")
 def sitemap_cross_parts_xml():
-    db = SessionLocal()
-    try:
-        parts = best_unique_public_parts(public_active_parts(db))
-        cross_map = cross_numbers_map_for_parts(db, parts)
-        nodes = []
-        for part in parts:
-            part_number = normalize_text(part.part_number or "").strip().upper()
-            for cross_number in cross_map.get(part_number, []):
-                nodes.append(
-                    sitemap_url_node(
-                        public_cross_part_url(part, cross_number),
-                        lastmod=sitemap_lastmod(part.updated_at),
-                        changefreq="weekly",
-                        priority="0.8",
+    def build_response():
+        db = SessionLocal()
+        try:
+            parts = cached_unique_public_parts(db)
+            cross_map = cached_cross_numbers_map_for_parts(db, parts, "sitemap_cross")
+            nodes = []
+            for part in parts:
+                part_number = normalize_text(part.part_number or "").strip().upper()
+                for cross_number in cross_map.get(part_number, []):
+                    nodes.append(
+                        sitemap_url_node(
+                            public_cross_part_url(part, cross_number),
+                            lastmod=sitemap_lastmod(part.updated_at),
+                            changefreq="weekly",
+                            priority="0.8",
+                        )
                     )
-                )
-        if not nodes:
-            nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
-        return sitemap_xml_response(nodes)
-    finally:
-        db.close()
+            if not nodes:
+                nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
+            return sitemap_xml_response(nodes)
+        finally:
+            db.close()
+
+    return sitemap_cached_response("cross-parts", build_response)
 
 
 @app.route("/sitemap/images.xml")
@@ -8087,7 +8280,7 @@ def sitemap_images_xml():
     db = SessionLocal()
     try:
         nodes = []
-        for part in best_unique_public_parts(public_active_parts(db)):
+        for part in cached_unique_public_parts(db):
             gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
             if not gallery:
                 continue
@@ -8160,7 +8353,7 @@ def sitemap_cars_xml():
 def sitemap_brands_xml():
     db = SessionLocal()
     try:
-        entries = seo_collect_entries(public_active_parts(db))["brands"]
+        entries = cached_seo_entries(db)["brands"]
         nodes = [
             sitemap_url_node(
                 public_url_for("seo_brand_page", slug=entry["slug"]),
@@ -8181,7 +8374,7 @@ def sitemap_brands_xml():
 def sitemap_categories_xml():
     db = SessionLocal()
     try:
-        entries = seo_collect_entries(public_active_parts(db))["categories"]
+        entries = cached_seo_entries(db)["categories"]
         nodes = [
             sitemap_url_node(
                 public_url_for("seo_category_page", slug=entry["slug"]),
@@ -8202,7 +8395,7 @@ def sitemap_categories_xml():
 def sitemap_vehicles_xml():
     db = SessionLocal()
     try:
-        entries = seo_warehouse_catalog_entries(db)
+        entries = cached_warehouse_catalog_entries(db)
         nodes = [
             sitemap_url_node(
                 public_url_for("seo_vehicle_page", slug=entry["slug"]),
@@ -8223,7 +8416,7 @@ def sitemap_vehicles_xml():
 def sitemap_brand_categories_xml():
     db = SessionLocal()
     try:
-        entries = seo_collect_entries(public_active_parts(db))["brand_categories"]
+        entries = cached_seo_entries(db)["brand_categories"]
         nodes = [
             sitemap_url_node(
                 public_url_for(
@@ -8248,7 +8441,7 @@ def sitemap_brand_categories_xml():
 def sitemap_vehicle_categories_xml():
     db = SessionLocal()
     try:
-        entries = seo_collect_entries(public_active_parts(db))["vehicle_categories"]
+        entries = cached_seo_entries(db)["vehicle_categories"]
         nodes = [
             sitemap_url_node(
                 public_url_for(
@@ -8325,14 +8518,8 @@ def home():
             return redirect(public_url_for("home", **clean_values), code=301)
         display_count = page * 12
         search_found_without_photo = False
-        parts_pool = (
-            db.query(Part)
-            .options(joinedload(Part.warehouse))
-            .filter(Part.in_stock == True, Part.is_deleted == False)
-            .order_by(desc(Part.updated_at), desc(Part.id))
-            .all()
-        )
-        cross_map = cross_numbers_map_for_parts(db, parts_pool)
+        parts_pool = cached_home_active_parts(db)
+        cross_map = cached_cross_numbers_map_for_parts(db, parts_pool, "home")
         featured, featured_total = build_showcase_parts(parts_pool, q, limit=display_count, cross_map=cross_map)
         if q and featured_total == 0:
             needle = normalize_text(q).strip().casefold()
@@ -8350,13 +8537,11 @@ def home():
         cars_random = random.sample(cars_pool, min(5, len(cars_pool))) if cars_pool else []
         cars_stock = db.query(Car).filter(Car.status == "in_stock").count()
         cars_transit = db.query(Car).filter(Car.status == "in_transit").count()
-        vehicle_warehouses = vehicle_names_from_warehouses(
-            db.query(Warehouse).order_by(Warehouse.name.asc()).all()
-        )
-        warehouse_catalogs = seo_warehouse_catalog_entries(db)
-        unique_public_parts = best_unique_public_parts(parts_pool)
-        seo_entries = seo_collect_entries(unique_public_parts)
-        fitment_options = build_fitment_options(unique_public_parts)
+        vehicle_warehouses = cached_vehicle_names_from_warehouses(db)
+        warehouse_catalogs = cached_warehouse_catalog_entries(db)
+        unique_public_parts = cached_unique_public_parts(db)
+        seo_entries = cached_seo_entries(db)
+        fitment_options = cached_fitment_options(db)
         if q and page == 1:
             track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
             db.commit()
@@ -8620,24 +8805,19 @@ def catalog():
         q = request.args.get("q", "").strip()
         condition = request.args.get("condition", "").strip()
         requested_page = request.args.get("page")
-        parts_pool = (
-            db.query(Part)
-            .filter(Part.is_deleted == False, Part.in_stock == True)
-            .order_by(desc(Part.views_168h), Part.part_number.asc())
-            .all()
-        )
+        parts_pool = cached_catalog_active_parts(db)
         search_found_without_photo = False
         if condition == "used":
             parts_pool = [part for part in parts_pool if producer_type_label(part.producer_type) == "Замінник"]
         elif condition == "new":
             parts_pool = [part for part in parts_pool if producer_type_label(part.producer_type) == "OEM"]
-        cross_map = cross_numbers_map_for_parts(db, parts_pool)
+        cross_map = cached_cross_numbers_map_for_parts(db, parts_pool, f"catalog-{condition or 'all'}")
         all_matching_parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1), cross_map=cross_map)
         pagination = public_catalog_pagination(requested_page, parts_total, per_page=48)
         parts = all_matching_parts[pagination["offset"]:pagination["end_offset"]]
-        warehouse_catalogs = seo_warehouse_catalog_entries(db)
-        unique_public_parts = best_unique_public_parts(parts_pool)
-        seo_entries = seo_collect_entries(unique_public_parts)
+        warehouse_catalogs = cached_warehouse_catalog_entries(db)
+        unique_public_parts = cached_unique_public_parts(db)
+        seo_entries = cached_seo_entries(db)
         if q and parts_total == 0:
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
@@ -8691,8 +8871,8 @@ def catalog():
 def seo_brand_page(slug):
     db = SessionLocal()
     try:
-        all_parts = best_unique_public_parts(public_active_parts(db))
-        entries = seo_collect_entries(all_parts)
+        all_parts = cached_unique_public_parts(db)
+        entries = cached_seo_entries(db)
         brand = next((entry for entry in entries["brands"] if entry["slug"] == slug), None)
         if not brand:
             return redirect(url_for("catalog"), code=302)
@@ -8715,8 +8895,8 @@ def seo_brand_page(slug):
 def seo_brand_category_page(brand_slug, category_slug):
     db = SessionLocal()
     try:
-        all_parts = best_unique_public_parts(public_active_parts(db))
-        entries = seo_collect_entries(all_parts)
+        all_parts = cached_unique_public_parts(db)
+        entries = cached_seo_entries(db)
         brand = next((entry for entry in entries["brands"] if entry["slug"] == brand_slug), None)
         category = next((entry for entry in entries["categories"] if entry["slug"] == category_slug), None)
         if not brand or not category:
@@ -8742,9 +8922,9 @@ def seo_brand_category_page(brand_slug, category_slug):
 def seo_vehicle_page(slug):
     db = SessionLocal()
     try:
-        all_parts = best_unique_public_parts(public_active_parts(db))
-        entries = seo_collect_entries(all_parts)
-        warehouse_entries = seo_warehouse_catalog_entries(db)
+        all_parts = cached_unique_public_parts(db)
+        entries = cached_seo_entries(db)
+        warehouse_entries = cached_warehouse_catalog_entries(db)
         vehicle = next((entry for entry in warehouse_entries if entry["slug"] == slug), None)
         if not vehicle:
             return redirect(url_for("catalog"), code=302)
@@ -8767,8 +8947,8 @@ def seo_vehicle_page(slug):
 def seo_category_page(slug):
     db = SessionLocal()
     try:
-        all_parts = best_unique_public_parts(public_active_parts(db))
-        entries = seo_collect_entries(all_parts)
+        all_parts = cached_unique_public_parts(db)
+        entries = cached_seo_entries(db)
         category = next((entry for entry in entries["categories"] if entry["slug"] == slug), None)
         if not category:
             return redirect(url_for("catalog"), code=302)
@@ -8791,8 +8971,8 @@ def seo_category_page(slug):
 def seo_vehicle_category_page(category_slug, vehicle_slug):
     db = SessionLocal()
     try:
-        all_parts = best_unique_public_parts(public_active_parts(db))
-        entries = seo_collect_entries(all_parts)
+        all_parts = cached_unique_public_parts(db)
+        entries = cached_seo_entries(db)
         category = next((entry for entry in entries["categories"] if entry["slug"] == category_slug), None)
         vehicle = next((entry for entry in entries["vehicles"] if entry["slug"] == vehicle_slug), None)
         if not category or not vehicle:
@@ -8828,10 +9008,11 @@ def part_detail(part_id, slug=None):
         if requested_slug != canonical_slug:
             return canonical_redirect(public_url_for("part_detail", part_id=part.id, slug=canonical_slug), code=301)
         warehouse = db.get(Warehouse, part.warehouse_id)
-        part.views_24h += 1
-        part.views_168h += 1
-        track_stats_event(db, "part_view", part=part)
-        db.commit()
+        if not is_crawler_request():
+            part.views_24h += 1
+            part.views_168h += 1
+            track_stats_event(db, "part_view", part=part)
+            db.commit()
         review_summary = product_review_summary(db, part.id)
         reviews = approved_product_reviews(db, part.id)
         part_title = compact_meta_text(part.part_number, part.name, "купити запчастину з США", limit=95)
@@ -8882,10 +9063,11 @@ def cross_part_detail(cross_number, part_id, slug=None):
         if requested_slug != canonical_slug:
             return canonical_redirect(absolute_public_url(cross_part_detail_url(part, clean_cross)), code=301)
         warehouse = db.get(Warehouse, part.warehouse_id)
-        part.views_24h += 1
-        part.views_168h += 1
-        track_stats_event(db, "part_view", part=part, meta={"crossNumber": clean_cross})
-        db.commit()
+        if not is_crawler_request():
+            part.views_24h += 1
+            part.views_168h += 1
+            track_stats_event(db, "part_view", part=part, meta={"crossNumber": clean_cross})
+            db.commit()
         review_summary = product_review_summary(db, part.id)
         reviews = approved_product_reviews(db, part.id)
         part_title = compact_meta_text(clean_cross, part.name, "крос-номер запчастини з США", limit=95)

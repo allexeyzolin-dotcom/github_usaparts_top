@@ -8303,8 +8303,17 @@ def delivery_calculator_app():
 def home():
     db = SessionLocal()
     try:
-        q = request.args.get("q", "").strip()
-        page = max(int(request.args.get("page") or 1), 1)
+        raw_q = request.args.get("q")
+        q = (raw_q or "").strip()
+        try:
+            page = max(int(request.args.get("page") or 1), 1)
+        except Exception:
+            page = 1
+        if raw_q is not None and not q:
+            clean_values = {}
+            if page > 1:
+                clean_values["page"] = page
+            return redirect(public_url_for("home", **clean_values), code=301)
         display_count = page * 12
         search_found_without_photo = False
         parts_pool = (
@@ -8320,6 +8329,14 @@ def home():
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
         has_more = featured_total > len(featured)
+        max_page = max((featured_total + 11) // 12, 1)
+        if page > max_page:
+            clean_values = {}
+            if q:
+                clean_values["q"] = q
+            if max_page > 1:
+                clean_values["page"] = max_page
+            return redirect(public_url_for("home", **clean_values), code=301)
         cars_pool = db.query(Car).filter(Car.status == "in_stock").order_by(desc(Car.created_at)).all()
         cars_random = random.sample(cars_pool, min(5, len(cars_pool))) if cars_pool else []
         cars_stock = db.query(Car).filter(Car.status == "in_stock").count()
@@ -8357,8 +8374,8 @@ def home():
             seo_part_links=seo_part_link_entries(unique_public_parts, limit=72),
             seo_title=seo_title,
             seo_description=seo_description,
-            canonical_url=public_url_for("home", page=page) if page > 1 and not q else public_url_for("home"),
-            seo_noindex=bool(q),
+            canonical_url=public_url_for("home"),
+            seo_noindex=bool(q) or page > 1,
             json_ld=build_home_schema(seo_title, seo_description, featured),
         )
     finally:

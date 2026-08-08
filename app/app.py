@@ -1573,6 +1573,112 @@ def build_warehouse_print_picker_rows(db, scope: str, query_text: str = "", sele
     return rows
 
 
+def build_selected_warehouse_print_labels(db, scope: str, selected_numbers):
+    selected_set = {
+        normalize_text(value or "").strip().upper()
+        for value in (selected_numbers or [])
+        if normalize_text(value or "").strip()
+    }
+    rows = build_warehouse_print_picker_rows(db, scope, "", selected_numbers=selected_numbers)
+    if not rows:
+        return [], rows
+
+    labels = []
+    context = warehouse_print_scope_label(db, scope)
+
+    if scope == "all":
+        template_map = {}
+        templates = (
+            db.query(PartTemplate)
+            .filter(func.upper(PartTemplate.part_number).in_(selected_set))
+            .order_by(desc(PartTemplate.updated_at), PartTemplate.id.asc())
+            .all()
+        )
+        for template in templates:
+            part_number = normalize_text(template.part_number or "").strip().upper()
+            if not part_number or part_number not in selected_set or part_number in template_map:
+                continue
+            ensure_template_barcode(db, template)
+            template_map[part_number] = template
+
+        part_map = {}
+        parts = (
+            db.query(Part)
+            .filter(Part.is_deleted == False, func.upper(Part.part_number).in_(selected_set))
+            .order_by(Part.part_number.asc(), desc(Part.updated_at), Part.id.asc())
+            .all()
+        )
+        for part in parts:
+            part_number = normalize_text(part.part_number or "").strip().upper()
+            if not part_number or part_number not in selected_set or part_number in part_map:
+                continue
+            ensure_part_barcode(db, part)
+            part_map[part_number] = part
+
+        for row in rows:
+            part_number = row["part_number"]
+            template = template_map.get(part_number)
+            part = part_map.get(part_number)
+            barcode = (
+                normalize_text(template.barcode if template else "").strip()
+                or normalize_text(part.barcode if part else "").strip()
+            )
+            title = (
+                normalize_text(template.name if template else "").strip()
+                or normalize_text(part.name if part else "").strip()
+                or row["description"]
+            )
+            description = (
+                normalize_text(template.description if template else "").strip()
+                or normalize_text(part.description if part else "").strip()
+            )
+            for _ in range(label_copies(row["qty"])):
+                labels.append(
+                    build_print_label(
+                        headline=part_number,
+                        title=title,
+                        description=description,
+                        barcode=barcode,
+                        context=context,
+                    )
+                )
+        return labels, rows
+
+    warehouse_id = int(scope or 0)
+    parts = (
+        db.query(Part)
+        .filter(
+            Part.warehouse_id == warehouse_id,
+            Part.is_deleted == False,
+            func.upper(Part.part_number).in_(selected_set),
+        )
+        .order_by(Part.part_number.asc(), Part.id.asc())
+        .all()
+    )
+    for part in parts:
+        part_number = normalize_text(part.part_number or "").strip().upper()
+        if not part_number or part_number not in selected_set:
+            continue
+        ensure_part_barcode(db, part)
+        template = find_part_template(db, part_number)
+        title = normalize_text(template.name if template and template.name else part.name).strip()
+        description = normalize_text(
+            template.description if template and template.description else part.description
+        ).strip()
+        for _ in range(label_copies(part.qty)):
+            labels.append(
+                build_print_label(
+                    headline=part_number,
+                    title=title,
+                    description=description,
+                    barcode=part.barcode or "",
+                    context=context,
+                )
+            )
+
+    return labels, rows
+
+
 def touch_warehouse_print_marks(db, scope: str, part_numbers, printed_at: datetime | None = None):
     stamp = printed_at or now()
     warehouse_id = None if scope == "all" else int(scope or 0)
@@ -13221,6 +13327,7 @@ def print_selected_warehouse_list():
     try:
         scope = normalize_text(request.form.get("scope") or "").strip().lower()
         query_text = request.form.get("q", "").strip()
+        print_mode = normalize_text(request.form.get("print_mode") or "list").strip().lower()
         selected_numbers = request.form.getlist("part_numbers")
         if scope != "all":
             warehouses = db.query(Warehouse).order_by(Warehouse.name.asc()).all()
@@ -13230,6 +13337,24 @@ def print_selected_warehouse_list():
         if not selected_numbers:
             flash("Оберіть хоча б одну позицію для друку", "error")
             return redirect(url_for("admin_warehouse_print", scope=scope, q=query_text))
+
+        if print_mode == "labels":
+            labels, rows = build_selected_warehouse_print_labels(db, scope, selected_numbers)
+            if not rows:
+                flash("Обрані позиції не знайдено", "error")
+                return redirect(url_for("admin_warehouse_print", scope=scope, q=query_text))
+            if not labels:
+                flash("У вибраних позиціях немає кількості для друку етикеток", "error")
+                return redirect(url_for("admin_warehouse_print", scope=scope, q=query_text))
+            printed_at = now()
+            printed_numbers = list(dict.fromkeys(label["headline"] for label in labels if label.get("headline")))
+            touch_warehouse_print_marks(db, scope, printed_numbers, printed_at=printed_at)
+            db.commit()
+            return render_template(
+                "print_labels.html",
+                title=f"Етикетки {warehouse_print_scope_label(db, scope)}",
+                labels=labels,
+            )
 
         rows = build_warehouse_print_picker_rows(db, scope, "", selected_numbers=selected_numbers)
         if not rows:

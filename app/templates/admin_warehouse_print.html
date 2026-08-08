@@ -48,6 +48,23 @@
     <input type="hidden" name="q" value="{{ q }}">
 
     {% if rows %}
+    <div class="warehouse-print-mode" role="radiogroup" aria-label="Тип друку">
+      <label class="warehouse-print-choice">
+        <input type="radio" name="print_mode" value="list" checked onchange="updateWarehousePrintMode()">
+        <span>
+          <strong>Друк списку</strong>
+          <small>Формат A4: OEM номер, опис, кількість.</small>
+        </span>
+      </label>
+      <label class="warehouse-print-choice">
+        <input type="radio" name="print_mode" value="labels" onchange="updateWarehousePrintMode()">
+        <span>
+          <strong>Друк етикеток</strong>
+          <small>Етикетки 58 × 30 мм у кількості залишку позиції.</small>
+        </span>
+      </label>
+    </div>
+
     <div class="table-wrap warehouse-print-table-wrap">
       <table class="warehouse-print-table">
         <thead>
@@ -85,7 +102,7 @@
     {% endif %}
 
     <div class="button-row">
-      <button class="btn primary" type="submit">Друк вибраного A4</button>
+      <button class="btn primary" id="warehouse-print-submit" type="submit" data-list-label="Друк вибраного списку A4" data-labels-label="Друк вибраних етикеток">Друк вибраного списку A4</button>
       <a class="btn ghost" href="{{ url_for('admin_products') }}">Назад до складів</a>
     </div>
   </form>
@@ -106,5 +123,14 @@ function validateWarehousePrintSelection(form) {
   }
   return true;
 }
+
+function updateWarehousePrintMode() {
+  const submit = document.getElementById('warehouse-print-submit');
+  if (!submit) return;
+  const mode = document.querySelector('input[name="print_mode"]:checked')?.value || 'list';
+  submit.textContent = mode === 'labels' ? submit.dataset.labelsLabel : submit.dataset.listLabel;
+}
+
+document.addEventListener('DOMContentLoaded', updateWarehousePrintMode);
 </script>
 {% endblock %}

@@ -373,8 +373,8 @@
             {% if selected_group == 'history' %}
             <div class="history-order-description">
               <div class="history-order-description-item">
-                <span>Опис</span>
-                <strong>{{ order.comment or 'Опис не вказано' }}</strong>
+                <span>Куди товар</span>
+                <strong>{{ order.issueDestination or 'Не вказано' }}</strong>
               </div>
               {% if order.cancelReason %}
               <div class="history-order-description-item">

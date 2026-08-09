@@ -2256,12 +2256,21 @@ def serialize_admin_order(db, order: Order):
         if packing_request
         else float(order.prepayment_usd or 0)
     )
+    customer_name = normalize_text(order.customer_name or "")
+    order_comment = normalize_text(order.comment or "")
+    manual_issue_marker = "Видано вручну"
+    issue_destination = ""
+    if customer_name == manual_issue_marker and order_comment != manual_issue_marker:
+        issue_destination = order_comment
+    elif order_comment == manual_issue_marker and customer_name != manual_issue_marker:
+        issue_destination = customer_name
     return {
         "id": order.id,
-        "customerName": normalize_text(order.customer_name or ""),
+        "customerName": customer_name,
         "phone": normalize_text(order.phone or ""),
         "city": normalize_text(order.city or ""),
-        "comment": normalize_text(order.comment or ""),
+        "comment": order_comment,
+        "issueDestination": issue_destination,
         "status": order.status or "new",
         "statusLabel": {
             "new": "Нове",
@@ -11991,7 +12000,7 @@ def admin_packing_writeoff(request_id):
         try:
             order = create_manual_issue_order(
                 db,
-                destination=normalize_text(request_obj.customer_name or request_obj.comment or f"Видача #{request_obj.id}").strip(),
+                destination=normalize_text(request_obj.comment or request_obj.customer_name or f"Видача #{request_obj.id}").strip(),
                 items_payload=items_payload,
             )
         except ValueError as exc:

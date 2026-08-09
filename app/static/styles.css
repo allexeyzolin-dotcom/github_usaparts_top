@@ -2446,6 +2446,60 @@ body.admin-theme .text-link:hover{
 .order-group-tab.active{
   box-shadow:0 0 0 1px rgba(255,255,255,.16) inset, 0 12px 24px rgba(0,0,0,.18);
 }
+.history-order-card{
+  cursor:pointer;
+  transition:border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.history-order-card:hover{
+  border-color:rgba(251,191,36,.34);
+  box-shadow:0 18px 44px rgba(0,0,0,.22), 0 0 0 1px rgba(251,191,36,.14) inset;
+}
+.history-order-card.is-expanded{
+  border-color:rgba(251,191,36,.46);
+}
+.history-order-toggle{
+  margin-left:auto;
+  padding:8px 12px;
+}
+.history-order-hint{
+  margin-top:10px;
+  color:#fbbf24;
+  font-size:13px;
+  font-weight:800;
+}
+.history-order-details[hidden]{
+  display:none;
+}
+.history-order-details{
+  margin-top:14px;
+  cursor:default;
+}
+.history-order-description{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+.history-order-description-item{
+  min-width:0;
+  padding:12px;
+  border:1px solid rgba(148,163,184,.18);
+  border-radius:14px;
+  background:rgba(255,255,255,.04);
+}
+.history-order-description-item span{
+  display:block;
+  margin-bottom:6px;
+  color:#94a3b8;
+  font-size:12px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.history-order-description-item strong{
+  display:block;
+  overflow-wrap:anywhere;
+  line-height:1.35;
+}
 .packing-btn.violet{
   background:linear-gradient(180deg,#8b5cf6,#7c3aed);
   color:#fff;
@@ -2493,6 +2547,9 @@ body.admin-theme .text-link:hover{
     grid-template-columns:1fr;
   }
   .warehouse-print-mode{
+    grid-template-columns:1fr;
+  }
+  .history-order-description{
     grid-template-columns:1fr;
   }
   .part-admin-head,
@@ -2664,6 +2721,26 @@ body.admin-theme .order-group-tab.red{
 
 body.admin-theme .order-group-tab.active{
   box-shadow:0 0 0 1px rgba(15,23,42,.06) inset, 0 10px 24px rgba(15,23,42,.1);
+}
+
+body.admin-theme .history-order-card:hover{
+  border-color:rgba(245,158,11,.46);
+  box-shadow:
+    0 22px 46px rgba(15,23,42,.18),
+    0 0 0 1px rgba(245,158,11,.18) inset;
+}
+
+body.admin-theme .history-order-hint{
+  color:#b45309;
+}
+
+body.admin-theme .history-order-description-item{
+  background:linear-gradient(180deg,#f8fbff,#eef4fb);
+  border-color:rgba(148,163,184,.26);
+}
+
+body.admin-theme .history-order-description-item span{
+  color:#64748b;
 }
 
 body.admin-theme .admin-main > .card,

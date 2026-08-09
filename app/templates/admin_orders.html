@@ -329,7 +329,7 @@
 
     <div class="orders-list orders-main-list">
       {% for order in orders %}
-      <article class="order-card status-{{ order.status }}">
+      <article class="order-card status-{{ order.status }}{% if selected_group == 'history' %} history-order-card{% endif %}"{% if selected_group == 'history' %} data-history-order-card{% endif %}>
         <div class="order-body" style="padding-top:18px">
           <div class="order-line">
             <strong>#{{ order.id }}</strong>
@@ -343,13 +343,21 @@
             {% if order.externalSource %}
             <span class="badge neutral">{{ order.externalSource|upper }}</span>
             {% endif %}
+            {% if selected_group == 'history' %}
+            <button class="btn ghost history-order-toggle" type="button" data-history-order-toggle aria-expanded="false">Показати опис і позиції</button>
+            {% endif %}
           </div>
 
           <div class="muted" style="margin-top:8px">
             {{ order.phone or 'Телефон не вказано' }}
-            {% if order.comment %} • {{ order.comment }}{% endif %}
+            {% if selected_group != 'history' and order.comment %} • {{ order.comment }}{% endif %}
             • Створено: {{ order.createdAt }}
           </div>
+          {% if selected_group == 'history' %}
+          <div class="history-order-hint">
+            {{ order["items"]|length }} позицій. Натисніть на картку, щоб переглянути деталі.
+          </div>
+          {% endif %}
 
           {% if (order.packingControlPaymentUah or 0) > 0 and (order.prepaymentUsd or 0) <= 0 %}
           <div class="choice" style="margin-top:12px"><strong>Контроль оплати:</strong> {{ '%.2f'|format(order.packingControlPaymentUah or 0) }} грн</div>
@@ -357,9 +365,33 @@
           {% if (order.prepaymentUsd or 0) > 0 %}
           <div class="choice" style="margin-top:12px"><strong>Контроль оплати:</strong> {{ '%.2f'|format(order.prepaymentUsd or 0) }} грн</div>
           {% endif %}
-          {% if order.cancelReason %}
+          {% if selected_group != 'history' and order.cancelReason %}
           <div class="choice" style="margin-top:12px"><strong>Причина скасування:</strong> {{ order.cancelReason }}</div>
           {% endif %}
+
+          <div{% if selected_group == 'history' %} class="history-order-details" data-history-order-details hidden{% endif %}>
+            {% if selected_group == 'history' %}
+            <div class="history-order-description">
+              <div class="history-order-description-item">
+                <span>Опис</span>
+                <strong>{{ order.comment or 'Опис не вказано' }}</strong>
+              </div>
+              {% if order.cancelReason %}
+              <div class="history-order-description-item">
+                <span>Причина скасування</span>
+                <strong>{{ order.cancelReason }}</strong>
+              </div>
+              {% endif %}
+              <div class="history-order-description-item">
+                <span>Доставка</span>
+                <strong>
+                  {{ order.city or 'Місто не вказано' }}
+                  {% if order.ttn %} • ТТН: {{ order.ttn }}{% endif %}
+                  {% if order.ttnStatus %} • {{ order.ttnStatus }}{% endif %}
+                </strong>
+              </div>
+            </div>
+            {% endif %}
 
           <div class="card inner-card" style="margin-top:14px">
             <strong>Позиції замовлення</strong>
@@ -374,8 +406,11 @@
                   {% endif %}
                 </div>
               </div>
+              {% else %}
+              <div class="muted">Позицій у замовленні немає.</div>
               {% endfor %}
             </div>
+          </div>
           </div>
 
           {% if order.status not in ['done', 'cancelled'] %}
@@ -528,6 +563,46 @@ function cancelOrder(orderId) {
   form.querySelector('input[name="cancel_reason"]').value = reason.trim();
   form.submit();
 }
+
+(() => {
+  document.querySelectorAll('[data-history-order-card]').forEach((card) => {
+    const details = card.querySelector('[data-history-order-details]');
+    const toggle = card.querySelector('[data-history-order-toggle]');
+    if (!details) return;
+
+    function setExpanded(expanded) {
+      details.hidden = !expanded;
+      card.classList.toggle('is-expanded', expanded);
+      if (toggle) {
+        toggle.setAttribute('aria-expanded', String(expanded));
+        toggle.textContent = expanded ? 'Сховати опис і позиції' : 'Показати опис і позиції';
+      }
+    }
+
+    function shouldIgnoreClick(target) {
+      return Boolean(target.closest('a, button, input, select, textarea, label, form, [data-history-order-details]'));
+    }
+
+    card.addEventListener('click', (event) => {
+      if (shouldIgnoreClick(event.target)) return;
+      setExpanded(details.hidden);
+    });
+
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (shouldIgnoreClick(event.target)) return;
+      event.preventDefault();
+      setExpanded(details.hidden);
+    });
+
+    if (toggle) {
+      toggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setExpanded(details.hidden);
+      });
+    }
+  });
+})();
 
 (() => {
   function normalizeControlPaymentValue(rawValue) {

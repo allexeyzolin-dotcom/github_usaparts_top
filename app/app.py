@@ -60,7 +60,7 @@ CRAWLER_USER_AGENT_MARKERS = (
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://usa:usa123@localhost:5433/usa_auto_parts")
 engine = create_engine(DATABASE_URL, future=True)
-SessionLocal = sessionmaker(bind=engine, future=True)
+SessionLocal = sessionmaker(bind=engine, future=True, expire_on_commit=False)
 Base = declarative_base()
 
 DEFAULT_UAH_RATE = 41.50

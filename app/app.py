@@ -8658,8 +8658,12 @@ def home():
         seo_entries = cached_seo_entries(db)
         fitment_options = cached_fitment_options(db)
         if q and page == 1:
-            track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
-            db.commit()
+            try:
+                track_stats_event(db, "search", query_text=q, meta={"source": "home", "results": featured_total})
+                db.commit()
+            except Exception:
+                db.rollback()
+                app.logger.exception("Unable to track home search statistics")
         seo_title = "USAparts.top | Запчастини для авто з США"
         seo_description = "USAparts.top - авторозбірка та автошрот в Україні. Б/у запчастини для авто зі США, пошук по OEM номеру, склади в Україні та поставки зі США."
         return render_template(
@@ -8937,8 +8941,12 @@ def catalog():
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
         if q:
-            track_stats_event(db, "search", query_text=q, meta={"source": "catalog", "results": parts_total})
-            db.commit()
+            try:
+                track_stats_event(db, "search", query_text=q, meta={"source": "catalog", "results": parts_total})
+                db.commit()
+            except Exception:
+                db.rollback()
+                app.logger.exception("Unable to track catalog search statistics")
         def catalog_page_url(target_page):
             values = {}
             if q:

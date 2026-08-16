@@ -62,7 +62,8 @@
         <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
         <div class="product-card-brand">{{ clean_text(part.brand or producer_type_label(part.producer_type)) }}</div>
         <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) }}</a></h3>
-        <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent) }}</div>
+        {% set warehouse_markup = part.warehouse.markup_percent if part.warehouse else 0 %}
+        <div class="price-row">{{ display_public_price_uah(part.price_usd, warehouse_markup) }}</div>
         <div class="product-card-stock">В наявності: {{ part.qty }} шт.</div>
         <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
           <button class="btn primary full" type="submit">Купити</button>

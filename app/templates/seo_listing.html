@@ -98,7 +98,8 @@
         <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
         <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) }}</a></h3>
         <div class="muted seo-card-oem">OEM: {{ part.part_number }}</div>
-        <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent) }}</div>
+        {% set warehouse_markup = part.warehouse.markup_percent if part.warehouse else 0 %}
+        <div class="price-row">{{ display_public_price_uah(part.price_usd, warehouse_markup) }}</div>
         <a class="btn primary full" href="{{ part_detail_url(part) }}">Переглянути</a>
       </div>
     </div>

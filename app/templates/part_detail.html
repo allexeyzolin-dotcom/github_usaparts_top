@@ -1,6 +1,7 @@
 {% extends 'base_public.html' %}
 {% block content %}
 {% set gallery = part_gallery_urls(part) %}
+{% set fallback_photo = public_part_photo(part) %}
 {% set video_url = youtube_embed_url(part.youtube_url) %}
 {% set visible_part_number = display_part_number|default(part.part_number) %}
 <div class="container product-page">
@@ -19,7 +20,7 @@
             {% if gallery %}
             {{ gallery|length }} шт.
             {% else %}
-            Фото відсутнє
+            Тематичне фото
             {% endif %}
           </div>
         </div>
@@ -36,7 +37,9 @@
         <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
       </button>
       {% else %}
-      <div class="detail-img placeholder">Фото відсутнє</div>
+      <span class="part-main-photo-button watermarked-photo watermark-large" aria-label="Тематичне фото товару">
+        <img class="detail-img" src="{{ fallback_photo }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
+      </span>
       {% endif %}
 
       {% if gallery|length > 1 %}

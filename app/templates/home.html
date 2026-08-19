@@ -84,16 +84,13 @@
     <div class="showcase-grid showcase-grid-home">
       {% for part in featured %}
       {% set gallery = part_gallery_urls(part) %}
+      {% set public_photo = public_part_photo(part) %}
       <div class="showcase-card home-product-card">
         <a class="product-card-media" href="{{ part_detail_url(part) }}">
           <span class="product-card-badge">{{ producer_type_label(part.producer_type) }}</span>
-          {% if primary_part_photo(part) %}
           <span class="watermarked-photo">
-            <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+            <img class="showcase-img" src="{{ public_photo }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
           </span>
-          {% else %}
-          <div class="showcase-img placeholder">Фото</div>
-          {% endif %}
           {% if gallery|length > 1 %}
           <span class="photo-count-badge">{{ gallery|length }} фото</span>
           {% endif %}

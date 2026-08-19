@@ -4655,6 +4655,18 @@ def part_gallery_urls(part: Part) -> list[str]:
     return [export_photo] if export_photo else []
 
 
+PUBLIC_PART_PLACEHOLDER_IMAGE = "/static/product-photo-placeholder.png"
+
+
+def public_part_gallery_urls(part: Part | None) -> list[str]:
+    gallery = part_gallery_urls(part)
+    return gallery if gallery else [PUBLIC_PART_PLACEHOLDER_IMAGE]
+
+
+def public_part_photo(part: Part | None) -> str:
+    return public_part_gallery_urls(part)[0]
+
+
 def template_gallery_urls(template: PartTemplate) -> list[str]:
     if not template:
         return []
@@ -6548,7 +6560,7 @@ def build_part_product_schema(
 ) -> str:
     display_number = normalize_text(display_part_number or part.part_number or "").strip()
     part_url = canonical_url or public_part_url(part)
-    gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
+    gallery = [absolute_public_url(url) for url in public_part_gallery_urls(part)]
     price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
     categories = seo_part_categories(part)
     brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type))
@@ -8113,11 +8125,13 @@ def inject_globals():
         "parse_media_urls": parse_media_urls,
         "youtube_embed_url": youtube_embed_url,
         "part_gallery_urls": part_gallery_urls,
+        "public_part_gallery_urls": public_part_gallery_urls,
         "part_detail_url": part_detail_url,
         "display_usd": display_usd,
         "display_uah": display_uah,
         "display_public_price_uah": display_public_price_uah,
         "primary_part_photo": primary_part_photo,
+        "public_part_photo": public_part_photo,
         "primary_car_photo": primary_car_photo,
         "primary_template_photo": primary_template_photo,
         "template_gallery_urls": template_gallery_urls,
@@ -9140,7 +9154,7 @@ def part_detail(part_id, slug=None):
         reviews = approved_product_reviews(db, part.id)
         part_title = compact_meta_text(part.part_number, part.name, "купити запчастину з США", limit=95)
         part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
-        part_og_image = absolute_public_url(primary_part_photo(part)) if primary_part_photo(part) else ""
+        part_og_image = absolute_public_url(public_part_photo(part))
         return render_template(
             "part_detail.html",
             part=part,
@@ -9195,7 +9209,7 @@ def cross_part_detail(cross_number, part_id, slug=None):
         reviews = approved_product_reviews(db, part.id)
         part_title = compact_meta_text(clean_cross, part.name, "крос-номер запчастини з США", limit=95)
         part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
-        part_og_image = absolute_public_url(primary_part_photo(part)) if primary_part_photo(part) else ""
+        part_og_image = absolute_public_url(public_part_photo(part))
         cross_url = public_cross_part_url(part, clean_cross)
         return render_template(
             "part_detail.html",

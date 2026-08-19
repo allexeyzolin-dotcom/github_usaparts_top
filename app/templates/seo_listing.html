@@ -84,15 +84,12 @@
 
   <div class="showcase-grid seo-product-grid">
     {% for part in parts %}
+    {% set public_photo = public_part_photo(part) %}
     <div class="showcase-card">
       <a href="{{ part_detail_url(part) }}">
-        {% if primary_part_photo(part) %}
         <span class="watermarked-photo">
-          <img class="showcase-img" src="{{ primary_part_photo(part) }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+          <img class="showcase-img" src="{{ public_photo }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
         </span>
-        {% else %}
-        <div class="showcase-img placeholder">Фото</div>
-        {% endif %}
       </a>
       <div class="showcase-body">
         <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>

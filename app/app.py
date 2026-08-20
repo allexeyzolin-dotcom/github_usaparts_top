@@ -8636,16 +8636,21 @@ def home():
     try:
         raw_q = request.args.get("q")
         q = (raw_q or "").strip()
+        raw_page = request.args.get("page")
         try:
-            page = max(int(request.args.get("page") or 1), 1)
+            page = max(int(raw_page or 1), 1)
         except Exception:
             page = 1
-        if raw_q is not None and not q:
-            clean_values = {}
+        if q:
+            clean_values = {"q": q}
             if page > 1:
                 clean_values["page"] = page
-            return redirect(public_url_for("home", **clean_values), code=301)
-        display_count = page * 12
+            return redirect(public_url_for("catalog", **clean_values), code=301)
+        if page > 1:
+            return redirect(public_url_for("catalog", page=page), code=301)
+        if request.args:
+            return redirect(public_url_for("home"), code=301)
+        display_count = 12
         search_found_without_photo = False
         parts_pool = cached_home_active_parts(db)
         cross_map = cached_cross_numbers_map_for_parts(db, parts_pool, "home")
@@ -8654,14 +8659,6 @@ def home():
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
         has_more = featured_total > len(featured)
-        max_page = max((featured_total + 11) // 12, 1)
-        if page > max_page:
-            clean_values = {}
-            if q:
-                clean_values["q"] = q
-            if max_page > 1:
-                clean_values["page"] = max_page
-            return redirect(public_url_for("home", **clean_values), code=301)
         cars_pool = db.query(Car).filter(Car.status == "in_stock").order_by(desc(Car.created_at)).all()
         cars_random = random.sample(cars_pool, min(5, len(cars_pool))) if cars_pool else []
         cars_stock = db.query(Car).filter(Car.status == "in_stock").count()
@@ -8702,7 +8699,7 @@ def home():
             seo_title=seo_title,
             seo_description=seo_description,
             canonical_url=public_url_for("home"),
-            seo_noindex=bool(q) or page > 1,
+            seo_noindex=False,
             json_ld=build_home_schema(seo_title, seo_description, featured),
         )
     finally:

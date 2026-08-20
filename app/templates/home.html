@@ -121,7 +121,7 @@
 
     {% if has_more %}
     <div class="showcase-more-row">
-      <a class="btn ghost" href="{{ url_for('home', q=q, page=page + 1) if q else url_for('home', page=page + 1) }}">Показати ще</a>
+      <a class="btn ghost" href="{{ url_for('catalog') }}">Показати ще</a>
     </div>
     {% endif %}
   </div>

@@ -68,7 +68,7 @@
           data-car-photo-thumb
           data-index="{{ loop.index0 }}">
           <span class="watermarked-photo watermark-small">
-            <img src="{{ photo }}" alt="{{ car.brand }} {{ car.model }} фото {{ loop.index }}">
+            <img src="{{ photo }}" alt="{{ car.brand }} {{ car.model }} фото {{ loop.index }}" loading="lazy" decoding="async">
           </span>
           <div class="muted">Фото {{ loop.index }}</div>
         </button>
@@ -117,7 +117,7 @@
       </div>
     </div>
     <div class="car-photo-modal-body watermarked-photo watermark-large">
-      <img id="car-photo-modal-image" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}">
+      <img id="car-photo-modal-image" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}" loading="lazy" decoding="async">
     </div>
   </div>
 </div>

@@ -52,7 +52,7 @@
           data-index="{{ loop.index0 }}"
           aria-label="Фото {{ loop.index }}">
           <span class="watermarked-photo watermark-thumb">
-            <img src="{{ photo }}" alt="{{ part_seo_name(part, visible_part_number) }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
+            <img src="{{ photo }}" alt="{{ part_seo_name(part, visible_part_number) }} фото {{ loop.index }}" loading="lazy" decoding="async" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
           </span>
         </button>
         {% endfor %}
@@ -229,7 +229,7 @@
       </div>
     </div>
     <div class="part-photo-modal-body watermarked-photo watermark-large">
-      <img id="part-photo-modal-image" src="{{ gallery[0] }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
+      <img id="part-photo-modal-image" src="{{ gallery[0] }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}" loading="lazy" decoding="async">
     </div>
   </div>
 </div>

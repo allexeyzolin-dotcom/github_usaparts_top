@@ -519,6 +519,10 @@ def apply_crawl_headers(response):
     private_paths = ("/admin", "/api", "/cart", "/checkout")
     if request.path == "/cart" or request.path == "/checkout" or request.path.startswith(private_paths):
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif request.path.startswith("/uploads/"):
+        response.headers["Cache-Control"] = "public, max-age=86400"
     if request.method in {"POST", "PUT", "PATCH", "DELETE"} and response.status_code < 400:
         if request.path.startswith(("/admin", "/api/mobile", "/checkout")):
             public_cache_clear()

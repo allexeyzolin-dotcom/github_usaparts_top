@@ -18,6 +18,9 @@
   <meta name="robots" content="{{ 'noindex,follow' if seo_noindex|default(false) else 'index,follow' }}">
   {% if canonical_url|default('') %}
   <link rel="canonical" href="{{ canonical_url }}">
+  <link rel="alternate" hreflang="uk-UA" href="{{ canonical_url }}">
+  <link rel="alternate" hreflang="uk" href="{{ canonical_url }}">
+  <link rel="alternate" hreflang="x-default" href="{{ canonical_url }}">
   {% endif %}
   <meta property="og:site_name" content="USAparts.top">
   <meta property="og:title" content="{{ meta_title }}">
@@ -68,7 +71,7 @@
 
     <div class="container store-mainbar">
       <a href="{{ url_for('home') }}" class="logo site-logo" aria-label="USAparts.top">
-        <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
+        <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top" width="220" height="72" decoding="async">
       </a>
 
       <form class="store-header-search" method="get" action="{{ url_for('catalog') }}">

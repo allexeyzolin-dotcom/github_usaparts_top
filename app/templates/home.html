@@ -10,7 +10,7 @@
           Шукайте деталь по OEM номеру, назві, бренду або VIN. На вітрині показуємо тільки позиції,
           які можна додати в кошик або уточнити у менеджера.
         </p>
-        <form class="search-row hero-search-centered" method="get" action="{{ url_for('home') }}">
+        <form class="search-row hero-search-centered" method="get" action="{{ url_for('catalog') }}">
           <input name="q" value="{{ q }}" placeholder="Наприклад 68235664AA, фара, бампер або Jeep">
           <button class="btn primary" type="submit">Знайти</button>
         </form>
@@ -22,7 +22,7 @@
       </div>
 
       <aside class="fitment-card">
-        <img class="fitment-logo" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
+        <img class="fitment-logo" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top" loading="lazy" decoding="async">
         <h2>Підберіть деталь для вашого авто</h2>
         <p>Логіка проста: спочатку авто, потім категорія. Якщо знаєте OEM номер - введіть його і шукайте напряму.</p>
         <form class="fitment-form" action="{{ url_for('fitment_redirect') }}" method="get">
@@ -58,7 +58,7 @@
       <a class="mini-car-card" href="{{ url_for('car_detail_public', car_id=car.id) }}">
         {% if primary_car_photo(car) %}
         <span class="watermarked-photo watermark-small">
-          <img class="mini-car-image" src="{{ primary_car_photo(car) }}" alt="{{ car.brand }} {{ car.model }}">
+          <img class="mini-car-image" src="{{ primary_car_photo(car) }}" alt="{{ car.brand }} {{ car.model }}" loading="lazy" decoding="async">
         </span>
         {% else %}
         <div class="mini-car-image placeholder">Авто</div>
@@ -89,7 +89,7 @@
         <a class="product-card-media" href="{{ part_detail_url(part) }}">
           <span class="product-card-badge">{{ producer_type_label(part.producer_type) }}</span>
           <span class="watermarked-photo">
-            <img class="showcase-img" src="{{ public_photo }}" alt="{{ part_seo_name(part) }}">
+            <img class="showcase-img" src="{{ public_photo }}" alt="{{ part_seo_name(part) }}" loading="lazy" decoding="async">
           </span>
           {% if gallery|length > 1 %}
           <span class="photo-count-badge">{{ gallery|length }} фото</span>

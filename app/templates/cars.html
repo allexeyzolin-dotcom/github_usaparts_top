@@ -14,7 +14,7 @@
     <a class="showcase-card" href="{{ url_for('car_detail_public', car_id=car.id) }}">
       {% if photos %}
       <span class="watermarked-photo">
-        <img class="showcase-img" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}">
+        <img class="showcase-img" src="{{ photos[0] }}" alt="{{ car.brand }} {{ car.model }}" loading="lazy" decoding="async">
       </span>
       {% else %}
       <div class="showcase-img placeholder">Авто</div>

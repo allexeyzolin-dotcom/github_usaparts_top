@@ -34,11 +34,11 @@
 
       {% if gallery %}
       <button class="part-main-photo-button watermarked-photo watermark-large" type="button" id="part-main-photo-open" aria-label="Відкрити фото товару">
-        <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
+        <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ part_seo_name(part, visible_part_number) }}">
       </button>
       {% else %}
       <span class="part-main-photo-button watermarked-photo watermark-large" aria-label="Тематичне фото товару">
-        <img class="detail-img" src="{{ fallback_photo }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }}">
+        <img class="detail-img" src="{{ fallback_photo }}" alt="{{ part_seo_name(part, visible_part_number) }}">
       </span>
       {% endif %}
 
@@ -52,7 +52,7 @@
           data-index="{{ loop.index0 }}"
           aria-label="Фото {{ loop.index }}">
           <span class="watermarked-photo watermark-thumb">
-            <img src="{{ photo }}" alt="{{ visible_part_number }} {{ clean_text(part.name) }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
+            <img src="{{ photo }}" alt="{{ part_seo_name(part, visible_part_number) }} фото {{ loop.index }}" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
           </span>
         </button>
         {% endfor %}
@@ -74,7 +74,7 @@
       {% if main_part_number is defined and main_part_number and main_part_number != visible_part_number %}
       <div class="muted">Основний OEM: {{ main_part_number }}</div>
       {% endif %}
-      <h1 class="part-detail-title">{{ visible_part_number }} {{ clean_text(part.name) }}</h1>
+      <h1 class="part-detail-title">{{ part_seo_name(part, visible_part_number) }}</h1>
       <div class="price-row big">{{ display_public_price_uah(part.price_usd, warehouse.markup_percent if warehouse else 0) }}</div>
 
       <div class="part-detail-meta-grid">

@@ -6274,6 +6274,58 @@ def compact_meta_text(*parts, limit: int = 160) -> str:
     return text[: max(limit - 1, 0)].rstrip(" ,.;:-") + "…"
 
 
+def strip_part_number_prefix(text: str, part_number: str) -> str:
+    label = normalize_text(text or "").strip()
+    number = normalize_text(part_number or "").strip()
+    if not label or not number:
+        return label
+    stripped = re.sub(
+        rf"^{re.escape(number)}[\s\-–—:;/,.]*",
+        "",
+        label,
+        count=1,
+        flags=re.IGNORECASE,
+    ).strip()
+    return stripped or label
+
+
+def part_seo_name(part: Part | None, display_part_number: str | None = None, limit: int = 120) -> str:
+    if not part:
+        return ""
+    display_number = normalize_text(display_part_number or part.part_number or "").strip()
+    clean_name = strip_part_number_prefix(part.name or "", display_number)
+    if display_number and clean_name:
+        return compact_meta_text(f"{display_number} -", clean_name, limit=limit)
+    return compact_meta_text(display_number or clean_name, limit=limit)
+
+
+def part_seo_description(
+    part: Part | None,
+    display_part_number: str | None = None,
+    *,
+    price_uah=None,
+    prefix: str = "Купити запчастину для авто з США",
+    include_main_part_number: bool = False,
+    limit: int = 160,
+) -> str:
+    if not part:
+        return ""
+    prefix_text = normalize_text(prefix or "").strip()
+    if prefix_text and prefix_text[-1] not in ".!?":
+        prefix_text += "."
+    pieces = [f"{part_seo_name(part, display_part_number, limit=120)}."]
+    if prefix_text:
+        pieces.append(prefix_text)
+    if price_uah not in (None, ""):
+        pieces.append(f"Ціна ₴{price_uah}.")
+    pieces.append(f"Наявність {max(int(part.qty or 0), 0)} шт.")
+    main_number = normalize_text(part.part_number or "").strip()
+    display_number = normalize_text(display_part_number or main_number).strip()
+    if include_main_part_number and main_number and compact_part_code(main_number) != compact_part_code(display_number):
+        pieces.append(f"Основний OEM {main_number}.")
+    return compact_meta_text(*pieces, limit=limit)
+
+
 CYRILLIC_SLUG_MAP = str.maketrans({
     "а": "a", "б": "b", "в": "v", "г": "g", "ґ": "g", "д": "d", "е": "e", "є": "ye",
     "ё": "yo", "ж": "zh", "з": "z", "и": "i", "і": "i", "ї": "yi", "й": "y", "к": "k",
@@ -6557,6 +6609,7 @@ def build_part_product_schema(
     canonical_url: str | None = None,
     review_summary: dict | None = None,
     reviews: list[ProductReview] | None = None,
+    cross_numbers: list[str] | None = None,
 ) -> str:
     display_number = normalize_text(display_part_number or part.part_number or "").strip()
     part_url = canonical_url or public_part_url(part)
@@ -6564,10 +6617,13 @@ def build_part_product_schema(
     price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
     categories = seo_part_categories(part)
     brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type))
+    seo_name = part_seo_name(part, display_number, limit=120)
+    seo_description = part_seo_description(part, display_number, price_uah=price, include_main_part_number=True, limit=300)
     product_payload = {
         "@type": "Product",
         "@id": f"{part_url}#product",
-        "name": compact_meta_text(display_number, part.name, limit=120),
+        "name": seo_name,
+        "alternateName": compact_meta_text(part.name, display_number, limit=120),
         "url": part_url,
         "productID": display_number,
         "sku": display_number,
@@ -6578,7 +6634,7 @@ def build_part_product_schema(
             "value": display_number,
         },
         "brand": {"@type": "Brand", "name": brand_name or "USAparts.top"},
-        "description": compact_meta_text(part.description or part.name, display_number, limit=300),
+        "description": seo_description,
         "mainEntityOfPage": {"@id": f"{part_url}#webpage"},
         "offers": {
             "@type": "Offer",
@@ -6605,6 +6661,12 @@ def build_part_product_schema(
         product_payload["additionalProperty"].append(
             {"@type": "PropertyValue", "name": "Основний OEM", "value": normalize_text(part.part_number or "").strip()}
         )
+    for cross_number in normalize_cross_numbers(cross_numbers or [], part.part_number or ""):
+        if compact_part_code(cross_number) == compact_part_code(display_number):
+            continue
+        product_payload["additionalProperty"].append(
+            {"@type": "PropertyValue", "name": "Крос-номер", "value": cross_number}
+        )
     if gallery:
         product_payload["image"] = gallery
     if categories:
@@ -6629,8 +6691,8 @@ def build_part_product_schema(
         if visible_reviews:
             product_payload["review"] = visible_reviews
 
-    title = compact_meta_text(display_number, part.name, limit=90)
-    description = compact_meta_text("Купити запчастину", display_number, part.name, f"наявність {int(part.qty or 0)} шт.", limit=160)
+    title = part_seo_name(part, display_number, limit=90)
+    description = part_seo_description(part, display_number, price_uah=price, include_main_part_number=True, limit=160)
     return graph_json_ld(
         webpage_schema_payload(title, description, part_url),
         breadcrumb_schema_payload(
@@ -8121,6 +8183,7 @@ def inject_globals():
         "packing_status_label": packing_status_label,
         "transit_status_label": transit_status_label,
         "producer_type_label": producer_type_label,
+        "part_seo_name": part_seo_name,
         "safe_photo": safe_photo,
         "parse_media_urls": parse_media_urls,
         "youtube_embed_url": youtube_embed_url,
@@ -9149,7 +9212,9 @@ def part_detail(part_id, slug=None):
             db.commit()
         review_summary = product_review_summary(db, part.id)
         reviews = approved_product_reviews(db, part.id)
-        part_title = compact_meta_text(part.part_number, part.name, "купити запчастину з США", limit=95)
+        part_template = find_part_template(db, part.part_number)
+        part_cross_numbers = template_cross_numbers(part_template)
+        part_title = compact_meta_text(part_seo_name(part, limit=80), "купити запчастину з США", limit=95)
         part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
         part_og_image = absolute_public_url(public_part_photo(part))
         return render_template(
@@ -9160,20 +9225,20 @@ def part_detail(part_id, slug=None):
             display_usd=display_usd,
             display_uah=display_uah,
             seo_title=f"{part_title} | USAparts.top",
-            seo_description=compact_meta_text(
-                "Купити запчастину",
-                part.part_number,
-                part.name,
-                f"ціна ₴{part_price}",
-                f"наявність {int(part.qty or 0)} шт.",
-            ),
+            seo_description=part_seo_description(part, price_uah=part_price, limit=160),
             canonical_url=public_part_url(part),
             og_type="product",
             og_image_url=part_og_image,
             review_summary=review_summary,
             reviews=reviews,
             part_seo_links=seo_links_for_part(part),
-            json_ld=build_part_product_schema(part, warehouse, review_summary=review_summary, reviews=reviews),
+            json_ld=build_part_product_schema(
+                part,
+                warehouse,
+                review_summary=review_summary,
+                reviews=reviews,
+                cross_numbers=part_cross_numbers,
+            ),
         )
     finally:
         db.close()
@@ -9204,7 +9269,8 @@ def cross_part_detail(cross_number, part_id, slug=None):
             db.commit()
         review_summary = product_review_summary(db, part.id)
         reviews = approved_product_reviews(db, part.id)
-        part_title = compact_meta_text(clean_cross, part.name, "крос-номер запчастини з США", limit=95)
+        part_cross_numbers = template_cross_numbers(template)
+        part_title = compact_meta_text(part_seo_name(part, clean_cross, limit=80), "крос-номер запчастини з США", limit=95)
         part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
         part_og_image = absolute_public_url(public_part_photo(part))
         cross_url = public_cross_part_url(part, clean_cross)
@@ -9218,12 +9284,13 @@ def cross_part_detail(cross_number, part_id, slug=None):
             display_usd=display_usd,
             display_uah=display_uah,
             seo_title=f"{part_title} | USAparts.top",
-            seo_description=compact_meta_text(
-                "Купити запчастину по крос-номеру",
+            seo_description=part_seo_description(
+                part,
                 clean_cross,
-                part.name,
-                f"основний OEM {part.part_number}",
-                f"ціна ₴{part_price}",
+                price_uah=part_price,
+                prefix="Купити запчастину по крос-номеру",
+                include_main_part_number=True,
+                limit=160,
             ),
             canonical_url=cross_url,
             og_type="product",
@@ -9231,7 +9298,15 @@ def cross_part_detail(cross_number, part_id, slug=None):
             review_summary=review_summary,
             reviews=reviews,
             part_seo_links=seo_links_for_part(part),
-            json_ld=build_part_product_schema(part, warehouse, display_part_number=clean_cross, canonical_url=cross_url, review_summary=review_summary, reviews=reviews),
+            json_ld=build_part_product_schema(
+                part,
+                warehouse,
+                display_part_number=clean_cross,
+                canonical_url=cross_url,
+                review_summary=review_summary,
+                reviews=reviews,
+                cross_numbers=part_cross_numbers,
+            ),
         )
     finally:
         db.close()

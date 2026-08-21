@@ -88,12 +88,12 @@
     <div class="showcase-card">
       <a href="{{ part_detail_url(part) }}">
         <span class="watermarked-photo">
-          <img class="showcase-img" src="{{ public_photo }}" alt="{{ part.part_number }} {{ clean_text(part.name) }}">
+          <img class="showcase-img" src="{{ public_photo }}" alt="{{ part_seo_name(part) }}">
         </span>
       </a>
       <div class="showcase-body">
         <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
-        <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) }}</a></h3>
+        <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ part_seo_name(part) }}</a></h3>
         <div class="muted seo-card-oem">OEM: {{ part.part_number }}</div>
         {% set warehouse_markup = part.warehouse.markup_percent if part.warehouse else 0 %}
         <div class="price-row">{{ display_public_price_uah(part.price_usd, warehouse_markup) }}</div>

@@ -12,8 +12,8 @@
     <input name="q" value="{{ q }}" placeholder="Наприклад 5QM145803D, фара, кронштейн або BMW">
     <select name="condition">
       <option value="">Усі товари</option>
-      <option value="used" {% if condition=='used' %}selected{% endif %}>Запчастини Б/У</option>
-      <option value="new" {% if condition=='new' %}selected{% endif %}>OEM / нові</option>
+      <option value="used" {% if condition=='used' %}selected{% endif %}>Вживані / Б/У</option>
+      <option value="new" {% if condition=='new' %}selected{% endif %}>Нові запчастини</option>
     </select>
     <button class="btn primary" type="submit">Пошук</button>
   </form>

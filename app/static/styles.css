@@ -78,6 +78,15 @@ a{text-decoration:none;color:inherit}
 .policy-map-copy{padding:18px 20px;border-bottom:1px solid rgba(148,163,184,.14)}
 .policy-map-frame{position:relative;aspect-ratio:4/3;background:#0b1118}
 .policy-map-frame iframe{width:100%;height:100%;display:block;filter:saturate(.9) contrast(1.02)}
+.policy-public-page{padding:36px 0 54px}
+.policy-standalone-card{max-width:980px;margin:0 auto;padding:32px;color:#d8e3f3;line-height:1.72}
+.policy-standalone-card h1{margin:12px 0 18px;font-size:clamp(34px,4vw,54px);line-height:1.05;color:#fff}
+.policy-standalone-card h2{margin:26px 0 10px;color:#fbbf24;font-size:22px}
+.policy-standalone-card p{margin:0 0 12px}
+.policy-standalone-card a{color:#fbbf24;font-weight:800}
+.policy-standalone-card ul{margin:8px 0 14px;padding-left:22px}
+.policy-standalone-card li{margin:6px 0}
+.policy-standalone-map{margin-top:20px;border:1px solid rgba(148,163,184,.18);border-radius:22px;overflow:hidden}
 .hero{padding:72px 0}
 .premium-hero{padding-top:48px}
 .eyebrow{display:inline-block;padding:8px 12px;border-radius:999px;background:rgba(255,179,0,.12);color:#ffd166;border:1px solid rgba(255,179,0,.3);font-size:12px;font-weight:700;letter-spacing:.08em}
@@ -4089,7 +4098,7 @@ body.admin-theme .transit-batch-actions{
 
 .part-detail-meta-grid{
   display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-template-columns:repeat(4,minmax(0,1fr));
   gap:10px;
 }
 

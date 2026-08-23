@@ -46,7 +46,7 @@
   <link rel="icon" href="{{ url_for('favicon_ico') }}" sizes="any">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('apple_touch_icon') }}">
   <link rel="manifest" href="{{ url_for('site_webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=20260626-delivery-calculator">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=20260823-merchant-policy">
   {% if json_ld|default('') %}
   <script type="application/ld+json">{{ json_ld|safe }}</script>
   {% endif %}
@@ -63,8 +63,8 @@
         <div class="store-top-links">
           <span>Пн-Пт: 9:00-18:00</span>
           <a href="tel:+380960865846">+38 (096) 086 5846</a>
-          <a href="#policy-delivery">Оплата і доставка</a>
-          <a href="#policy-return">Обмін та повернення</a>
+          <a href="{{ url_for('delivery_payment') }}">Оплата і доставка</a>
+          <a href="{{ url_for('return_policy') }}">Обмін та повернення</a>
         </div>
       </div>
     </div>
@@ -92,7 +92,7 @@
         <a class="nav-link delivery-calculator-link" href="{{ url_for('delivery_calculator') }}">Калькулятор доставки</a>
         <a class="nav-link" href="{{ url_for('cars_public', status='in_stock') }}">Авто в наявності</a>
         <a class="nav-link" href="{{ url_for('cars_public', status='in_transit') }}">Авто в дорозі</a>
-        <a class="nav-link" href="#policyTabs">Покупцю</a>
+        <a class="nav-link" href="{{ url_for('delivery_payment') }}">Покупцю</a>
         <a class="nav-link phone-link" href="tel:+380960865846">Зворотній зв'язок</a>
       </div>
     </nav>

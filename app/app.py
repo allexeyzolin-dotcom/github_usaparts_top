@@ -1147,6 +1147,67 @@ def producer_type_label(value: str | None) -> str:
     return text or "OEM"
 
 
+def part_condition_code(part: Part | None) -> str:
+    if not part:
+        return "USED"
+    text = " ".join(
+        normalize_text(value or "").strip()
+        for value in (
+            getattr(part, "part_number", ""),
+            getattr(part, "name", ""),
+            getattr(part, "description", ""),
+            getattr(part, "brand", ""),
+            getattr(part, "brand_export", ""),
+            getattr(part, "producer_type", ""),
+            producer_type_label(getattr(part, "producer_type", "") or ""),
+        )
+    ).casefold()
+    used_markers = (
+        "б/у",
+        "б у",
+        "бу ",
+        " бу",
+        "used",
+        "уживан",
+        "вживан",
+        "розбір",
+        "разбор",
+        "шрот",
+        "демонтаж",
+    )
+    new_markers = (
+        "новий",
+        "нова",
+        "нове",
+        "новая",
+        "новое",
+        "нов.",
+        "new",
+        "новий аналог",
+        "новая аналог",
+        "аналог новий",
+    )
+    if any(marker in text for marker in used_markers):
+        return "USED"
+    if any(marker in text for marker in new_markers):
+        return "NEW"
+    # USAparts.top is primarily an auto dismantling store; avoid marking OEM
+    # stock as brand-new unless the card explicitly says it is new.
+    return "USED"
+
+
+def part_schema_item_condition(part: Part | None) -> str:
+    if part_condition_code(part) == "NEW":
+        return "https://schema.org/NewCondition"
+    return "https://schema.org/UsedCondition"
+
+
+def part_condition_label(part: Part | None) -> str:
+    if part_condition_code(part) == "NEW":
+        return "Нова"
+    return "Вживана / Б/У"
+
+
 def apply_template_to_parts(db, template: PartTemplate, only_parts=None):
     if not template:
         return []
@@ -5485,7 +5546,7 @@ def google_merchant_part_payload(part: Part, config: dict) -> tuple[dict | None,
         return None, "немає фото"
     part_number = normalize_text(part.part_number or "").strip()
     brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type)) or "USAparts.top"
-    condition = "NEW" if producer_type_label(part.producer_type) == "OEM" else "USED"
+    condition = part_condition_code(part)
     attributes = {
         "title": part_seo_name(part, part_number, limit=150),
         "description": part_seo_description(part, part_number, price_uah=price_uah, include_main_part_number=True, limit=5000),
@@ -6497,6 +6558,8 @@ def public_site_base_url() -> str:
     configured = (os.getenv("PUBLIC_SITE_URL") or os.getenv("SITE_BASE_URL") or "").strip()
     if configured:
         return configured.rstrip("/")
+    if not has_request_context():
+        return "https://usaparts.top"
     forwarded_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
     forwarded_host = (request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
     scheme = forwarded_proto or request.scheme or "https"
@@ -6561,7 +6624,8 @@ def absolute_public_url(path_or_url: str) -> str:
     if value.startswith(("http://", "https://")):
         return value
     if value.startswith("//"):
-        return f"{request.scheme}:{value}"
+        scheme = request.scheme if has_request_context() else "https"
+        return f"{scheme}:{value}"
     return f"{public_site_base_url()}/{value.lstrip('/')}"
 
 
@@ -6664,6 +6728,9 @@ def part_seo_slug(part: Part) -> str:
 
 
 def part_detail_url(part: Part, **values) -> str:
+    if not has_request_context():
+        slug = part_seo_slug(part)
+        return f"/part/{part.id}/{slug}" if slug else f"/part/{part.id}"
     return url_for("part_detail", part_id=part.id, slug=part_seo_slug(part), **values)
 
 
@@ -6673,6 +6740,9 @@ def public_part_url(part: Part) -> str:
 
 def cross_part_detail_url(part: Part, cross_number: str, **values) -> str:
     cross_slug = part_seo_slug_from_values(cross_number, part.name)
+    if not has_request_context():
+        clean_cross = quote(normalize_cross_number(cross_number), safe="")
+        return f"/cross/{clean_cross}/{part.id}/{cross_slug}" if cross_slug else f"/cross/{clean_cross}/{part.id}"
     return url_for(
         "cross_part_detail",
         cross_number=normalize_cross_number(cross_number),
@@ -6730,7 +6800,7 @@ def merchant_return_policy_payload() -> dict:
         return {
             "@type": "MerchantReturnPolicy",
             "@id": f"{base_url}/#return-policy",
-            "merchantReturnLink": f"{base_url}/#policy-return",
+            "merchantReturnLink": public_url_for("return_policy"),
             "applicableCountry": country,
             "returnPolicyCategory": "https://schema.org/MerchantReturnNotPermitted",
         }
@@ -6738,7 +6808,7 @@ def merchant_return_policy_payload() -> dict:
     return {
         "@type": "MerchantReturnPolicy",
         "@id": f"{base_url}/#return-policy",
-        "merchantReturnLink": f"{base_url}/#policy-return",
+        "merchantReturnLink": public_url_for("return_policy"),
         "applicableCountry": country,
         "returnPolicyCountry": country,
         "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
@@ -6955,7 +7025,7 @@ def build_part_product_schema(
             "price": price,
             "priceValidUntil": seo_price_valid_until(),
             "availability": "https://schema.org/InStock" if part.in_stock and int(part.qty or 0) > 0 else "https://schema.org/OutOfStock",
-            "itemCondition": "https://schema.org/NewCondition" if producer_type_label(part.producer_type) == "OEM" else "https://schema.org/UsedCondition",
+            "itemCondition": part_schema_item_condition(part),
             "inventoryLevel": {
                 "@type": "QuantitativeValue",
                 "value": max(int(part.qty or 0), 0),
@@ -8495,6 +8565,7 @@ def inject_globals():
         "packing_status_label": packing_status_label,
         "transit_status_label": transit_status_label,
         "producer_type_label": producer_type_label,
+        "part_condition_label": part_condition_label,
         "part_seo_name": part_seo_name,
         "safe_photo": safe_photo,
         "parse_media_urls": parse_media_urls,
@@ -8653,6 +8724,8 @@ def sitemap_pages_xml():
             sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"),
             sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"),
             sitemap_url_node(public_url_for("delivery_calculator"), changefreq="monthly", priority="0.6"),
+            sitemap_url_node(public_url_for("delivery_payment"), changefreq="monthly", priority="0.6"),
+            sitemap_url_node(public_url_for("return_policy"), changefreq="monthly", priority="0.6"),
             sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
         ]
         return sitemap_xml_response(nodes)
@@ -9005,6 +9078,38 @@ def delivery_calculator_app():
     return response
 
 
+@app.route("/return-policy")
+def return_policy():
+    seo_title = "Обмін та повернення запчастин | USAparts.top"
+    seo_description = "Правила обміну та повернення автозапчастин USAparts.top: строки звернення, адреса повернення, умови перевірки товару і контакти."
+    canonical_url = public_url_for("return_policy")
+    return render_template(
+        "policy_page.html",
+        policy_kind="return",
+        seo_title=seo_title,
+        seo_description=seo_description,
+        canonical_url=canonical_url,
+        og_type="article",
+        json_ld=graph_json_ld(webpage_schema_payload(seo_title, seo_description, canonical_url)),
+    )
+
+
+@app.route("/delivery-payment")
+def delivery_payment():
+    seo_title = "Оплата і доставка автозапчастин | USAparts.top"
+    seo_description = "Оплата і доставка запчастин USAparts.top: Нова Пошта, Делівері, самовивіз у Ромнах, строки відправки та варіанти оплати."
+    canonical_url = public_url_for("delivery_payment")
+    return render_template(
+        "policy_page.html",
+        policy_kind="delivery",
+        seo_title=seo_title,
+        seo_description=seo_description,
+        canonical_url=canonical_url,
+        og_type="article",
+        json_ld=graph_json_ld(webpage_schema_payload(seo_title, seo_description, canonical_url)),
+    )
+
+
 @app.route("/")
 def home():
     db = SessionLocal()
@@ -9313,9 +9418,9 @@ def catalog():
         parts_pool = cached_catalog_active_parts(db)
         search_found_without_photo = False
         if condition == "used":
-            parts_pool = [part for part in parts_pool if producer_type_label(part.producer_type) == "Замінник"]
+            parts_pool = [part for part in parts_pool if part_condition_code(part) == "USED"]
         elif condition == "new":
-            parts_pool = [part for part in parts_pool if producer_type_label(part.producer_type) == "OEM"]
+            parts_pool = [part for part in parts_pool if part_condition_code(part) == "NEW"]
         cross_map = cached_cross_numbers_map_for_parts(db, parts_pool, f"catalog-{condition or 'all'}")
         all_matching_parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1), cross_map=cross_map)
         pagination = public_catalog_pagination(requested_page, parts_total, per_page=48)

@@ -87,6 +87,10 @@
           <strong>{{ producer_type_label(part.producer_type) }}</strong>
         </div>
         <div>
+          <span>Стан</span>
+          <strong>{{ part_condition_label(part) }}</strong>
+        </div>
+        <div>
           <span>Бренд</span>
           <strong>{{ clean_text(part.brand or 'USAparts.top') }}</strong>
         </div>

@@ -30,6 +30,13 @@ from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionma
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
+try:
+    from google.oauth2 import service_account as google_service_account
+    from google.auth.transport.requests import Request as GoogleAuthRequest
+except Exception:
+    google_service_account = None
+    GoogleAuthRequest = None
+
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -93,6 +100,8 @@ BACKUP_DIR = Path(os.getenv("BACKUP_DIR", str(PROJECT_ROOT / "backups"))).resolv
 BACKUP_LOCK = threading.Lock()
 BACKUP_SCHEDULER_STARTED = False
 BACKUP_SCHEDULER_INTERVAL_SECONDS = max(int(os.getenv("BACKUP_SCHEDULER_INTERVAL_SECONDS", "900") or 900), 60)
+GOOGLE_MERCHANT_API_BASE = "https://merchantapi.googleapis.com"
+GOOGLE_MERCHANT_SCOPE = "https://www.googleapis.com/auth/content"
 
 
 class Warehouse(Base):
@@ -5352,6 +5361,206 @@ def parse_backup_int(value, default, min_value=None, max_value=None):
     if max_value is not None:
         parsed = min(parsed, max_value)
     return parsed
+
+
+def google_merchant_settings_from_map(settings=None):
+    settings = settings or {}
+    return {
+        "enabled": parse_backup_bool(settings.get("google_merchant_enabled"), False),
+        "account_id": normalize_text(settings.get("google_merchant_account_id") or "").strip(),
+        "data_source_id": normalize_text(settings.get("google_merchant_data_source_id") or "").strip(),
+        "content_language": (normalize_text(settings.get("google_merchant_content_language") or "uk").strip() or "uk")[:10],
+        "feed_label": (normalize_text(settings.get("google_merchant_feed_label") or "UA").strip() or "UA")[:20],
+        "allow_placeholder_images": parse_backup_bool(settings.get("google_merchant_allow_placeholder_images"), False),
+        "sync_limit": parse_backup_int(settings.get("google_merchant_sync_limit"), 200, 1, 5000),
+        "service_account_json": settings.get("google_merchant_service_account_json") or "",
+        "last_status": settings.get("google_merchant_last_status") or "",
+        "last_message": settings.get("google_merchant_last_message") or "",
+        "last_at": settings.get("google_merchant_last_at") or "",
+        "last_synced": settings.get("google_merchant_last_synced") or "0",
+        "last_errors": settings.get("google_merchant_last_errors") or "0",
+    }
+
+
+def google_merchant_required_missing(config: dict) -> list[str]:
+    missing = []
+    if not config.get("account_id"):
+        missing.append("Merchant account ID")
+    if not config.get("data_source_id"):
+        missing.append("Data source ID")
+    if not (config.get("service_account_json") or "").strip():
+        missing.append("Service account JSON")
+    return missing
+
+
+def google_merchant_data_source_name(config: dict) -> str:
+    account_id = str(config.get("account_id") or "").strip()
+    data_source_id = str(config.get("data_source_id") or "").strip()
+    if data_source_id.startswith("accounts/"):
+        return data_source_id
+    return f"accounts/{account_id}/dataSources/{data_source_id}"
+
+
+def google_merchant_service_account_info(config: dict) -> dict:
+    raw = (config.get("service_account_json") or "").strip()
+    if not raw:
+        raise Exception("Вставте JSON service account або шлях до JSON-файлу в контейнері.")
+    try:
+        info = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            path = Path(raw)
+            path_exists = path.exists()
+        except OSError:
+            path_exists = False
+        if not path_exists:
+            raise Exception("Service account JSON не схожий на JSON і файл за цим шляхом не знайдено.")
+        try:
+            info = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as error:
+            raise Exception(f"Не вдалося прочитати service account JSON з файлу: {error}")
+    if not isinstance(info, dict) or info.get("type") != "service_account":
+        raise Exception("Service account JSON має містити поле type=service_account.")
+    return info
+
+
+def google_merchant_access_token(config: dict) -> str:
+    if google_service_account is None or GoogleAuthRequest is None:
+        raise Exception("Пакет google-auth не встановлений. Перезберіть Docker-образ після оновлення requirements.txt.")
+    missing = google_merchant_required_missing(config)
+    if missing:
+        raise Exception("Не заповнено: " + ", ".join(missing))
+    credentials = google_service_account.Credentials.from_service_account_info(
+        google_merchant_service_account_info(config),
+        scopes=[GOOGLE_MERCHANT_SCOPE],
+    )
+    credentials.refresh(GoogleAuthRequest())
+    return credentials.token
+
+
+def google_merchant_request_headers(config: dict) -> dict:
+    return {
+        "Authorization": f"Bearer {google_merchant_access_token(config)}",
+        "Content-Type": "application/json",
+    }
+
+
+def google_merchant_price_micros(price_uah: str) -> str:
+    value = Decimal(str(price_uah or "0")).quantize(Decimal("0.01"))
+    return str(int(value * Decimal("1000000")))
+
+
+def google_merchant_offer_id(part: Part) -> str:
+    compact = re.sub(r"[^A-Za-z0-9_-]+", "", normalize_text(part.part_number or "").strip())
+    compact = compact[:50].strip("-_")
+    return compact or f"part-{part.id}"
+
+
+def google_merchant_part_payload(part: Part, config: dict) -> tuple[dict | None, str]:
+    if not part or part.is_deleted or not part.in_stock or int(part.qty or 0) <= 0:
+        return None, "товар не в наявності"
+    warehouse = part.warehouse
+    price_uah = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
+    if Decimal(str(price_uah or "0")) <= 0:
+        return None, "ціна дорівнює 0"
+    real_gallery = parse_media_urls(part.showcase_photo_urls) or parse_media_urls(part.photo_urls)
+    if not real_gallery and not config.get("allow_placeholder_images"):
+        return None, "немає реального фото"
+    gallery = real_gallery or public_part_gallery_urls(part)
+    image_url = absolute_public_url(gallery[0]) if gallery else ""
+    if not image_url:
+        return None, "немає фото"
+    part_number = normalize_text(part.part_number or "").strip()
+    brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type)) or "USAparts.top"
+    condition = "NEW" if producer_type_label(part.producer_type) == "OEM" else "USED"
+    attributes = {
+        "title": part_seo_name(part, part_number, limit=150),
+        "description": part_seo_description(part, part_number, price_uah=price_uah, include_main_part_number=True, limit=5000),
+        "link": public_part_url(part),
+        "imageLink": image_url,
+        "availability": "IN_STOCK",
+        "condition": condition,
+        "price": {
+            "amountMicros": google_merchant_price_micros(price_uah),
+            "currencyCode": "UAH",
+        },
+        "brand": brand_name[:70],
+        "mpn": part_number[:70],
+        "identifierExists": bool(part_number),
+        "customLabel0": (warehouse_public_name(warehouse) if warehouse else "Всі товари")[:100],
+    }
+    additional_images = [absolute_public_url(url) for url in gallery[1:11]]
+    if additional_images:
+        attributes["additionalImageLinks"] = additional_images
+    return {
+        "offerId": google_merchant_offer_id(part),
+        "contentLanguage": config["content_language"],
+        "feedLabel": config["feed_label"],
+        "productAttributes": attributes,
+    }, ""
+
+
+def google_merchant_test_connection(db) -> dict:
+    config = google_merchant_settings_from_map(get_api_settings_map(db))
+    headers = google_merchant_request_headers(config)
+    data_source_name = google_merchant_data_source_name(config)
+    response = requests.get(
+        f"{GOOGLE_MERCHANT_API_BASE}/datasources/v1/{data_source_name}",
+        headers=headers,
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        raise Exception(f"Google Merchant API: {response.status_code} {response.text[:500]}")
+    payload = response.json()
+    return {
+        "ok": True,
+        "message": f"Доступ підтверджено. Data source: {payload.get('displayName') or payload.get('name') or data_source_name}",
+    }
+
+
+def google_merchant_sync_products(db, limit: int | None = None) -> dict:
+    config = google_merchant_settings_from_map(get_api_settings_map(db))
+    if not config.get("enabled"):
+        raise Exception("Google Merchant API вимкнений у налаштуваннях.")
+    headers = google_merchant_request_headers(config)
+    sync_limit = parse_backup_int(limit, config.get("sync_limit") or 200, 1, 5000)
+    data_source_name = google_merchant_data_source_name(config)
+    url = f"{GOOGLE_MERCHANT_API_BASE}/products/v1/accounts/{config['account_id']}/productInputs:insert"
+    params = {"dataSource": data_source_name}
+    parts = cached_unique_public_parts(db)
+    synced = 0
+    skipped = 0
+    errors: list[str] = []
+    for part in parts:
+        if synced >= sync_limit:
+            break
+        payload, skip_reason = google_merchant_part_payload(part, config)
+        if not payload:
+            skipped += 1
+            continue
+        response = requests.post(url, headers=headers, params=params, json=payload, timeout=30)
+        if response.status_code >= 400:
+            errors.append(f"{part.part_number}: {response.status_code} {response.text[:240]}")
+            if len(errors) >= 10:
+                break
+            continue
+        synced += 1
+    status = "success" if not errors else ("partial" if synced else "error")
+    message = f"Відправлено {synced} товарів. Пропущено {skipped}."
+    if errors:
+        message += " Помилки: " + " | ".join(errors[:3])
+    set_setting(db, "google_merchant_last_status", status)
+    set_setting(db, "google_merchant_last_message", message[:1500])
+    set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
+    set_setting(db, "google_merchant_last_synced", str(synced))
+    set_setting(db, "google_merchant_last_errors", str(len(errors)))
+    return {
+        "status": status,
+        "message": message,
+        "synced": synced,
+        "skipped": skipped,
+        "errors": errors,
+    }
 
 
 def get_backup_settings(settings=None):
@@ -12743,19 +12952,63 @@ def admin_api():
     db = SessionLocal()
     try:
         if request.method == "POST":
-            for key in ["nova_poshta_api_key", "telegram_bot_token", "telegram_chat_id"]:
-                value = request.form.get(key, "").strip()
-                row = db.query(ApiSetting).filter(ApiSetting.setting_key == key).one_or_none()
-                if row:
-                    row.setting_value = value
-                    row.updated_at = now()
-                else:
-                    db.add(ApiSetting(setting_key=key, setting_value=value, updated_at=now()))
-            flash_news(db, "api", "Налаштування API оновлено", "Оновлено ключ Nova Poshta і параметри Telegram.", "info")
+            action = request.form.get("api_action") or "save_settings"
+            if action == "save_telegram_chat":
+                for key in ["nova_poshta_api_key", "telegram_bot_token", "telegram_chat_id"]:
+                    set_setting(db, key, request.form.get(key, "").strip())
+                flash_news(db, "api", "Telegram chat ID оновлено", "Обрано чат зі списку доступних Telegram-чатів.", "info")
+                db.commit()
+                flash("Telegram chat ID збережено.", "success")
+                return redirect(url_for("admin_api"))
+            if action == "google_merchant_test":
+                try:
+                    result = google_merchant_test_connection(db)
+                    set_setting(db, "google_merchant_last_status", "success")
+                    set_setting(db, "google_merchant_last_message", result["message"])
+                    set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
+                    flash_news(db, "api", "Google Merchant API перевірено", result["message"], "info")
+                    db.commit()
+                    flash(result["message"], "success")
+                except Exception as error:
+                    set_setting(db, "google_merchant_last_status", "error")
+                    set_setting(db, "google_merchant_last_message", str(error)[:1500])
+                    set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
+                    db.commit()
+                    flash(f"Google Merchant API: {error}", "error")
+                return redirect(url_for("admin_api"))
+            if action == "google_merchant_sync":
+                try:
+                    result = google_merchant_sync_products(db, request.form.get("sync_limit"))
+                    flash_news(db, "api", "Google Merchant синхронізація", result["message"], "info" if result["status"] == "success" else "error")
+                    db.commit()
+                    flash(result["message"], "success" if result["status"] == "success" else "error")
+                except Exception as error:
+                    set_setting(db, "google_merchant_last_status", "error")
+                    set_setting(db, "google_merchant_last_message", str(error)[:1500])
+                    set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
+                    db.commit()
+                    flash(f"Google Merchant API: {error}", "error")
+                return redirect(url_for("admin_api"))
+            for key in [
+                "nova_poshta_api_key",
+                "telegram_bot_token",
+                "telegram_chat_id",
+                "google_merchant_account_id",
+                "google_merchant_data_source_id",
+                "google_merchant_content_language",
+                "google_merchant_feed_label",
+                "google_merchant_sync_limit",
+                "google_merchant_service_account_json",
+            ]:
+                set_setting(db, key, request.form.get(key, "").strip())
+            set_setting(db, "google_merchant_enabled", "1" if request.form.get("google_merchant_enabled") else "0")
+            set_setting(db, "google_merchant_allow_placeholder_images", "1" if request.form.get("google_merchant_allow_placeholder_images") else "0")
+            flash_news(db, "api", "Налаштування API оновлено", "Оновлено Nova Poshta, Telegram і Google Merchant.", "info")
             db.commit()
             flash("Налаштування API збережені.", "success")
             return redirect(url_for("admin_api"))
         settings = get_api_settings_map(db)
+        google_merchant_config = google_merchant_settings_from_map(settings)
         telegram_status = telegram_connection_status(db)
         recent_telegram_chats = telegram_recent_chats(db)
         news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
@@ -12763,6 +13016,7 @@ def admin_api():
             "admin_api.html",
             settings=settings,
             news=news,
+            google_merchant_config=google_merchant_config,
             telegram_status=telegram_status,
             recent_telegram_chats=recent_telegram_chats,
         )

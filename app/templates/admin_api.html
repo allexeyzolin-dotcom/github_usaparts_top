@@ -3,12 +3,13 @@
 <div class="panel-header">
   <div>
     <h2>API</h2>
-    <div class="muted">Налаштування Nova Poshta, Telegram і mobile API додатка.</div>
+    <div class="muted">Налаштування Nova Poshta, Telegram, Google Merchant і mobile API додатка.</div>
   </div>
 </div>
 
 <div class="card stack">
   <form method="post" class="stack">
+    <input type="hidden" name="api_action" value="save_settings">
     <h3>Nova Poshta</h3>
     <label class="field-label">Nova Poshta API key</label>
     <input name="nova_poshta_api_key" value="{{ settings.get('nova_poshta_api_key','') }}" placeholder="Введіть ключ Nova Poshta">
@@ -26,8 +27,85 @@
       Якщо бот не надсилає повідомлення, додайте його в групу і надішліть у групу команду <strong>/start</strong> або згадайте бота, після чого оновіть сторінку.
     </div>
 
+    <h3>Google Merchant</h3>
+    <label class="choice">
+      <input type="checkbox" name="google_merchant_enabled" value="1" {% if google_merchant_config.enabled %}checked{% endif %}>
+      <span>
+        <strong>Увімкнути синхронізацію товарів у Google Merchant</strong>
+        <span class="muted">Ручна синхронізація відправляє активні товари в наявності з цінами в UAH.</span>
+      </span>
+    </label>
+
+    <div class="grid two">
+      <label>
+        <span class="field-label">Merchant account ID</span>
+        <input name="google_merchant_account_id" value="{{ google_merchant_config.account_id }}" placeholder="Наприклад 123456789">
+      </label>
+      <label>
+        <span class="field-label">API Data source ID</span>
+        <input name="google_merchant_data_source_id" value="{{ google_merchant_config.data_source_id }}" placeholder="Наприклад 987654321">
+      </label>
+      <label>
+        <span class="field-label">Content language</span>
+        <input name="google_merchant_content_language" value="{{ google_merchant_config.content_language }}" placeholder="uk">
+      </label>
+      <label>
+        <span class="field-label">Feed label / країна продажу</span>
+        <input name="google_merchant_feed_label" value="{{ google_merchant_config.feed_label }}" placeholder="UA">
+      </label>
+      <label>
+        <span class="field-label">Ліміт ручної синхронізації</span>
+        <input name="google_merchant_sync_limit" type="number" min="1" max="5000" value="{{ google_merchant_config.sync_limit }}">
+      </label>
+    </div>
+
+    <label class="choice">
+      <input type="checkbox" name="google_merchant_allow_placeholder_images" value="1" {% if google_merchant_config.allow_placeholder_images %}checked{% endif %}>
+      <span>
+        <strong>Дозволити тематичне фото-заглушку для товарів без фото</strong>
+        <span class="muted">Безпечніше вимкнути: Google Merchant може відхиляти товари без реального фото.</span>
+      </span>
+    </label>
+
+    <label>
+      <span class="field-label">Service account JSON</span>
+      <textarea name="google_merchant_service_account_json" rows="8" placeholder='Вставте JSON service account або шлях до JSON-файлу в контейнері'>{{ google_merchant_config.service_account_json }}</textarea>
+    </label>
+
+    <div class="helper-note">
+      У Google Merchant Center потрібно створити джерело даних типу <strong>API</strong>, а service account додати до Merchant Center з правом керування товарами.
+      Для Google Merchant API використовується OAuth scope <code>https://www.googleapis.com/auth/content</code>.
+    </div>
+
     <button class="btn primary">Зберегти налаштування</button>
   </form>
+
+  <div class="card inner-card stack">
+    <div>
+      <div class="field-label">Статус Google Merchant</div>
+      {% if google_merchant_config.last_at %}
+        <div class="helper-note {% if google_merchant_config.last_status == 'success' %}success{% elif google_merchant_config.last_status == 'error' %}error{% else %}warn{% endif %}">
+          {{ google_merchant_config.last_at }} • {{ google_merchant_config.last_message or 'Статус ще не отримано.' }}
+          {% if google_merchant_config.last_synced != '0' or google_merchant_config.last_errors != '0' %}
+            <br>Остання синхронізація: {{ google_merchant_config.last_synced }} товарів, помилок: {{ google_merchant_config.last_errors }}.
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="helper-note warn">Google Merchant ще не перевірявся.</div>
+      {% endif %}
+    </div>
+    <div class="button-row">
+      <form method="post">
+        <input type="hidden" name="api_action" value="google_merchant_test">
+        <button class="btn ghost" type="submit">Перевірити доступ</button>
+      </form>
+      <form method="post">
+        <input type="hidden" name="api_action" value="google_merchant_sync">
+        <input type="hidden" name="sync_limit" value="{{ google_merchant_config.sync_limit }}">
+        <button class="btn primary" type="submit" {% if not google_merchant_config.enabled %}disabled{% endif %}>Відправити товари і ціни</button>
+      </form>
+    </div>
+  </div>
 
   <div class="card inner-card">
     <div class="field-label">Статус Telegram</div>
@@ -51,6 +129,7 @@
       <div class="stack">
         {% for chat in recent_telegram_chats %}
           <form method="post" class="choice stack">
+            <input type="hidden" name="api_action" value="save_telegram_chat">
             <input type="hidden" name="nova_poshta_api_key" value="{{ settings.get('nova_poshta_api_key','') }}">
             <input type="hidden" name="telegram_bot_token" value="{{ settings.get('telegram_bot_token','') }}">
             <input type="hidden" name="telegram_chat_id" value="{{ chat.id }}">

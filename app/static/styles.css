@@ -3981,6 +3981,15 @@ body.admin-theme .transit-batch-actions{
   margin:10px 0;
 }
 
+.public-shop-theme .product-title-link{
+  color:#172033;
+  font-weight:850;
+}
+
+.public-shop-theme .product-title-link:hover{
+  color:#0f4c81;
+}
+
 .public-shop-theme .price-row{
   color:#111827;
   font-size:21px;

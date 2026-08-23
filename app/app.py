@@ -100,6 +100,7 @@ BACKUP_DIR = Path(os.getenv("BACKUP_DIR", str(PROJECT_ROOT / "backups"))).resolv
 BACKUP_LOCK = threading.Lock()
 BACKUP_SCHEDULER_STARTED = False
 BACKUP_SCHEDULER_INTERVAL_SECONDS = max(int(os.getenv("BACKUP_SCHEDULER_INTERVAL_SECONDS", "900") or 900), 60)
+GOOGLE_MERCHANT_SYNC_LOCK = threading.Lock()
 GOOGLE_MERCHANT_API_BASE = "https://merchantapi.googleapis.com"
 GOOGLE_MERCHANT_SCOPE = "https://www.googleapis.com/auth/content"
 
@@ -5365,6 +5366,14 @@ def parse_backup_int(value, default, min_value=None, max_value=None):
 
 def google_merchant_settings_from_map(settings=None):
     settings = settings or {}
+    last_status = settings.get("google_merchant_last_status") or ""
+    last_at = settings.get("google_merchant_last_at") or ""
+    is_running = last_status == "running"
+    if is_running and last_at:
+        try:
+            is_running = datetime.fromisoformat(last_at) > datetime.now() - timedelta(hours=2)
+        except ValueError:
+            is_running = False
     return {
         "enabled": parse_backup_bool(settings.get("google_merchant_enabled"), False),
         "account_id": normalize_text(settings.get("google_merchant_account_id") or "").strip(),
@@ -5375,9 +5384,10 @@ def google_merchant_settings_from_map(settings=None):
         "sync_limit": parse_backup_int(settings.get("google_merchant_sync_limit"), 200, 1, 5000),
         "developer_email": normalize_text(settings.get("google_merchant_developer_email") or "").strip(),
         "service_account_json": settings.get("google_merchant_service_account_json") or "",
-        "last_status": settings.get("google_merchant_last_status") or "",
+        "last_status": last_status,
         "last_message": settings.get("google_merchant_last_message") or "",
-        "last_at": settings.get("google_merchant_last_at") or "",
+        "last_at": last_at,
+        "is_running": is_running,
         "last_synced": settings.get("google_merchant_last_synced") or "0",
         "last_errors": settings.get("google_merchant_last_errors") or "0",
     }
@@ -5593,6 +5603,63 @@ def google_merchant_sync_products(db, limit: int | None = None) -> dict:
         "skipped": skipped,
         "errors": errors,
     }
+
+
+def google_merchant_sync_worker(limit: int | None = None) -> None:
+    db = SessionLocal()
+    try:
+        result = google_merchant_sync_products(db, limit)
+        flash_news(db, "api", "Google Merchant синхронізація", result["message"], "info" if result["status"] == "success" else "error")
+        db.commit()
+    except Exception as error:
+        try:
+            set_setting(db, "google_merchant_last_status", "error")
+            set_setting(db, "google_merchant_last_message", str(error)[:1500])
+            set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
+            set_setting(db, "google_merchant_last_errors", "1")
+            flash_news(db, "api", "Google Merchant синхронізація", str(error)[:600], "error")
+            db.commit()
+        except Exception:
+            db.rollback()
+    finally:
+        db.close()
+        GOOGLE_MERCHANT_SYNC_LOCK.release()
+
+
+def google_merchant_start_background_sync(db, limit: int | None = None) -> dict:
+    if not GOOGLE_MERCHANT_SYNC_LOCK.acquire(blocking=False):
+        return {
+            "started": False,
+            "message": "Синхронізація Google Merchant уже виконується у фоні. Оновіть сторінку через хвилину, щоб побачити статус.",
+        }
+    try:
+        config = google_merchant_settings_from_map(get_api_settings_map(db))
+        if not config.get("enabled"):
+            raise Exception("Google Merchant API вимкнений у налаштуваннях.")
+        missing = google_merchant_required_missing(config)
+        if missing:
+            raise Exception("Не заповнено: " + ", ".join(missing))
+        sync_limit = parse_backup_int(limit, config.get("sync_limit") or 200, 1, 5000)
+        set_setting(db, "google_merchant_last_status", "running")
+        set_setting(db, "google_merchant_last_message", f"Синхронізацію запущено у фоні. Ліміт: {sync_limit} товарів.")
+        set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
+        set_setting(db, "google_merchant_last_synced", "0")
+        set_setting(db, "google_merchant_last_errors", "0")
+        thread = threading.Thread(
+            target=google_merchant_sync_worker,
+            args=(sync_limit,),
+            name="google-merchant-sync",
+            daemon=True,
+        )
+        db.commit()
+        thread.start()
+        return {
+            "started": True,
+            "message": "Синхронізацію Google Merchant запущено у фоні. Сторінка більше не повинна падати в 504.",
+        }
+    except Exception:
+        GOOGLE_MERCHANT_SYNC_LOCK.release()
+        raise
 
 
 def get_backup_settings(settings=None):
@@ -13023,10 +13090,10 @@ def admin_api():
                 return redirect(url_for("admin_api"))
             if action == "google_merchant_sync":
                 try:
-                    result = google_merchant_sync_products(db, request.form.get("sync_limit"))
-                    flash_news(db, "api", "Google Merchant синхронізація", result["message"], "info" if result["status"] == "success" else "error")
+                    result = google_merchant_start_background_sync(db, request.form.get("sync_limit"))
+                    flash_news(db, "api", "Google Merchant синхронізація", result["message"], "info")
                     db.commit()
-                    flash(result["message"], "success" if result["status"] == "success" else "error")
+                    flash(result["message"], "success" if result["started"] else "info")
                 except Exception as error:
                     set_setting(db, "google_merchant_last_status", "error")
                     set_setting(db, "google_merchant_last_message", str(error)[:1500])

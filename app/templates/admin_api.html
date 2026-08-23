@@ -111,7 +111,9 @@
       <form method="post">
         <input type="hidden" name="api_action" value="google_merchant_sync">
         <input type="hidden" name="sync_limit" value="{{ google_merchant_config.sync_limit }}">
-        <button class="btn primary" type="submit" {% if not google_merchant_config.enabled %}disabled{% endif %}>Відправити товари і ціни</button>
+        <button class="btn primary" type="submit" {% if not google_merchant_config.enabled or google_merchant_config.is_running %}disabled{% endif %}>
+          {% if google_merchant_config.is_running %}Синхронізація виконується{% else %}Відправити товари і ціни{% endif %}
+        </button>
       </form>
     </div>
   </div>

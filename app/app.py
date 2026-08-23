@@ -5373,6 +5373,7 @@ def google_merchant_settings_from_map(settings=None):
         "feed_label": (normalize_text(settings.get("google_merchant_feed_label") or "UA").strip() or "UA")[:20],
         "allow_placeholder_images": parse_backup_bool(settings.get("google_merchant_allow_placeholder_images"), False),
         "sync_limit": parse_backup_int(settings.get("google_merchant_sync_limit"), 200, 1, 5000),
+        "developer_email": normalize_text(settings.get("google_merchant_developer_email") or "").strip(),
         "service_account_json": settings.get("google_merchant_service_account_json") or "",
         "last_status": settings.get("google_merchant_last_status") or "",
         "last_message": settings.get("google_merchant_last_message") or "",
@@ -5382,12 +5383,14 @@ def google_merchant_settings_from_map(settings=None):
     }
 
 
-def google_merchant_required_missing(config: dict) -> list[str]:
+def google_merchant_required_missing(config: dict, require_data_source: bool = True, require_developer_email: bool = False) -> list[str]:
     missing = []
     if not config.get("account_id"):
         missing.append("Merchant account ID")
-    if not config.get("data_source_id"):
+    if require_data_source and not config.get("data_source_id"):
         missing.append("Data source ID")
+    if require_developer_email and not config.get("developer_email"):
+        missing.append("Developer email")
     if not (config.get("service_account_json") or "").strip():
         missing.append("Service account JSON")
     return missing
@@ -5424,10 +5427,10 @@ def google_merchant_service_account_info(config: dict) -> dict:
     return info
 
 
-def google_merchant_access_token(config: dict) -> str:
+def google_merchant_access_token(config: dict, require_data_source: bool = True) -> str:
     if google_service_account is None or GoogleAuthRequest is None:
         raise Exception("Пакет google-auth не встановлений. Перезберіть Docker-образ після оновлення requirements.txt.")
-    missing = google_merchant_required_missing(config)
+    missing = google_merchant_required_missing(config, require_data_source=require_data_source)
     if missing:
         raise Exception("Не заповнено: " + ", ".join(missing))
     credentials = google_service_account.Credentials.from_service_account_info(
@@ -5438,9 +5441,9 @@ def google_merchant_access_token(config: dict) -> str:
     return credentials.token
 
 
-def google_merchant_request_headers(config: dict) -> dict:
+def google_merchant_request_headers(config: dict, require_data_source: bool = True) -> dict:
     return {
-        "Authorization": f"Bearer {google_merchant_access_token(config)}",
+        "Authorization": f"Bearer {google_merchant_access_token(config, require_data_source=require_data_source)}",
         "Content-Type": "application/json",
     }
 
@@ -5515,6 +5518,35 @@ def google_merchant_test_connection(db) -> dict:
     return {
         "ok": True,
         "message": f"Доступ підтверджено. Data source: {payload.get('displayName') or payload.get('name') or data_source_name}",
+    }
+
+
+def google_merchant_register_gcp(db) -> dict:
+    config = google_merchant_settings_from_map(get_api_settings_map(db))
+    missing = google_merchant_required_missing(config, require_data_source=False, require_developer_email=True)
+    if missing:
+        raise Exception("Не заповнено: " + ", ".join(missing))
+    headers = google_merchant_request_headers(config, require_data_source=False)
+    url = f"{GOOGLE_MERCHANT_API_BASE}/accounts/v1/accounts/{config['account_id']}/developerRegistration:registerGcp"
+    response = requests.post(
+        url,
+        headers=headers,
+        json={"developerEmail": config["developer_email"]},
+        timeout=30,
+    )
+    response_text = response.text or ""
+    already_registered = response.status_code in {400, 409} and "already" in response_text.lower()
+    if response.status_code >= 400 and not already_registered:
+        raise Exception(f"Google Merchant API: {response.status_code} {response_text[:700]}")
+    message = "GCP project зареєстровано. Зачекайте до 5 хвилин і натисніть «Перевірити доступ»."
+    if already_registered:
+        message = "GCP project уже зареєстровано. Зачекайте до 5 хвилин і повторіть перевірку доступу."
+    set_setting(db, "google_merchant_last_status", "success")
+    set_setting(db, "google_merchant_last_message", message)
+    set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
+    return {
+        "ok": True,
+        "message": message,
     }
 
 
@@ -12976,6 +13008,19 @@ def admin_api():
                     db.commit()
                     flash(f"Google Merchant API: {error}", "error")
                 return redirect(url_for("admin_api"))
+            if action == "google_merchant_register":
+                try:
+                    result = google_merchant_register_gcp(db)
+                    flash_news(db, "api", "Google Merchant GCP project", result["message"], "info")
+                    db.commit()
+                    flash(result["message"], "success")
+                except Exception as error:
+                    set_setting(db, "google_merchant_last_status", "error")
+                    set_setting(db, "google_merchant_last_message", str(error)[:1500])
+                    set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
+                    db.commit()
+                    flash(f"Google Merchant API: {error}", "error")
+                return redirect(url_for("admin_api"))
             if action == "google_merchant_sync":
                 try:
                     result = google_merchant_sync_products(db, request.form.get("sync_limit"))
@@ -12998,6 +13043,7 @@ def admin_api():
                 "google_merchant_content_language",
                 "google_merchant_feed_label",
                 "google_merchant_sync_limit",
+                "google_merchant_developer_email",
                 "google_merchant_service_account_json",
             ]:
                 set_setting(db, key, request.form.get(key, "").strip())

@@ -57,6 +57,10 @@
         <span class="field-label">Ліміт ручної синхронізації</span>
         <input name="google_merchant_sync_limit" type="number" min="1" max="5000" value="{{ google_merchant_config.sync_limit }}">
       </label>
+      <label>
+        <span class="field-label">Developer email</span>
+        <input name="google_merchant_developer_email" type="email" value="{{ google_merchant_config.developer_email }}" placeholder="Ваш Google email для Merchant API">
+      </label>
     </div>
 
     <label class="choice">
@@ -75,6 +79,7 @@
     <div class="helper-note">
       У Google Merchant Center потрібно створити джерело даних типу <strong>API</strong>, а service account додати до Merchant Center з правом керування товарами.
       Для Google Merchant API використовується OAuth scope <code>https://www.googleapis.com/auth/content</code>.
+      Якщо бачите помилку <strong>GCP project is not registered</strong>, спочатку натисніть <strong>Зареєструвати GCP project</strong>, зачекайте до 5 хвилин і тільки потім перевіряйте доступ.
     </div>
 
     <button class="btn primary">Зберегти налаштування</button>
@@ -95,6 +100,10 @@
       {% endif %}
     </div>
     <div class="button-row">
+      <form method="post">
+        <input type="hidden" name="api_action" value="google_merchant_register">
+        <button class="btn ghost" type="submit">Зареєструвати GCP project</button>
+      </form>
       <form method="post">
         <input type="hidden" name="api_action" value="google_merchant_test">
         <button class="btn ghost" type="submit">Перевірити доступ</button>

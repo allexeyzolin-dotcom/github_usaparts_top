@@ -30,7 +30,7 @@ services:
       DATABASE_URL: postgresql://usa:usa123@db:5432/usa_auto_parts
       SECRET_KEY: usa-auto-parts-v3-secret
       FLASK_ENV: production
-      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-http://localhost:8080}
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-https://usaparts.top}
       BACKUP_DIR: /app/backups
       BACKUP_SCHEDULER_ENABLED: "1"
       BACKUP_AUTO_ENABLED: "1"

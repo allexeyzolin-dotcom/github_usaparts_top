@@ -47,6 +47,7 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
 
 PUBLIC_CACHE_TTL_SECONDS = max(int(os.getenv("PUBLIC_CACHE_TTL_SECONDS", "180") or 0), 0)
 SITEMAP_CACHE_TTL_SECONDS = max(int(os.getenv("SITEMAP_CACHE_TTL_SECONDS", "1800") or 0), 0)
+SITEMAP_PRIORITY_PARTS_LIMIT = max(int(os.getenv("SITEMAP_PRIORITY_PARTS_LIMIT", "300") or 300), 1)
 PUBLIC_CACHE_MAX_ITEMS = max(int(os.getenv("PUBLIC_CACHE_MAX_ITEMS", "128") or 0), 16)
 _PUBLIC_CACHE: dict[tuple, tuple[float, object]] = {}
 _PUBLIC_CACHE_LOCK = threading.RLock()
@@ -6630,6 +6631,9 @@ def absolute_public_url(path_or_url: str) -> str:
 
 
 def public_url_for(endpoint: str, **values) -> str:
+    if not has_request_context():
+        with app.test_request_context(base_url=public_site_base_url()):
+            return absolute_public_url(url_for(endpoint, **values))
     return absolute_public_url(url_for(endpoint, **values))
 
 
@@ -7832,23 +7836,47 @@ def sitemap_cached_response(cache_name: str, builder) -> Response:
 
 def sitemap_index_locations() -> list[tuple[str, str]]:
     today = datetime.utcnow().date().isoformat()
-    return [
+    locations = [
         (public_url_for("sitemap_pages_xml"), today),
         (public_url_for("sitemap_catalog_xml"), today),
-        (public_url_for("sitemap_priority_parts_xml"), today),
-        (public_url_for("sitemap_parts_xml"), today),
         (public_url_for("sitemap_images_xml"), today),
         (public_url_for("sitemap_cars_xml"), today),
-        (public_url_for("sitemap_brands_xml"), today),
-        (public_url_for("sitemap_categories_xml"), today),
-        (public_url_for("sitemap_vehicles_xml"), today),
-        (public_url_for("sitemap_brand_categories_xml"), today),
-        (public_url_for("sitemap_vehicle_categories_xml"), today),
-        (public_url_for("sitemap_cross_parts_xml"), today),
     ]
+    db = SessionLocal()
+    try:
+        parts = cached_unique_public_parts(db)
+        if parts:
+            locations.append((public_url_for("sitemap_priority_parts_xml"), today))
+        if len(parts) > SITEMAP_PRIORITY_PARTS_LIMIT:
+            locations.append((public_url_for("sitemap_parts_xml"), today))
+        entries = cached_seo_entries(db)
+        if entries["brands"]:
+            locations.append((public_url_for("sitemap_brands_xml"), today))
+        if entries["categories"]:
+            locations.append((public_url_for("sitemap_categories_xml"), today))
+        if entries["vehicles"]:
+            locations.append((public_url_for("sitemap_vehicles_xml"), today))
+        if entries["brands"] and entries["categories"]:
+            locations.append((public_url_for("sitemap_brand_categories_xml"), today))
+        if entries["vehicles"] and entries["categories"]:
+            locations.append((public_url_for("sitemap_vehicle_categories_xml"), today))
+        cross_map = cached_cross_numbers_map_for_parts(db, parts, "sitemap_index_cross")
+        if any(cross_map.values()):
+            locations.append((public_url_for("sitemap_cross_parts_xml"), today))
+    except Exception:
+        app.logger.exception("Unable to build dynamic sitemap index")
+        locations.extend([
+            (public_url_for("sitemap_priority_parts_xml"), today),
+            (public_url_for("sitemap_parts_xml"), today),
+        ])
+    finally:
+        db.close()
+    return locations
 
 
-def sitemap_priority_parts(parts: list[Part], limit: int = 300) -> list[Part]:
+def sitemap_priority_parts(parts: list[Part], limit: int | None = None) -> list[Part]:
+    limit = limit or SITEMAP_PRIORITY_PARTS_LIMIT
+
     def score(part: Part):
         updated = part.updated_at or part.created_at or datetime(1970, 1, 1)
         return (
@@ -8600,7 +8628,6 @@ def redirect_to_primary_domain():
 def robots_txt():
     base_url = public_site_base_url()
     sitemap_lines = [f"Sitemap: {base_url}/sitemap.xml"]
-    sitemap_lines.extend(f"Sitemap: {location}" for location, _lastmod in sitemap_index_locations())
     content = "\n".join([
         "User-agent: Googlebot-Image",
         "Allow: /favicon.ico",
@@ -8798,8 +8825,11 @@ def sitemap_parts_xml():
         db = SessionLocal()
         try:
             parts = cached_unique_public_parts(db)
+            priority_part_ids = {part.id for part in sitemap_priority_parts(parts)}
             nodes = []
             for part in parts:
+                if part.id in priority_part_ids:
+                    continue
                 nodes.append(
                     sitemap_url_node(
                         public_part_url(part),
@@ -9412,8 +9442,12 @@ def tracking_lookup():
 def catalog():
     db = SessionLocal()
     try:
-        q = request.args.get("q", "").strip()
-        condition = request.args.get("condition", "").strip()
+        raw_q = request.args.get("q", "")
+        raw_condition = request.args.get("condition", "")
+        q = raw_q.strip()
+        condition = raw_condition.strip()
+        if condition not in {"used", "new"}:
+            condition = ""
         requested_page = request.args.get("page")
         parts_pool = cached_catalog_active_parts(db)
         search_found_without_photo = False
@@ -9424,6 +9458,31 @@ def catalog():
         cross_map = cached_cross_numbers_map_for_parts(db, parts_pool, f"catalog-{condition or 'all'}")
         all_matching_parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1), cross_map=cross_map)
         pagination = public_catalog_pagination(requested_page, parts_total, per_page=48)
+        normalized_values = {}
+        if q:
+            normalized_values["q"] = q
+        if condition:
+            normalized_values["condition"] = condition
+        if pagination["page"] > 1:
+            normalized_values["page"] = pagination["page"]
+        allowed_params = {"q", "condition", "page"}
+        needs_catalog_redirect = False
+        if any(key not in allowed_params for key in request.args.keys()):
+            needs_catalog_redirect = True
+        if "q" in request.args and (raw_q != q or not q):
+            needs_catalog_redirect = True
+        if "condition" in request.args and (raw_condition != condition or not condition):
+            needs_catalog_redirect = True
+        if "page" in request.args:
+            try:
+                raw_page_int = int(requested_page or 1)
+            except (TypeError, ValueError):
+                raw_page_int = None
+            normalized_page_text = str(raw_page_int) if raw_page_int is not None else ""
+            if raw_page_int != pagination["page"] or pagination["page"] == 1 or normalized_page_text != str(requested_page or "").strip():
+                needs_catalog_redirect = True
+        if needs_catalog_redirect:
+            return canonical_redirect(public_url_for("catalog", **normalized_values), code=301)
         parts = all_matching_parts[pagination["offset"]:pagination["end_offset"]]
         warehouse_catalogs = cached_warehouse_catalog_entries(db)
         unique_public_parts = cached_unique_public_parts(db)

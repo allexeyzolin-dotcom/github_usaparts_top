@@ -56,6 +56,7 @@
       <label>
         <span class="field-label">Ліміт ручної синхронізації</span>
         <input name="google_merchant_sync_limit" type="number" min="1" max="5000" value="{{ google_merchant_config.sync_limit }}">
+        <span class="helper-note">Це ліміт одного запуску з сайту. Якщо Google повертає <strong>Product limit exceeded</strong>, потрібно звільнити місце в Merchant Center або запросити збільшення ліміту товарів у Google.</span>
       </label>
       <label>
         <span class="field-label">Developer email</span>

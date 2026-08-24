@@ -104,6 +104,7 @@ BACKUP_SCHEDULER_INTERVAL_SECONDS = max(int(os.getenv("BACKUP_SCHEDULER_INTERVAL
 GOOGLE_MERCHANT_SYNC_LOCK = threading.Lock()
 GOOGLE_MERCHANT_API_BASE = "https://merchantapi.googleapis.com"
 GOOGLE_MERCHANT_SCOPE = "https://www.googleapis.com/auth/content"
+GOOGLE_MERCHANT_PRODUCT_LIMIT_HELP_URL = "https://support.google.com/merchants/answer/9727343"
 
 
 class Warehouse(Base):
@@ -5520,6 +5521,33 @@ def google_merchant_request_headers(config: dict, require_data_source: bool = Tr
     }
 
 
+def google_merchant_response_summary(response) -> str:
+    status_code = getattr(response, "status_code", "")
+    raw_text = (getattr(response, "text", "") or "").strip()
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    error_payload = payload.get("error") if isinstance(payload, dict) else {}
+    if isinstance(error_payload, dict):
+        error_status = normalize_text(error_payload.get("status") or "")
+        message = normalize_text(error_payload.get("message") or "")
+        if message:
+            prefix = f"{status_code}"
+            if error_status:
+                prefix += f" {error_status}"
+            return f"{prefix}: {message[:260]}"
+    compact = re.sub(r"\s+", " ", raw_text)
+    return f"{status_code}: {compact[:260]}" if compact else str(status_code)
+
+
+def google_merchant_product_limit_hit(response) -> bool:
+    if getattr(response, "status_code", None) not in {429, 403}:
+        return False
+    text = (getattr(response, "text", "") or "").lower()
+    return "product limit exceeded" in text or ("resource_exhausted" in text and "product" in text and "limit" in text)
+
+
 def google_merchant_price_micros(price_uah: str) -> str:
     value = Decimal(str(price_uah or "0")).quantize(Decimal("0.01"))
     return str(int(value * Decimal("1000000")))
@@ -5635,6 +5663,8 @@ def google_merchant_sync_products(db, limit: int | None = None) -> dict:
     synced = 0
     skipped = 0
     errors: list[str] = []
+    product_limit_reached = False
+    product_limit_part_number = ""
     for part in parts:
         if synced >= sync_limit:
             break
@@ -5644,13 +5674,27 @@ def google_merchant_sync_products(db, limit: int | None = None) -> dict:
             continue
         response = requests.post(url, headers=headers, params=params, json=payload, timeout=30)
         if response.status_code >= 400:
-            errors.append(f"{part.part_number}: {response.status_code} {response.text[:240]}")
+            if google_merchant_product_limit_hit(response):
+                product_limit_reached = True
+                product_limit_part_number = normalize_text(part.part_number or "")
+                errors.append(f"{product_limit_part_number}: досягнуто ліміт товарів Google Merchant")
+                break
+            errors.append(f"{part.part_number}: {google_merchant_response_summary(response)}")
             if len(errors) >= 10:
                 break
             continue
         synced += 1
     status = "success" if not errors else ("partial" if synced else "error")
     message = f"Відправлено {synced} товарів. Пропущено {skipped}."
+    if product_limit_reached:
+        status = "partial" if synced else "error"
+        message += (
+            " Зупинено: Google Merchant повернув ліміт кількості товарів."
+            " Видаліть зайві товари в Merchant Center або запросіть збільшення ліміту."
+            f" Довідка: {GOOGLE_MERCHANT_PRODUCT_LIMIT_HELP_URL}"
+        )
+        if product_limit_part_number:
+            message += f" Остання позиція: {product_limit_part_number}."
     if errors:
         message += " Помилки: " + " | ".join(errors[:3])
     set_setting(db, "google_merchant_last_status", status)
@@ -5671,7 +5715,8 @@ def google_merchant_sync_worker(limit: int | None = None) -> None:
     db = SessionLocal()
     try:
         result = google_merchant_sync_products(db, limit)
-        flash_news(db, "api", "Google Merchant синхронізація", result["message"], "info" if result["status"] == "success" else "error")
+        severity = "info" if result["status"] == "success" else ("warn" if result["status"] == "partial" else "error")
+        flash_news(db, "api", "Google Merchant синхронізація", result["message"], severity)
         db.commit()
     except Exception as error:
         try:

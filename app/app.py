@@ -5445,6 +5445,7 @@ def google_merchant_settings_from_map(settings=None):
         "feed_label": (normalize_text(settings.get("google_merchant_feed_label") or "UA").strip() or "UA")[:20],
         "allow_placeholder_images": parse_backup_bool(settings.get("google_merchant_allow_placeholder_images"), False),
         "sync_limit": parse_backup_int(settings.get("google_merchant_sync_limit"), 200, 1, 5000),
+        "warehouse_id": parse_backup_int(settings.get("google_merchant_warehouse_id"), 0, 0, 10**9),
         "developer_email": normalize_text(settings.get("google_merchant_developer_email") or "").strip(),
         "service_account_json": settings.get("google_merchant_service_account_json") or "",
         "last_status": last_status,
@@ -5467,6 +5468,19 @@ def google_merchant_required_missing(config: dict, require_data_source: bool = T
     if not (config.get("service_account_json") or "").strip():
         missing.append("Service account JSON")
     return missing
+
+
+def google_merchant_warehouse_id(value) -> int:
+    return parse_backup_int(value, 0, 0, 10**9)
+
+
+def google_merchant_warehouse_label(db, warehouse_id: int) -> str:
+    if not warehouse_id:
+        return "Всі активні товари"
+    warehouse = db.get(Warehouse, warehouse_id)
+    if not warehouse:
+        raise Exception("Обраний склад для Google Merchant не знайдено.")
+    return warehouse.name
 
 
 def google_merchant_data_source_name(config: dict) -> str:
@@ -5650,16 +5664,33 @@ def google_merchant_register_gcp(db) -> dict:
     }
 
 
-def google_merchant_sync_products(db, limit: int | None = None) -> dict:
+def google_merchant_sync_products(db, limit: int | None = None, warehouse_id: int | str | None = None) -> dict:
     config = google_merchant_settings_from_map(get_api_settings_map(db))
     if not config.get("enabled"):
         raise Exception("Google Merchant API вимкнений у налаштуваннях.")
     headers = google_merchant_request_headers(config)
     sync_limit = parse_backup_int(limit, config.get("sync_limit") or 200, 1, 5000)
+    selected_warehouse_id = google_merchant_warehouse_id(warehouse_id if warehouse_id is not None else config.get("warehouse_id"))
+    selected_warehouse_label = google_merchant_warehouse_label(db, selected_warehouse_id)
     data_source_name = google_merchant_data_source_name(config)
     url = f"{GOOGLE_MERCHANT_API_BASE}/products/v1/accounts/{config['account_id']}/productInputs:insert"
     params = {"dataSource": data_source_name}
-    parts = cached_unique_public_parts(db)
+    if selected_warehouse_id:
+        warehouse_parts = (
+            db.query(Part)
+            .options(joinedload(Part.warehouse))
+            .filter(
+                Part.warehouse_id == selected_warehouse_id,
+                Part.is_deleted == False,
+                Part.in_stock == True,
+                Part.qty > 0,
+            )
+            .order_by(desc(Part.updated_at), desc(Part.id))
+            .all()
+        )
+        parts = best_unique_public_parts(warehouse_parts)
+    else:
+        parts = cached_unique_public_parts(db)
     synced = 0
     skipped = 0
     errors: list[str] = []
@@ -5685,7 +5716,7 @@ def google_merchant_sync_products(db, limit: int | None = None) -> dict:
             continue
         synced += 1
     status = "success" if not errors else ("partial" if synced else "error")
-    message = f"Відправлено {synced} товарів. Пропущено {skipped}."
+    message = f"Склад: {selected_warehouse_label}. Відправлено {synced} товарів. Пропущено {skipped}."
     if product_limit_reached:
         status = "partial" if synced else "error"
         message += (
@@ -5708,13 +5739,15 @@ def google_merchant_sync_products(db, limit: int | None = None) -> dict:
         "synced": synced,
         "skipped": skipped,
         "errors": errors,
+        "warehouse_id": selected_warehouse_id,
+        "warehouse_label": selected_warehouse_label,
     }
 
 
-def google_merchant_sync_worker(limit: int | None = None) -> None:
+def google_merchant_sync_worker(limit: int | None = None, warehouse_id: int | str | None = None) -> None:
     db = SessionLocal()
     try:
-        result = google_merchant_sync_products(db, limit)
+        result = google_merchant_sync_products(db, limit, warehouse_id)
         severity = "info" if result["status"] == "success" else ("warn" if result["status"] == "partial" else "error")
         flash_news(db, "api", "Google Merchant синхронізація", result["message"], severity)
         db.commit()
@@ -5733,7 +5766,7 @@ def google_merchant_sync_worker(limit: int | None = None) -> None:
         GOOGLE_MERCHANT_SYNC_LOCK.release()
 
 
-def google_merchant_start_background_sync(db, limit: int | None = None) -> dict:
+def google_merchant_start_background_sync(db, limit: int | None = None, warehouse_id: int | str | None = None) -> dict:
     if not GOOGLE_MERCHANT_SYNC_LOCK.acquire(blocking=False):
         return {
             "started": False,
@@ -5747,14 +5780,17 @@ def google_merchant_start_background_sync(db, limit: int | None = None) -> dict:
         if missing:
             raise Exception("Не заповнено: " + ", ".join(missing))
         sync_limit = parse_backup_int(limit, config.get("sync_limit") or 200, 1, 5000)
+        selected_warehouse_id = google_merchant_warehouse_id(warehouse_id if warehouse_id is not None else config.get("warehouse_id"))
+        selected_warehouse_label = google_merchant_warehouse_label(db, selected_warehouse_id)
+        set_setting(db, "google_merchant_warehouse_id", str(selected_warehouse_id))
         set_setting(db, "google_merchant_last_status", "running")
-        set_setting(db, "google_merchant_last_message", f"Синхронізацію запущено у фоні. Ліміт: {sync_limit} товарів.")
+        set_setting(db, "google_merchant_last_message", f"Синхронізацію запущено у фоні. Склад: {selected_warehouse_label}. Ліміт: {sync_limit} товарів.")
         set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
         set_setting(db, "google_merchant_last_synced", "0")
         set_setting(db, "google_merchant_last_errors", "0")
         thread = threading.Thread(
             target=google_merchant_sync_worker,
-            args=(sync_limit,),
+            args=(sync_limit, selected_warehouse_id),
             name="google-merchant-sync",
             daemon=True,
         )
@@ -5762,7 +5798,7 @@ def google_merchant_start_background_sync(db, limit: int | None = None) -> dict:
         thread.start()
         return {
             "started": True,
-            "message": "Синхронізацію Google Merchant запущено у фоні. Сторінка більше не повинна падати в 504.",
+            "message": f"Синхронізацію Google Merchant запущено у фоні. Склад: {selected_warehouse_label}.",
         }
     except Exception:
         GOOGLE_MERCHANT_SYNC_LOCK.release()
@@ -13299,7 +13335,11 @@ def admin_api():
                 return redirect(url_for("admin_api"))
             if action == "google_merchant_sync":
                 try:
-                    result = google_merchant_start_background_sync(db, request.form.get("sync_limit"))
+                    result = google_merchant_start_background_sync(
+                        db,
+                        request.form.get("sync_limit"),
+                        request.form.get("google_merchant_warehouse_id"),
+                    )
                     flash_news(db, "api", "Google Merchant синхронізація", result["message"], "info")
                     db.commit()
                     flash(result["message"], "success" if result["started"] else "info")
@@ -13319,6 +13359,7 @@ def admin_api():
                 "google_merchant_content_language",
                 "google_merchant_feed_label",
                 "google_merchant_sync_limit",
+                "google_merchant_warehouse_id",
                 "google_merchant_developer_email",
                 "google_merchant_service_account_json",
             ]:
@@ -13333,12 +13374,14 @@ def admin_api():
         google_merchant_config = google_merchant_settings_from_map(settings)
         telegram_status = telegram_connection_status(db)
         recent_telegram_chats = telegram_recent_chats(db)
+        warehouses = db.query(Warehouse).order_by(Warehouse.name.asc()).all()
         news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
         return render_template(
             "admin_api.html",
             settings=settings,
             news=news,
             google_merchant_config=google_merchant_config,
+            warehouses=warehouses,
             telegram_status=telegram_status,
             recent_telegram_chats=recent_telegram_chats,
         )

@@ -15,7 +15,7 @@
   {% set meta_description = seo_description|default('USAparts.top: запчастини для авто з США, авто в наявності та авто в дорозі. Пошук по OEM номеру, назві або VIN.', true) %}
   <title>{{ meta_title }}</title>
   <meta name="description" content="{{ meta_description }}">
-  <meta name="robots" content="{{ 'noindex,follow' if seo_noindex|default(false) else 'index,follow' }}">
+  <meta name="robots" content="{% if seo_noindex|default(false) %}{{ 'noindex,nofollow' if seo_nofollow|default(false) else 'noindex,follow' }}{% else %}index,follow{% endif %}">
   {% if canonical_url|default('') %}
   <link rel="canonical" href="{{ canonical_url }}">
   <link rel="alternate" hreflang="uk-UA" href="{{ canonical_url }}">
@@ -81,8 +81,8 @@
 
       <div class="store-actions">
         <button type="button" class="tracking-btn" id="openTracking">Трекінг</button>
-        <a class="nav-link cart-link" href="{{ url_for('cart_view') }}">Кошик {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
-        <a class="cabinet" href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}">Кабінет</a>
+        <a class="nav-link cart-link" href="{{ url_for('cart_view') }}" rel="nofollow">Кошик {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
+        <a class="cabinet" href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}" rel="nofollow">Кабінет</a>
       </div>
     </div>
 

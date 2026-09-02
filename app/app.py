@@ -8721,9 +8721,11 @@ def robots_txt():
         "User-agent: *",
         "Disallow: /admin/",
         "Disallow: /api/",
-        "Disallow: /cart",
+        "Disallow: /cart/add/",
+        "Disallow: /cart/remove/",
         "Disallow: /checkout",
         "Allow: /",
+        "Allow: /cart",
         "Allow: /part/",
         "Allow: /cross/",
         "Allow: /brand/",
@@ -10062,7 +10064,16 @@ def cart_view():
         if snapshot["normalized_cart"] != (session.get("cart", {}) or {}):
             session["cart"] = snapshot["normalized_cart"]
             flash_cart_issues(snapshot["issues"])
-        return render_template("cart.html", items=snapshot["items"], total=snapshot["total"])
+        return render_template(
+            "cart.html",
+            items=snapshot["items"],
+            total=snapshot["total"],
+            seo_title="Кошик | USAparts.top",
+            seo_description="Кошик замовлення запчастин USAparts.top.",
+            canonical_url=public_url_for("cart_view"),
+            seo_noindex=True,
+            seo_nofollow=True,
+        )
     finally:
         db.close()
 

@@ -1,193 +1,30 @@
 {% extends 'base_public.html' %}
 {% block content %}
 <div class="container shop-catalog-page">
-  <div class="panel-header catalog-shop-head">
-    <div>
-      <span class="eyebrow">Каталог запчастин</span>
-      <h1 class="catalog-title">Каталог запчастин для авто з США</h1>
-      <div class="muted">Пошук по OEM номеру, назві, бренду або крос-номеру. Картки відкриваються напряму для Google та покупців.</div>
-    </div>
+  <nav class="seo-breadcrumbs" aria-label="Навігація сторінки"><a href="{{ url_for('home') }}">Головна</a><span>/</span><span>Каталог запчастин</span></nav>
+  <div class="showcase-section-head">
+    <div><span class="eyebrow">USAparts.top / КАТАЛОГ</span><h1>{{ 'Результати пошуку' if q else 'Запчастини для авто з США' }}</h1>
+    <p class="muted">{% if q %}«{{ q }}» · {{ parts_total }} позицій{% else %}{{ parts_total }} деталей. Знайдіть свою за OEM номером, назвою або крос-номером.{% endif %}</p></div>
   </div>
-  <form class="search-row card catalog-filter-card" method="get">
-    <input name="q" value="{{ q }}" placeholder="Наприклад 5QM145803D, фара, кронштейн або BMW">
-    <select name="condition">
-      <option value="">Усі товари</option>
-      <option value="used" {% if condition=='used' %}selected{% endif %}>Вживані / Б/У</option>
-      <option value="new" {% if condition=='new' %}selected{% endif %}>Нові запчастини</option>
-    </select>
-    <button class="btn primary" type="submit">Пошук</button>
+  <form class="catalog-filter-card" method="get" role="search">
+    <input name="q" value="{{ q }}" aria-label="OEM номер або назва" placeholder="OEM номер або назва запчастини">
+    <select name="condition" aria-label="Стан запчастини"><option value="">Усі стани</option><option value="used"{% if condition == 'used' %} selected{% endif %}>Вживані / Б/У</option><option value="new"{% if condition == 'new' %} selected{% endif %}>Нові запчастини</option></select>
+    <button class="btn primary" type="submit">Знайти ↗</button>
+    {% if q or condition %}<a class="text-link" href="{{ url_for('catalog') }}">Скинути</a>{% endif %}
   </form>
-
-  {% if pagination %}
-  <div class="catalog-pagination card" aria-label="Навігація каталогу">
-    <div class="catalog-pagination-summary">
-      <strong>{{ pagination.total }} позицій</strong>
-      <span class="muted">Показано {{ pagination.start_index }}-{{ pagination.end_index }} з {{ pagination.total }}</span>
+  <details class="catalog-directory">
+    <summary>Категорії та моделі авто <span aria-hidden="true">+</span></summary>
+    <div class="directory-content">
+      {% if warehouse_catalogs %}<div><h2>За автомобілем</h2><div class="seo-chip-row">{% for item in warehouse_catalogs %}<a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} <small>{{ item.count }}</small></a>{% endfor %}</div></div>{% endif %}
+      {% if seo_entries.categories %}<div><h2>За категорією</h2><div class="seo-chip-row">{% for item in seo_entries.categories %}<a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} <small>{{ item.count }}</small></a>{% endfor %}</div></div>{% endif %}
+      {% if seo_entries.brands %}<div><h2>За виробником</h2><div class="seo-chip-row">{% for item in seo_entries.brands %}<a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }}</a>{% endfor %}</div></div>{% endif %}
     </div>
-    {% if pagination.pages > 1 %}
-    <nav class="catalog-page-links" aria-label="Сторінки каталогу">
-      {% if pagination.has_prev %}
-      <a class="page-link" href="{{ catalog_page_url(pagination.prev_page) }}">Попередня</a>
-      {% endif %}
-      {% for page_number in pagination.page_numbers %}
-      <a class="page-link {% if page_number == pagination.page %}is-active{% endif %}" href="{{ catalog_page_url(page_number) }}">{{ page_number }}</a>
-      {% endfor %}
-      {% if pagination.has_next %}
-      <a class="page-link" href="{{ catalog_page_url(pagination.next_page) }}">Наступна</a>
-      {% endif %}
-    </nav>
-    {% endif %}
-  </div>
-  {% endif %}
-
+  </details>
+  {% include '_pagination.html' %}
   <div class="showcase-grid">
-    {% for part in parts %}
-    {% set gallery = part_gallery_urls(part) %}
-    {% set public_photo = public_part_photo(part) %}
-    <div class="showcase-card">
-      <a class="product-card-media" href="{{ part_detail_url(part) }}">
-        <span class="product-card-badge">{{ producer_type_label(part.producer_type) }}</span>
-        <span class="watermarked-photo">
-          <img class="showcase-img" src="{{ public_photo }}" alt="{{ part_seo_name(part) }}" loading="lazy" decoding="async">
-        </span>
-        {% if gallery|length > 1 %}
-        <span class="photo-count-badge">{{ gallery|length }} фото</span>
-        {% endif %}
-      </a>
-      <div class="showcase-body">
-        <div class="product-card-label">Код товару</div>
-        <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
-        <div class="product-card-brand">{{ clean_text(part.brand or producer_type_label(part.producer_type)) }}</div>
-        <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ part_seo_name(part) }}</a></h3>
-        {% set warehouse_markup = part.warehouse.markup_percent if part.warehouse else 0 %}
-        <div class="price-row">{{ display_public_price_uah(part.price_usd, warehouse_markup) }}</div>
-        <div class="product-card-stock">В наявності: {{ part.qty }} шт.</div>
-        <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
-          <button class="btn primary full" type="submit">Купити</button>
-        </form>
-      </div>
-    </div>
-    {% else %}
-    <div class="card">
-      {% if q and search_found_without_photo %}
-      <div class="muted">Товар знайдено в базі, але для нього ще не додано фото, тому на вітрині він поки не показується.</div>
-      {% else %}
-      <div class="muted">Товари за поточним пошуком не знайдені.</div>
-      {% endif %}
-    </div>
-    {% endfor %}
+    {% for part in parts %}{% set eager_image = loop.index <= 4 %}{% include '_product_card.html' %}
+    {% else %}<div class="empty-results"><h2>Не знайшли збігів</h2><p>Перевірте OEM номер або спробуйте коротшу назву. Менеджер допоможе уточнити наявність.</p><a class="btn primary" href="tel:+380960865846">Допомога з підбором</a></div>{% endfor %}
   </div>
-
-  {% if pagination and pagination.pages > 1 %}
-  <div class="catalog-pagination catalog-pagination-bottom card" aria-label="Навігація каталогу внизу сторінки">
-    <div class="catalog-pagination-summary">
-      <strong>Сторінка {{ pagination.page }} з {{ pagination.pages }}</strong>
-      <span class="muted">На сторінці {{ pagination.per_page }} товарів</span>
-    </div>
-    <nav class="catalog-page-links" aria-label="Сторінки каталогу">
-      {% if pagination.has_prev %}
-      <a class="page-link" href="{{ catalog_page_url(pagination.prev_page) }}">Попередня</a>
-      {% endif %}
-      {% for page_number in pagination.page_numbers %}
-      <a class="page-link {% if page_number == pagination.page %}is-active{% endif %}" href="{{ catalog_page_url(page_number) }}">{{ page_number }}</a>
-      {% endfor %}
-      {% if pagination.has_next %}
-      <a class="page-link" href="{{ catalog_page_url(pagination.next_page) }}">Наступна</a>
-      {% endif %}
-    </nav>
-  </div>
-  {% endif %}
-
-  {% if warehouse_catalogs %}
-  <section class="warehouse-catalog-strip card secondary-catalog-strip">
-    <div class="warehouse-catalog-head">
-      <div>
-        <span class="eyebrow">Каталоги зі складів</span>
-        <h2>Підбірки за авто</h2>
-      </div>
-      <div class="muted">Назви формуються з назв складів, які відповідають авто.</div>
-    </div>
-    <div class="seo-chip-row">
-      {% for item in warehouse_catalogs %}
-      <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
-      {% endfor %}
-    </div>
-  </section>
-  {% endif %}
-
-  {% if seo_entries and (seo_entries.categories or seo_entries.brands or seo_entries.vehicles or seo_entries.vehicle_categories or seo_entries.brand_categories or seo_part_links) %}
-  <section class="seo-hub-strip card secondary-catalog-strip" aria-label="Розділи каталогу">
-    <div class="warehouse-catalog-head">
-      <div>
-        <span class="eyebrow">Структура каталогу</span>
-        <h2>Запчастини за категоріями, авто, брендами та OEM</h2>
-      </div>
-      <div class="muted">Ці сторінки індексуються окремо і ведуть до товарних карток.</div>
-    </div>
-    {% if seo_entries.categories %}
-    <div class="seo-hub-block">
-      <h3>Категорії</h3>
-      <div class="seo-chip-row">
-        {% for item in seo_entries.categories[:48] %}
-        <a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-    {% if seo_entries.brands %}
-    <div class="seo-hub-block">
-      <h3>Бренди</h3>
-      <div class="seo-chip-row">
-        {% for item in seo_entries.brands[:48] %}
-        <a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-    {% if seo_entries.vehicles %}
-    <div class="seo-hub-block">
-      <h3>Авто / склади</h3>
-      <div class="seo-chip-row">
-        {% for item in seo_entries.vehicles[:48] %}
-        <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-    {% if seo_entries.vehicle_categories %}
-    <div class="seo-hub-block">
-      <h3>Категорія + авто</h3>
-      <div class="seo-chip-row">
-        {% for item in seo_entries.vehicle_categories[:72] %}
-        <a class="seo-chip" href="{{ url_for('seo_vehicle_category_page', category_slug=item.category_slug, vehicle_slug=item.vehicle_slug) }}">{{ item.category_label }} {{ item.vehicle_label }} • {{ item.count }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-    {% if seo_entries.brand_categories %}
-    <div class="seo-hub-block">
-      <h3>Бренд + категорія</h3>
-      <div class="seo-chip-row">
-        {% for item in seo_entries.brand_categories[:72] %}
-        <a class="seo-chip" href="{{ url_for('seo_brand_category_page', brand_slug=item.brand_slug, category_slug=item.category_slug) }}">{{ item.category_label }} {{ item.brand_label }} • {{ item.count }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-    {% if seo_part_links %}
-    <div class="seo-hub-block seo-oem-hub">
-      <h3>OEM номери в каталозі</h3>
-      <div class="seo-oem-grid">
-        {% for item in seo_part_links %}
-        <a class="seo-oem-link" href="{{ part_detail_url(item.part) }}">
-          <strong>{{ item.number }}</strong>
-          <span>{{ clean_text(item.part.name) }}</span>
-        </a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-  </section>
-  {% endif %}
+  {% include '_pagination.html' %}
 </div>
 {% endblock %}

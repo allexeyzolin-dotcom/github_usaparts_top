@@ -3,7 +3,7 @@
 <div class="container">
   <div class="panel-header">
     <div>
-      <h2>{% if status == 'in_transit' %}Авто в дорозі{% else %}Авто в наявності{% endif %}</h2>
+      <h1>{% if status == 'in_transit' %}Авто в дорозі{% elif status == 'in_stock' %}Авто в наявності{% else %}Авто зі США{% endif %}</h1>
       <div class="muted">Каталог автомобілів, які вже на майданчику або ще прямують в Україну.</div>
     </div>
   </div>

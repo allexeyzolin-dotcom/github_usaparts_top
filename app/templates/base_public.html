@@ -38,7 +38,7 @@
   {% else %}
   <meta name="twitter:card" content="summary">
   {% endif %}
-  <meta name="theme-color" content="#0b1118">
+  <meta name="theme-color" content="#102b3f">
   <link rel="icon" type="image/png" sizes="48x48" href="{{ url_for('favicon_png_48') }}">
   <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('favicon_png_96') }}">
   <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('favicon_png') }}">
@@ -46,7 +46,11 @@
   <link rel="icon" href="{{ url_for('favicon_ico') }}" sizes="any">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('apple_touch_icon') }}">
   <link rel="manifest" href="{{ url_for('site_webmanifest') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=20260823-showcase-readable">
+  {% if request.endpoint not in ['home', 'catalog', 'seo_brand_page', 'seo_category_page', 'seo_vehicle_page', 'seo_brand_category_page', 'seo_vehicle_category_page'] %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=20260906">
+  {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='storefront.css') }}?v={{ storefront_asset_version }}">
+  <link rel="preload" href="{{ url_for('static', filename='manrope.ttf') }}" as="font" type="font/ttf" crossorigin>
   {% if json_ld|default('') %}
   <script type="application/ld+json">{{ json_ld|safe }}</script>
   {% endif %}
@@ -56,49 +60,40 @@
   <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-NMTDSFSZ"
   height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <!-- End Google Tag Manager (noscript) -->
+  <a class="skip-link" href="#main-content">Перейти до вмісту</a>
   <header class="store-header">
     <div class="store-top-strip">
       <div class="container store-top-inner">
-        <div class="store-top-note">Запчастини для авто з США • авторозбірка • поставки</div>
-        <div class="store-top-links">
-          <span>Пн-Пт: 9:00-18:00</span>
-          <a href="tel:+380960865846">+38 (096) 086 5846</a>
-          <a href="{{ url_for('delivery_payment') }}">Оплата і доставка</a>
-          <a href="{{ url_for('return_policy') }}">Обмін та повернення</a>
-        </div>
+        <span>Автозапчастини зі США · Ромни, Україна</span>
+        <a href="tel:+380960865846">+38 (096) 086 5846 <span class="desktop-only">· Пн–Пт 9:00–18:00</span></a>
       </div>
     </div>
-
     <div class="container store-mainbar">
-      <a href="{{ url_for('home') }}" class="logo site-logo" aria-label="USAparts.top">
-        <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top" width="220" height="72" decoding="async">
+      <a href="{{ url_for('home') }}" class="site-logo" aria-label="USAparts.top — головна">
+        <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top" width="220" height="60" decoding="async">
       </a>
-
-      <form class="store-header-search" method="get" action="{{ url_for('catalog') }}">
-        <input name="q" value="{{ request.args.get('q', '') }}" placeholder="Номер запчастини, назва, бренд або VIN">
-        <button class="btn primary" type="submit">Пошук</button>
+      <form class="store-header-search" method="get" action="{{ url_for('catalog') }}" role="search">
+        <input name="q" aria-label="Пошук за OEM номером або назвою" value="{{ request.args.get('q', '') }}" placeholder="OEM номер або назва запчастини" autocomplete="off">
+        <button class="btn primary" type="submit">Знайти <span aria-hidden="true">↗</span></button>
       </form>
-
       <div class="store-actions">
-        <button type="button" class="tracking-btn" id="openTracking">Трекінг</button>
-        <a class="nav-link cart-link" href="{{ url_for('cart_view') }}" rel="nofollow">Кошик {% if cart_count %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}</a>
-        <a class="cabinet" href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}" rel="nofollow">Кабінет</a>
+        <a class="cart-link" href="{{ url_for('cart_view') }}" rel="nofollow">Кошик <span class="cart-badge">{{ cart_count }}</span></a>
+        <a class="cabinet desktop-only" href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}" rel="nofollow">Кабінет</a>
       </div>
     </div>
-
-    <nav class="store-nav">
+    <nav class="store-nav" aria-label="Основна навігація">
       <div class="container store-nav-inner">
-        <a class="store-catalog-button" href="{{ url_for('catalog') }}">Каталог запчастин</a>
-        <a class="nav-link delivery-calculator-link" href="{{ url_for('delivery_calculator') }}">Калькулятор доставки</a>
+        <a class="store-catalog-button" href="{{ url_for('catalog') }}">Каталог запчастин <span aria-hidden="true">↗</span></a>
         <a class="nav-link" href="{{ url_for('cars_public', status='in_stock') }}">Авто в наявності</a>
         <a class="nav-link" href="{{ url_for('cars_public', status='in_transit') }}">Авто в дорозі</a>
-        <a class="nav-link" href="{{ url_for('delivery_payment') }}">Покупцю</a>
-        <a class="nav-link phone-link" href="tel:+380960865846">Зворотній зв'язок</a>
+        <a class="nav-link" href="{{ url_for('delivery_calculator') }}">Калькулятор доставки</a>
+        <button type="button" class="nav-link tracking-btn" id="openTracking">Трекінг VIN</button>
+        <a class="nav-link" href="{{ url_for('delivery_payment') }}">Оплата і доставка</a>
       </div>
     </nav>
   </header>
 
-  <main class="page">
+  <main class="page" id="main-content">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         <div class="container flashes">
@@ -112,105 +107,24 @@
   </main>
 
   <footer class="site-policy-footer">
-    <div class="container">
-      <div class="policy-tabs-card" id="policyTabs">
-        <div class="policy-tabs-head">
-          <div>
-            <span class="eyebrow">USAparts.top</span>
-            <h2>Покупцю</h2>
-          </div>
-          <div class="policy-tab-buttons" role="tablist" aria-label="Інформація для покупця">
-            <button class="policy-tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="policy-return" data-policy-tab="return">Обмін та повернення</button>
-            <button class="policy-tab-button" type="button" role="tab" aria-selected="false" aria-controls="policy-delivery" data-policy-tab="delivery">Оплата і доставка</button>
-          </div>
-        </div>
-
-        <section class="policy-tab-panel is-active" id="policy-return" role="tabpanel" data-policy-panel="return">
-          <div class="policy-grid">
-            <article class="policy-copy">
-              <h3>Обмін та повернення</h3>
-              <p>Компанія USAparts.top здійснює обмін та повернення автозапчастин відповідно до чинного законодавства України.</p>
-
-              <h4>Строки подання та розгляду заявки</h4>
-              <p>Заявки на обмін або повернення товару приймаються протягом 14 календарних днів з моменту отримання товару. Строк розгляду заявки на обмін або повернення становить до 7 календарних днів з моменту отримання звернення та товару на склад.</p>
-              <p>З усіх питань, пов'язаних з обміном та поверненням, ви можете звернутися за телефоном: <a href="tel:+380960865846">+38 (096) 086 5846</a></p>
-              <p><strong>Адреса повернення будь-яких запчастин:</strong> вулиця Прокопенка будинок 43/13А, м. Ромни, Сумська область, Україна, 42005.</p>
-
-              <h4>Обмін та повернення непошкоджених запчастин</h4>
-              <p>Непошкодженою вважається запчастина, яка:</p>
-              <ul>
-                <li>не має слідів встановлення або експлуатації;</li>
-                <li>зберегла товарний вигляд;</li>
-                <li>укомплектована в оригінальній упаковці, якщо вона була наявна.</li>
-              </ul>
-              <p>У разі обміну або повернення непошкодженої запчастини доставка товару до складу здійснюється за рахунок покупця. Обмін або повернення можливі після перевірки товару на складі, рішення приймається протягом до 7 календарних днів.</p>
-
-              <h4>Обмін та повернення пошкоджених запчастин</h4>
-              <p>Якщо запчастина була пошкоджена під час отримання у відділенні поштової служби або під час доставки кур'єром, покупцеві необхідно зафіксувати пошкодження безпосередньо в момент отримання товару: оформити акт перевізника, зробити фото- або відеофіксацію.</p>
-              <p>У разі підтвердженого пошкодження товару компанія USAparts.top розглядає такі варіанти вирішення питання:</p>
-              <ul>
-                <li>компенсація вартості ремонту запчастини;</li>
-                <li>обмін на аналогічну запчастину;</li>
-                <li>повернення грошових коштів.</li>
-              </ul>
-              <p>Для пошкоджених запчастин усі витрати, пов'язані зі зворотною доставкою, оплачує компанія.</p>
-            </article>
-
-            <aside class="policy-contact-card">
-              <div class="policy-contact-icon">14</div>
-              <h4>14 днів на звернення</h4>
-              <p>Звернення розглядається після отримання товару на склад і перевірки його стану.</p>
-              <a class="btn primary full" href="tel:+380960865846">Подзвонити менеджеру</a>
-            </aside>
-          </div>
-        </section>
-
-        <section class="policy-tab-panel" id="policy-delivery" role="tabpanel" data-policy-panel="delivery" hidden>
-          <div class="policy-grid policy-grid-delivery">
-            <article class="policy-copy">
-              <h3>Оплата і доставка</h3>
-
-              <h4>Час обробки замовлень</h4>
-              <p>Замовлення, розміщені до 12:00 за київським часом, відвантажуються в той самий день.</p>
-              <p>Замовлення, розміщені після 12:00 за київським часом, відвантажуються наступного дня.</p>
-
-              <h4>Варіанти оплати</h4>
-              <ul>
-                <li>Безготівковий розрахунок (ФОП);</li>
-                <li>оплата при отриманні;</li>
-                <li>онлайн-оплата банківською карткою на сайті;</li>
-                <li>готівкою на складі.</li>
-              </ul>
-
-              <h4>Варіанти доставки</h4>
-              <ul>
-                <li>До відділення «Нова Пошта» (доставка 1-3 дні) - 300 грн;</li>
-                <li>до відділення «Делівері» (доставка 1-3 дні) - 300 грн;</li>
-                <li>адресна кур'єрська доставка (доставка 2-4 дні) - 500 грн;</li>
-                <li>самовивіз зі складу: вулиця Прокопенка будинок 43/13А, м. Ромни, Сумська область, Україна, 42005 - безкоштовно.</li>
-              </ul>
-            </article>
-
-            <aside class="policy-map-card">
-              <div class="policy-map-copy">
-                <h4>Склад USAparts.top</h4>
-                <p>м. Ромни, Сумська область, вулиця Прокопенка будинок 43/13А</p>
-              </div>
-              <div class="policy-map-frame">
-                <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2524.0852188039753!2d33.4568206!3d50.755453499999994!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x4129f1586eecb163%3A0xd66faf3ba059506!2sUSAparts.top!5e0!3m2!1suk!2sua!4v1777838546798!5m2!1suk!2sua" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="USAparts.top на мапі"></iframe>
-              </div>
-            </aside>
-          </div>
-        </section>
-      </div>
+    <div class="container footer-grid">
+      <div class="footer-brand"><a href="{{ url_for('home') }}">USAparts<span>.top</span></a><p>Деталі, що повертають авто в рух.</p></div>
+      <nav aria-label="Інформація для покупця">
+        <a href="{{ url_for('delivery_payment') }}">Оплата і доставка</a>
+        <a href="{{ url_for('return_policy') }}">Обмін та повернення</a>
+        <a href="{{ url_for('catalog') }}">Каталог запчастин</a>
+        <a href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}" rel="nofollow">Кабінет</a>
+      </nav>
+      <div class="footer-contact"><a href="tel:+380960865846">+38 (096) 086 5846</a><p>Пн–Пт: 9:00–18:00<br>м. Ромни, вул. Прокопенка, 43/13А<br>Сумська область, 42005, Україна</p></div>
     </div>
+    <div class="container footer-bottom">USAparts.top · Автозапчастини зі США</div>
   </footer>
 
   <div class="drawer-backdrop hidden" id="trackingBackdrop"></div>
-  <div class="tracking-modal hidden" id="trackingModal">
+  <div class="tracking-modal hidden" id="trackingModal" role="dialog" aria-modal="true" aria-labelledby="tracking-title">
     <div class="drawer-handle"></div>
     <div class="drawer-header">
-      <h3>Трекінг авто по VIN</h3>
+      <h3 id="tracking-title">Трекінг авто по VIN</h3>
       <button type="button" class="btn ghost small" id="closeTracking" data-tracking-close>Закрити</button>
     </div>
     <div class="stack compact-checkout-form">
@@ -251,6 +165,7 @@
       modal?.classList.add('hidden');
       backdrop?.classList.add('hidden');
       document.body.classList.remove('drawer-open');
+      if (document.activeElement && modal?.contains(document.activeElement)) openBtn?.focus();
     }
     function updateDirectLinks(vin){
       const clean = (vin || '').trim().toUpperCase();
@@ -318,27 +233,6 @@
     });
   })();
 
-  (function(){
-    const root = document.getElementById('policyTabs');
-    if(!root) return;
-    const buttons = Array.from(root.querySelectorAll('[data-policy-tab]'));
-    const panels = Array.from(root.querySelectorAll('[data-policy-panel]'));
-    function activate(name){
-      buttons.forEach((button) => {
-        const active = button.dataset.policyTab === name;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-selected', active ? 'true' : 'false');
-      });
-      panels.forEach((panel) => {
-        const active = panel.dataset.policyPanel === name;
-        panel.classList.toggle('is-active', active);
-        panel.hidden = !active;
-      });
-    }
-    buttons.forEach((button) => {
-      button.addEventListener('click', () => activate(button.dataset.policyTab));
-    });
-  })();
   </script>
 </body>
 </html>

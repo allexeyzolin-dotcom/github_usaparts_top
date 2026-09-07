@@ -2,15 +2,16 @@
 {% block content %}
 <div class="container narrow">
   <div class="card compact-card">
-    <h2>Кошик</h2>
+    <h1>Кошик</h1>
     {% if items %}
     <div class="top-list compact-list">
       {% for item in items %}
       <div class="top-item cart-item compact-item">
         <div>
-          <div class="showcase-code">{{ item.part.part_number }}</div>
-          <div>{{ item.part.name }}</div>
-          <div class="muted">Кількість: {{ item.qty }} • Ціна: ${{ '%.2f'|format(item.part.price_usd|float) }}</div>
+          <a href="{{ part_detail_url(item.part) }}" class="showcase-code">{{ item.part.part_number }}</a>
+          <div>{{ clean_text(item.part.name) }}</div>
+          <div class="muted">{{ item.qty }} шт. × {{ '%.2f'|format(item.unit_price_uah) }} грн</div>
+          <strong>{{ '%.2f'|format(item.subtotal_uah) }} грн</strong>
         </div>
         <form method="post" action="{{ url_for('cart_remove', part_id=item.part.id) }}">
           <button class="btn danger small" type="submit">Видалити</button>
@@ -19,45 +20,49 @@
       {% endfor %}
     </div>
     <div class="panel-header compact-header">
-      <h3>Разом</h3>
-      <div class="price-row">${{ '%.2f'|format(total) }}</div>
+      <h3>Вартість товарів</h3>
+      <div class="price-row">{{ '%.2f'|format(total_uah) }} грн</div>
     </div>
+    <p class="muted">Доставка оплачується окремо. <a class="text-link" href="{{ url_for('delivery_payment') }}">Умови оплати та доставки</a></p>
     <button class="btn primary compact-order-btn" id="openCheckout">Оформити замовлення</button>
     {% else %}
     <div class="muted">Кошик порожній.</div>
+    <a class="btn primary" href="{{ url_for('catalog') }}">Перейти до каталогу</a>
     {% endif %}
   </div>
 </div>
 
 {% if items %}
 <div class="drawer-backdrop hidden" id="checkoutBackdrop"></div>
-<div class="checkout-drawer hidden" id="checkoutDrawer">
+<div class="checkout-drawer hidden" id="checkoutDrawer" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
   <div class="drawer-handle"></div>
   <div class="drawer-header">
-    <h3>Оформлення замовлення</h3>
+    <h2 id="checkoutTitle">Оформлення замовлення</h2>
     <button type="button" class="btn ghost small" id="closeCheckout">Закрити</button>
   </div>
   <form method="post" action="{{ url_for('checkout') }}" class="stack compact-checkout-form" id="checkoutForm">
     <div class="grid-2 compact-fields">
-      <input name="customer_name" placeholder="Ім'я" required>
-      <input name="phone" placeholder="Телефон" required>
+      <label>Ім'я<input name="customer_name" autocomplete="name" required></label>
+      <label>Телефон<input name="phone" type="tel" autocomplete="tel" required></label>
     </div>
 
     <div class="np-grid compact-fields">
       <div class="autocomplete-wrap">
+        <label for="cityInput">Місто</label>
         <input name="city_name" id="cityInput" placeholder="Місто" autocomplete="off" required>
         <input type="hidden" name="city_ref" id="cityRef">
         <div class="autocomplete-list hidden" id="cityList"></div>
       </div>
-      <select name="delivery_type" id="deliveryType" required>
+      <label>Тип доставки<select name="delivery_type" id="deliveryType" required>
         <option value="warehouse">Склад / відділення</option>
         <option value="postomat">Поштомат</option>
         <option value="address">Адреса</option>
-      </select>
+      </select></label>
     </div>
 
     <div id="warehouseBlock" class="autocomplete-wrap">
       <input type="hidden" name="warehouse_ref" id="warehouseRef">
+      <label for="warehouseInput">Відділення або поштомат</label>
       <input name="warehouse_label" id="warehouseInput" placeholder="Оберіть відділення або поштомат" autocomplete="off" required>
       <div class="autocomplete-list hidden" id="warehouseList"></div>
       <div class="muted" id="warehouseHelp"></div>
@@ -66,14 +71,16 @@
     <div id="addressBlock" class="hidden stack compact-fields">
       <div class="autocomplete-wrap">
         <input type="hidden" name="street_ref" id="streetRef">
+        <label for="streetInput">Вулиця</label>
         <input name="street_name" id="streetInput" placeholder="Вулиця" autocomplete="off">
         <div class="autocomplete-list hidden" id="streetList"></div>
       </div>
-      <input name="house" placeholder="Будинок">
+      <label>Будинок<input name="house" autocomplete="address-line2"></label>
     </div>
 
-    <textarea name="comment" placeholder="Коментар до замовлення"></textarea>
-    <div class="price-row big">Разом: ${{ '%.2f'|format(total) }}</div>
+    <label>Коментар до замовлення<textarea name="comment"></textarea></label>
+    <div class="price-row big">Товари: {{ '%.2f'|format(total_uah) }} грн</div>
+    <p class="muted">Без вартості доставки. Оплата та доставка за <a class="text-link" href="{{ url_for('delivery_payment') }}">опублікованими умовами</a>.</p>
     <button class="btn primary" type="submit">Підтвердити замовлення</button>
   </form>
 </div>
@@ -98,11 +105,19 @@
   const streetRef = document.getElementById('streetRef');
   const streetList = document.getElementById('streetList');
 
-  function openDrawer(){ drawer.classList.remove('hidden'); backdrop.classList.remove('hidden'); document.body.classList.add('drawer-open'); }
-  function closeDrawer(){ drawer.classList.add('hidden'); backdrop.classList.add('hidden'); document.body.classList.remove('drawer-open'); }
+  function openDrawer(){ drawer.classList.remove('hidden'); backdrop.classList.remove('hidden'); document.body.classList.add('drawer-open'); closeBtn.focus(); }
+  function closeDrawer(){ drawer.classList.add('hidden'); backdrop.classList.add('hidden'); document.body.classList.remove('drawer-open'); openBtn.focus(); }
   openBtn?.addEventListener('click', openDrawer);
   closeBtn?.addEventListener('click', closeDrawer);
   backdrop?.addEventListener('click', closeDrawer);
+  drawer.addEventListener('keydown', (event) => {
+    if(event.key === 'Escape'){ event.preventDefault(); closeDrawer(); }
+    if(event.key !== 'Tab') return;
+    const focusable = [...drawer.querySelectorAll('button, input, select, textarea, a[href]')].filter(el => !el.disabled && el.getClientRects().length);
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if(event.shiftKey && document.activeElement === first){ event.preventDefault(); last.focus(); }
+    if(!event.shiftKey && document.activeElement === last){ event.preventDefault(); first.focus(); }
+  });
 
   function renderList(container, items, onPick){
     container.innerHTML = '';

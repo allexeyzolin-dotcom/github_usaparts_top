@@ -16,6 +16,7 @@ __pycache__/
 !stack.env.example
 
 # Temporary files
+artifacts/
 *.log
 *.tmp
 public_home_*.png

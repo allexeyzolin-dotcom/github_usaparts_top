@@ -1,134 +1,17 @@
 {% extends 'base_public.html' %}
 {% block content %}
 <div class="container seo-listing-page">
-  {% if breadcrumbs %}
-  <nav class="seo-breadcrumbs" aria-label="Навігація сторінки">
-    {% for crumb in breadcrumbs %}
-      {% if not loop.last %}
-      <a href="{{ crumb.url }}">{{ crumb.label }}</a>
-      <span>/</span>
-      {% else %}
-      <span>{{ crumb.label }}</span>
-      {% endif %}
-    {% endfor %}
-  </nav>
-  {% endif %}
-
-  <section class="seo-listing-hero card">
-    <span class="eyebrow">USAparts.top • SEO каталог</span>
-    <h1>{{ title }}</h1>
-    <p>{{ intro }}</p>
-    <div class="seo-listing-meta">
-      <span>{{ total_count }} позицій</span>
-      <span>Пошук по OEM номеру</span>
-      <span>Фото, ціна та наявність</span>
-    </div>
-  </section>
-
+  <nav class="seo-breadcrumbs" aria-label="Навігація сторінки">{% for crumb in breadcrumbs %}{% if not loop.last %}<a href="{{ crumb.url }}">{{ crumb.label }}</a><span>/</span>{% else %}<span>{{ crumb.label }}</span>{% endif %}{% endfor %}</nav>
+  <div class="showcase-section-head"><div><span class="eyebrow">USAparts.top / КАТАЛОГ</span><h1>{{ title }}</h1><p class="muted">{{ total_count }} позицій. Перевірте OEM номер, фото та сумісність перед замовленням.</p></div></div>
   {% if related %}
-  <section class="seo-related-grid">
-    {% if related.categories %}
-    <div class="card seo-related-card">
-      <h2>Категорії</h2>
-      <div class="seo-chip-row">
-        {% for item in related.categories %}
-        <a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
-    {% if related.vehicles %}
-    <div class="card seo-related-card">
-      <h2>Авто / склади</h2>
-      <div class="seo-chip-row">
-        {% for item in related.vehicles %}
-        <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
-    {% if related.brands %}
-    <div class="card seo-related-card">
-      <h2>Бренди</h2>
-      <div class="seo-chip-row">
-        {% for item in related.brands %}
-        <a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-  </section>
-  {% endif %}
-
-  {% if seo_part_links %}
-  <section class="card seo-oem-index" aria-label="OEM номери в розділі">
-    <div class="warehouse-catalog-head">
-      <div>
-        <span class="eyebrow">OEM індекс</span>
-        <h2>Номери запчастин у цьому розділі</h2>
-      </div>
-      <div class="muted">Кожен номер веде на окрему картку товару.</div>
-    </div>
-    <div class="seo-oem-grid">
-      {% for item in seo_part_links %}
-      <a class="seo-oem-link" href="{{ part_detail_url(item.part) }}">
-        <strong>{{ item.number }}</strong>
-        <span>{{ clean_text(item.part.name) }}</span>
-      </a>
-      {% endfor %}
-    </div>
-  </section>
-  {% endif %}
-
-  <div class="showcase-grid seo-product-grid">
-    {% for part in parts %}
-    {% set public_photo = public_part_photo(part) %}
-    <div class="showcase-card">
-      <a href="{{ part_detail_url(part) }}">
-        <span class="watermarked-photo">
-          <img class="showcase-img" src="{{ public_photo }}" alt="{{ part_seo_name(part) }}" loading="lazy" decoding="async">
-        </span>
-      </a>
-      <div class="showcase-body">
-        <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
-        <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ part_seo_name(part) }}</a></h3>
-        <div class="muted seo-card-oem">OEM: {{ part.part_number }}</div>
-        {% set warehouse_markup = part.warehouse.markup_percent if part.warehouse else 0 %}
-        <div class="price-row">{{ display_public_price_uah(part.price_usd, warehouse_markup) }}</div>
-        <a class="btn primary full" href="{{ part_detail_url(part) }}">Переглянути</a>
-      </div>
-    </div>
-    {% else %}
-    <div class="card">
-      <div class="muted">Поки немає активних товарів для цієї SEO-сторінки.</div>
-    </div>
-    {% endfor %}
-  </div>
-
-  {% if seo_faq_items %}
-  <section class="card seo-faq-section">
-    <span class="eyebrow">Підбір і замовлення</span>
-    <h2>Питання по розділу</h2>
-    <div class="seo-faq-grid">
-      {% for item in seo_faq_items %}
-      <article class="seo-faq-card">
-        <h3>{{ item.question }}</h3>
-        <p>{{ item.answer }}</p>
-      </article>
-      {% endfor %}
-    </div>
-  </section>
-  {% endif %}
-
-  <section class="card seo-source-note">
-    <h2>Як формується сторінка</h2>
-    <p>
-      Сторінка оновлюється автоматично з бази товарів USAparts.top. Якщо для товару бракує опису або сумісності,
-      ключовим джерелом ідентифікації залишається OEM номер запчастини. Дані для підбору потрібно звіряти за OEM номером
-      і фото товару перед оформленням замовлення.
-    </p>
-  </section>
+  <details class="catalog-directory"><summary>Інші розділи каталогу <span aria-hidden="true">+</span></summary><div class="directory-content">
+    {% if related.categories %}<div><h2>Категорії</h2><div class="seo-chip-row">{% for item in related.categories %}<a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }}</a>{% endfor %}</div></div>{% endif %}
+    {% if related.vehicles %}<div><h2>За автомобілем</h2><div class="seo-chip-row">{% for item in related.vehicles %}<a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }}</a>{% endfor %}</div></div>{% endif %}
+    {% if related.brands %}<div><h2>Виробники</h2><div class="seo-chip-row">{% for item in related.brands %}<a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }}</a>{% endfor %}</div></div>{% endif %}
+  </div></details>{% endif %}
+  {% include '_pagination.html' %}
+  <div class="showcase-grid">{% for part in parts %}{% set eager_image = loop.index <= 4 %}{% include '_product_card.html' %}{% else %}<div class="empty-results"><h2>Зараз немає деталей у цьому розділі</h2><a class="text-link" href="{{ url_for('catalog') }}">Переглянути весь каталог →</a></div>{% endfor %}</div>
+  {% include '_pagination.html' %}
+  <div class="listing-help"><h2>Потрібна допомога з підбором?</h2><p>Звіримо OEM номер запчастини та уточнимо наявність для вашого автомобіля.</p><a class="text-link" href="tel:+380960865846">+38 (096) 086 5846 ↗</a></div>
 </div>
 {% endblock %}

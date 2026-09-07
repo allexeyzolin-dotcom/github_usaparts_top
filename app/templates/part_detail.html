@@ -34,11 +34,11 @@
 
       {% if gallery %}
       <button class="part-main-photo-button watermarked-photo watermark-large" type="button" id="part-main-photo-open" aria-label="Відкрити фото товару">
-        <img class="detail-img" id="part-main-photo" src="{{ gallery[0] }}" alt="{{ part_seo_name(part, visible_part_number) }}">
+        <img class="detail-img" id="part-main-photo" src="{{ storefront_image_url(gallery[0], 960) }}" width="960" height="960" fetchpriority="high" decoding="async" alt="{{ part_seo_name(part, visible_part_number) }}">
       </button>
       {% else %}
       <span class="part-main-photo-button watermarked-photo watermark-large" aria-label="Тематичне фото товару">
-        <img class="detail-img" src="{{ fallback_photo }}" alt="{{ part_seo_name(part, visible_part_number) }}">
+        <img class="detail-img" src="{{ fallback_photo }}" width="960" height="960" decoding="async" alt="Фото запчастини ще не додано">
       </span>
       {% endif %}
 
@@ -52,7 +52,7 @@
           data-index="{{ loop.index0 }}"
           aria-label="Фото {{ loop.index }}">
           <span class="watermarked-photo watermark-thumb">
-            <img src="{{ photo }}" alt="{{ part_seo_name(part, visible_part_number) }} фото {{ loop.index }}" loading="lazy" decoding="async" style="width:76px;height:76px;border-radius:14px;object-fit:cover">
+            <img src="{{ storefront_image_url(photo, 320) }}" width="76" height="76" alt="{{ part_seo_name(part, visible_part_number) }} фото {{ loop.index }}" loading="lazy" decoding="async" style="width:76px;height:76px;border-radius:6px;object-fit:cover">
           </span>
         </button>
         {% endfor %}
@@ -104,7 +104,7 @@
       </div>
       {% endif %}
       <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}" class="product-buy-form">
-        <button class="btn primary full">Купити</button>
+        <button class="btn primary full"{% if not part.in_stock or part.qty <= 0 %} disabled{% endif %}>{{ 'До кошика' if part.in_stock and part.qty > 0 else 'Немає в наявності' }}</button>
       </form>
       <button class="btn seller-request-toggle" type="button" id="seller-request-toggle">Запитати у продавця</button>
 
@@ -150,6 +150,13 @@
       </div>
     </div>
   </div>
+
+  {% if part.description and clean_text(part.description).strip() != clean_text(part.name).strip() %}
+  <section class="card product-technical-copy">
+    <h2>Опис запчастини {{ visible_part_number }}</h2>
+    <p>{{ clean_text(part.description) }}</p>
+  </section>
+  {% endif %}
 
   <section class="card stack product-reviews" id="reviews">
     <div class="review-section-head">

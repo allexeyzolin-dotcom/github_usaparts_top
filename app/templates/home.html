@@ -1,257 +1,67 @@
 {% extends 'base_public.html' %}
 {% block content %}
-<section class="hero premium-hero home-shot-layout shop-home">
-  <div class="container home-shot-container">
+<section class="shop-home">
+  <div class="container">
     <div class="shop-hero-grid">
       <div class="shop-hero-card">
-        <span class="eyebrow">USAparts.top • авторозбірка • склад</span>
-        <h1 class="home-main-title">Запчастини для авто з США</h1>
-        <p class="hero-text">
-          Шукайте деталь по OEM номеру, назві, бренду або VIN. На вітрині показуємо тільки позиції,
-          які можна додати в кошик або уточнити у менеджера.
-        </p>
-        <form class="search-row hero-search-centered" method="get" action="{{ url_for('catalog') }}">
-          <input name="q" value="{{ q }}" placeholder="Наприклад 68235664AA, фара, бампер або Jeep">
-          <button class="btn primary" type="submit">Знайти</button>
+        <span class="eyebrow"><span class="live-dot" aria-hidden="true"></span> USAparts.top / АВТОРОЗБІРКА</span>
+        <h1>Ваша деталь.<br><span>Ваше авто знову в русі.</span></h1>
+        <p class="hero-text">Запчастини для авто зі США. Знайдіть потрібну за OEM номером або оберіть своє авто.</p>
+        <form class="hero-search" method="get" action="{{ url_for('catalog') }}" role="search">
+          <label for="home-oem">Знаєте номер деталі?</label>
+          <div class="search-row">
+            <input id="home-oem" name="q" placeholder="Наприклад, 68235664AA" autocomplete="off">
+            <button class="btn primary" type="submit">Знайти деталь <span aria-hidden="true">↗</span></button>
+          </div>
         </form>
-        <div class="shop-hero-stats">
-          <a href="{{ url_for('catalog') }}"><strong>{{ featured_total }}</strong><span>позицій у вітрині</span></a>
-          <a href="{{ url_for('cars_public', status='in_stock') }}"><strong>{{ cars_stock }}</strong><span>авто в наявності</span></a>
-          <a href="{{ url_for('cars_public', status='in_transit') }}"><strong>{{ cars_transit }}</strong><span>авто в дорозі</span></a>
-        </div>
+        <div class="hero-footnote"><strong>{{ featured_total }}</strong> позицій у каталозі <span aria-hidden="true">/</span> Ціни в гривні</div>
+        <div class="hero-lines" aria-hidden="true"><i></i><i></i><i></i></div>
       </div>
-
       <aside class="fitment-card">
-        <img class="fitment-logo" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top" loading="lazy" decoding="async">
-        <h2>Підберіть деталь для вашого авто</h2>
-        <p>Логіка проста: спочатку авто, потім категорія. Якщо знаєте OEM номер - введіть його і шукайте напряму.</p>
+        <span class="eyebrow">ПОШУК ЗА АВТО</span>
+        <h2>З чого почнемо?</h2>
+        <p>Оберіть модель, потім потрібну категорію.</p>
         <form class="fitment-form" action="{{ url_for('fitment_redirect') }}" method="get">
-          <label>
-            <span>1. Авто / склад</span>
-            <select name="vehicle_slug" id="fitmentVehicle">
-              <option value="">Оберіть авто</option>
-              {% for item in fitment_options %}
-              <option value="{{ item.slug }}">{{ item.label }} • {{ item.count }}</option>
-              {% endfor %}
-            </select>
+          <label><span>01 / Ваше авто</span>
+            <select name="vehicle_slug" id="fitmentVehicle"><option value="">Оберіть авто</option>{% for item in fitment_options %}<option value="{{ item.slug }}">{{ item.label }} · {{ item.count }}</option>{% endfor %}</select>
           </label>
-          <label>
-            <span>2. Категорія для вибраного авто</span>
-            <select name="category_slug" id="fitmentCategory" disabled>
-              <option value="">Спочатку оберіть авто</option>
-            </select>
+          <label><span>02 / Категорія деталі</span>
+            <select name="category_slug" id="fitmentCategory" disabled><option value="">Спочатку оберіть авто</option></select>
           </label>
-          <label>
-            <span>Або OEM / назва</span>
-            <input name="q" id="fitmentQuery" placeholder="Наприклад 68235664AA">
-          </label>
-          <button class="btn primary full" type="submit">Підібрати деталь</button>
-          <div class="fitment-hint" id="fitmentHint">Без категорії відкриємо всі запчастини вибраного авто.</div>
+          <button class="btn primary full" type="submit">Показати запчастини <span aria-hidden="true">→</span></button>
+          <div class="fitment-hint" id="fitmentHint">Усі деталі вибраного авто або окрема категорія.</div>
         </form>
         <script type="application/json" id="fitment-data">{{ fitment_options|tojson }}</script>
       </aside>
     </div>
-
-    {% if cars_random %}
-    <div class="cars-ribbon">
-      {% for car in cars_random %}
-      <a class="mini-car-card" href="{{ url_for('car_detail_public', car_id=car.id) }}">
-        {% if primary_car_photo(car) %}
-        <span class="watermarked-photo watermark-small">
-          <img class="mini-car-image" src="{{ primary_car_photo(car) }}" alt="{{ car.brand }} {{ car.model }}" loading="lazy" decoding="async">
-        </span>
-        {% else %}
-        <div class="mini-car-image placeholder">Авто</div>
-        {% endif %}
-        <div class="mini-car-body">
-          <div class="mini-car-name">{{ clean_text(car.brand) }} {{ clean_text(car.model) }}</div>
-          <div class="muted mini-car-meta">{{ car.year or '—' }} • {{ car.mileage or '—' }} км • {{ 'в дорозі' if car.status == 'in_transit' else 'в наявності' }}</div>
-          <div class="mini-car-price">{{ display_public_price_uah(car.price_usd, 0) }}</div>
-        </div>
-      </a>
-      {% endfor %}
+    <div class="service-strip" aria-label="Умови покупки">
+      <a href="{{ url_for('delivery_payment') }}"><span>01</span><div><strong>Доставка по Україні</strong><small>Нова Пошта, Делівері та самовивіз</small></div></a>
+      <a href="{{ url_for('return_policy') }}"><span>02</span><div><strong>Обмін і повернення</strong><small>Звернення протягом 14 днів</small></div></a>
+      <a href="tel:+380960865846"><span>03</span><div><strong>Допоможемо з підбором</strong><small>Звіримо OEM номер вашої деталі</small></div></a>
     </div>
-    {% endif %}
-
-    <div class="showcase-section-head">
-      <div>
-        <span class="eyebrow">Популярні деталі</span>
-        <h2>Запчастини в наявності</h2>
-      </div>
-      <a class="text-link" href="{{ url_for('catalog') }}">Перейти в каталог</a>
-    </div>
-
-    <div class="showcase-grid showcase-grid-home">
-      {% for part in featured %}
-      {% set gallery = part_gallery_urls(part) %}
-      {% set public_photo = public_part_photo(part) %}
-      <div class="showcase-card home-product-card">
-        <a class="product-card-media" href="{{ part_detail_url(part) }}">
-          <span class="product-card-badge">{{ producer_type_label(part.producer_type) }}</span>
-          <span class="watermarked-photo">
-            <img class="showcase-img" src="{{ public_photo }}" alt="{{ part_seo_name(part) }}" loading="lazy" decoding="async">
-          </span>
-          {% if gallery|length > 1 %}
-          <span class="photo-count-badge">{{ gallery|length }} фото</span>
-          {% endif %}
-        </a>
-        <div class="showcase-body">
-          <div class="product-card-label">Код товару</div>
-          <a class="showcase-code product-text-link" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
-          <div class="product-card-brand">{{ clean_text(part.brand or producer_type_label(part.producer_type)) }}</div>
-          <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ part_seo_name(part) }}</a></h3>
-          {% set warehouse_markup = part.warehouse.markup_percent if part.warehouse else 0 %}
-          <div class="price-row">{{ display_public_price_uah(part.price_usd, warehouse_markup) }}</div>
-          <div class="product-card-stock">В наявності: {{ part.qty }} шт.</div>
-          <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}" class="home-buy-form">
-            <button class="btn primary full" type="submit">Купити</button>
-          </form>
-        </div>
-      </div>
-      {% else %}
-      <div class="card">
-        {% if q and search_found_without_photo %}
-        <div class="muted">Товар знайдено в базі, але для нього ще не додано фото, тому на вітрині він поки не показується.</div>
-        {% else %}
-        <div class="muted">Поки немає товарів для вітрини за поточним запитом.</div>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
-
-    {% if has_more %}
-    <div class="showcase-more-row">
-      <a class="btn ghost" href="{{ url_for('catalog') }}">Показати ще</a>
-    </div>
-    {% endif %}
-  </div>
-
-  <div class="container seo-about-section">
-    <article class="seo-about-card">
-      <span class="eyebrow">Авторозбірка • автошрот • запчастини зі США</span>
-      <h2>Авторозбірка USAparts.top в Україні</h2>
-      <p>
-        Авторозбірка USAparts.top допомагає швидко знайти якісні б/у запчастини для ремонту автомобілів.
-        Ми спеціалізуємося на розбиранні авто зі США, перевіряємо деталі перед продажем і підбираємо
-        запчастини по OEM номеру, назві, моделі авто або VIN.
-      </p>
-      <p>
-        Автошрот і авторозбірка - це один напрямок роботи: демонтаж справних деталей з автомобілів,
-        які можна повторно використати для ремонту інших машин. Для власників авто та сервісів це
-        вигідна альтернатива новим оригінальним деталям, особливо коли потрібна швидка наявність.
-      </p>
-
-      <div class="seo-about-grid">
-        <div>
-          <h3>Чому обирають б/у запчастини</h3>
-          <p>
-            Купівля вживаних запчастин дозволяє суттєво зекономити без втрати практичної користі.
-            Деталі з американських авто часто мають хороший залишковий ресурс, а повторне використання
-            запчастин є більш екологічним рішенням, ніж утилізація справних вузлів.
-          </p>
-        </div>
-      </div>
-
-      {% if vehicle_warehouses %}
-      <div class="seo-brand-strip" aria-label="Авто на розбірці">
-        Авто на розбірці: {{ vehicle_warehouses|join(', ') }}.
-      </div>
-      {% endif %}
-    </article>
-  </div>
-
-  <div class="container">
     {% if warehouse_catalogs %}
-    <section class="warehouse-catalog-strip card secondary-catalog-strip">
-      <div class="warehouse-catalog-head">
-        <div>
-          <span class="eyebrow">Каталоги зі складів</span>
-          <h2>Підбірки за авто</h2>
-        </div>
-        <a class="text-link" href="{{ url_for('catalog') }}">Усі запчастини</a>
-      </div>
-      <div class="seo-chip-row">
-        {% for item in warehouse_catalogs %}
-        <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
-        {% endfor %}
+    <section class="vehicle-directory">
+      <div class="showcase-section-head"><h2>Запчастини для вашого авто</h2><a class="text-link" href="{{ url_for('catalog') }}">Весь каталог ↗</a></div>
+      <div class="vehicle-grid">
+        {% for item in warehouse_catalogs %}<a href="{{ url_for('seo_vehicle_page', slug=item.slug) }}"><span class="vehicle-mark" aria-hidden="true">{{ item.label[:2]|upper }}</span><strong>{{ item.label }}</strong><small>{{ item.count }} деталей</small><span class="vehicle-arrow" aria-hidden="true">↗</span></a>{% endfor %}
       </div>
     </section>
     {% endif %}
-
-    {% if seo_entries and (seo_entries.categories or seo_entries.brands or seo_entries.vehicles or seo_entries.vehicle_categories or seo_entries.brand_categories or seo_part_links) %}
-    <section class="seo-hub-strip card secondary-catalog-strip" aria-label="Популярні розділи каталогу">
-      <div class="warehouse-catalog-head">
-        <div>
-          <span class="eyebrow">Каталог</span>
-          <h2>Швидкий перехід до запчастин</h2>
-        </div>
-        <a class="text-link" href="{{ url_for('catalog') }}">Весь каталог</a>
-      </div>
-      {% if seo_entries.categories %}
-      <div class="seo-hub-block">
-        <h3>Категорії запчастин</h3>
-        <div class="seo-chip-row">
-          {% for item in seo_entries.categories[:36] %}
-          <a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-      {% if seo_entries.brands %}
-      <div class="seo-hub-block">
-        <h3>Бренди та виробники</h3>
-        <div class="seo-chip-row">
-          {% for item in seo_entries.brands[:32] %}
-          <a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-      {% if seo_entries.vehicles %}
-      <div class="seo-hub-block">
-        <h3>Каталоги за авто</h3>
-        <div class="seo-chip-row">
-          {% for item in seo_entries.vehicles[:36] %}
-          <a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} • {{ item.count }}</a>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-      {% if seo_entries.vehicle_categories %}
-      <div class="seo-hub-block">
-        <h3>Категорія + авто</h3>
-        <div class="seo-chip-row">
-          {% for item in seo_entries.vehicle_categories[:48] %}
-          <a class="seo-chip" href="{{ url_for('seo_vehicle_category_page', category_slug=item.category_slug, vehicle_slug=item.vehicle_slug) }}">{{ item.category_label }} {{ item.vehicle_label }} • {{ item.count }}</a>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-      {% if seo_entries.brand_categories %}
-      <div class="seo-hub-block">
-        <h3>Бренд + категорія</h3>
-        <div class="seo-chip-row">
-          {% for item in seo_entries.brand_categories[:36] %}
-          <a class="seo-chip" href="{{ url_for('seo_brand_category_page', brand_slug=item.brand_slug, category_slug=item.category_slug) }}">{{ item.category_label }} {{ item.brand_label }} • {{ item.count }}</a>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-      {% if seo_part_links %}
-      <div class="seo-hub-block seo-oem-hub">
-        <h3>Популярні OEM номери</h3>
-        <div class="seo-oem-grid">
-          {% for item in seo_part_links %}
-          <a class="seo-oem-link" href="{{ part_detail_url(item.part) }}">
-            <strong>{{ item.number }}</strong>
-            <span>{{ clean_text(item.part.name) }}</span>
-          </a>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-    </section>
+    {% if seo_entries.categories %}
+    <section class="category-directory"><div class="showcase-section-head"><h2>Що потрібно замінити?</h2></div><div class="category-grid">
+      {% for item in seo_entries.categories %}<a href="{{ url_for('seo_category_page', slug=item.slug) }}"><span>{{ '%02d'|format(loop.index) }}</span><strong>{{ item.label }}</strong><small>{{ item.count }} деталей ↗</small></a>{% endfor %}
+    </div></section>
     {% endif %}
+    <section class="home-products">
+      <div class="showcase-section-head"><div><span class="eyebrow">КАТАЛОГ / У НАЯВНОСТІ</span><h2>Знайдіть те, що шукали</h2></div><a class="text-link" href="{{ url_for('catalog') }}">Усі {{ featured_total }} деталей ↗</a></div>
+      <div class="showcase-grid">{% for part in featured %}{% set eager_image = loop.index <= 4 %}{% include '_product_card.html' %}{% else %}<p class="card">Зараз оновлюємо асортимент. Зателефонуйте для підбору потрібної деталі.</p>{% endfor %}</div>
+      {% if has_more %}<div class="showcase-more-row"><a class="btn primary" href="{{ url_for('catalog') }}">Перейти до каталогу <span aria-hidden="true">→</span></a></div>{% endif %}
+    </section>
+    <section class="about-store">
+      <span class="eyebrow">ЗІ США / ДЛЯ ВАШОГО АВТО</span>
+      <h2>Друге життя деталей.<br>Нові можливості для вашого авто.</h2>
+      <div><p>USAparts.top — авторозбірка та магазин автозапчастин у Ромнах. У каталозі можна перевірити OEM номер, фотографії, ціну й доступну кількість перед замовленням.</p><p>Потрібна допомога із сумісністю? Зв'яжіться з нами, щоб уточнити деталі для вашого автомобіля.</p><a class="text-link" href="tel:+380960865846">+38 (096) 086 5846 ↗</a></div>
+    </section>
   </div>
 </section>
 <script>

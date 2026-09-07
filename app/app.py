@@ -1,4 +1,5 @@
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -13,18 +14,18 @@ import time
 import zipfile
 import xml.etree.ElementTree as ET
 import qrcode
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from urllib.parse import parse_qs, quote, urlsplit
 from xml.sax.saxutils import escape as xml_escape
 from PIL import Image, ImageOps, UnidentifiedImageError
 from qrcode.image.svg import SvgPathImage
 from uuid import uuid4
 from datetime import datetime, timedelta
-from functools import wraps
+from functools import lru_cache, wraps
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session, Response, has_request_context
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, send_from_directory, jsonify, session, Response, has_request_context, abort
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
 from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -38,6 +39,7 @@ except Exception:
     GoogleAuthRequest = None
 
 BASE_DIR = Path(__file__).resolve().parent
+STOREFRONT_ASSET_VERSION = hashlib.sha256((BASE_DIR / "static" / "storefront.css").read_bytes()).hexdigest()[:12]
 PROJECT_ROOT = BASE_DIR.parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -51,6 +53,7 @@ SITEMAP_PRIORITY_PARTS_LIMIT = max(int(os.getenv("SITEMAP_PRIORITY_PARTS_LIMIT",
 PUBLIC_CACHE_MAX_ITEMS = max(int(os.getenv("PUBLIC_CACHE_MAX_ITEMS", "128") or 0), 16)
 _PUBLIC_CACHE: dict[tuple, tuple[float, object]] = {}
 _PUBLIC_CACHE_LOCK = threading.RLock()
+_PUBLIC_CACHE_BUILD_LOCK = threading.RLock()
 CRAWLER_USER_AGENT_MARKERS = (
     "googlebot",
     "bingbot",
@@ -67,7 +70,7 @@ CRAWLER_USER_AGENT_MARKERS = (
 )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://usa:usa123@localhost:5433/usa_auto_parts")
-engine = create_engine(DATABASE_URL, future=True)
+engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True, pool_recycle=1800)
 SessionLocal = sessionmaker(bind=engine, future=True, expire_on_commit=False)
 Base = declarative_base()
 
@@ -497,7 +500,12 @@ def public_cache_remember(key: tuple, builder, ttl_seconds: int | None = None):
     cached = public_cache_get(key)
     if cached is not None:
         return cached
-    return public_cache_set(key, builder(), ttl_seconds=ttl_seconds)
+    # Collapse concurrent cold requests; nested cache builders use the same RLock.
+    with _PUBLIC_CACHE_BUILD_LOCK:
+        cached = public_cache_get(key)
+        if cached is not None:
+            return cached
+        return public_cache_set(key, builder(), ttl_seconds=ttl_seconds)
 
 
 def public_cache_clear(prefix: tuple | None = None):
@@ -540,6 +548,24 @@ def apply_crawl_headers(response):
             public_cache_clear()
     if external_request_host() in {"usaparts.top", "www.usaparts.top"}:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if response.mimetype == "application/xml" and response.status_code == 200:
+        response.add_etag()
+        response.make_conditional(request)
+    # Compress only generated public responses; never cache personalized HTML.
+    if response.mimetype == "text/html":
+        response.headers.setdefault("Cache-Control", "private, no-cache")
+    if (request.method == "GET" and response.status_code == 200
+            and not response.direct_passthrough and not response.is_streamed
+            and not request.path.startswith(("/admin", "/api", "/cart", "/checkout"))
+            and response.mimetype in {"text/html", "application/xml", "text/plain"}):
+        response.vary.add("Accept-Encoding")
+        if request.accept_encodings["gzip"] > 0 and "Content-Encoding" not in response.headers:
+            data = response.get_data()
+            if len(data) > 1024:
+                response.set_data(gzip.compress(data, compresslevel=5, mtime=0))
+                response.headers["Content-Encoding"] = "gzip"
+                if response.get_etag()[0]:
+                    response.set_etag(response.get_etag()[0], weak=True)
     return response
 
 
@@ -993,6 +1019,19 @@ def normalize_text(value):
         return ""
     if not isinstance(value, str):
         return value
+    if value.isascii():
+        return value
+    if len(value) <= 4096:
+        return _normalized_text_cached(value)
+    return _normalize_text_string(value)
+
+
+@lru_cache(maxsize=16384)
+def _normalized_text_cached(value: str) -> str:
+    return _normalize_text_string(value)
+
+
+def _normalize_text_string(value: str) -> str:
     text = value
     if text.startswith("ЎР"):
         text = "Р" + text
@@ -1562,6 +1601,18 @@ def public_catalog_pagination(page_value, total_items: int, per_page: int = 48):
     }
 
 
+def validate_public_page_number(value, total_pages):
+    # Arbitrary page numbers must not become an unlimited set of redirects.
+    if value is None or value == "":
+        return
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        abort(404)
+    if number < 1 or number > total_pages:
+        abort(404)
+
+
 def warehouse_print_marks_map(db, warehouse_id: int | None):
     query = db.query(WarehousePrintMark)
     if warehouse_id is None:
@@ -1797,12 +1848,9 @@ def build_showcase_parts(parts, query_text: str = "", limit: int = 12, cross_map
     cross_map = cross_map or {}
     best_by_number = {}
     for part in parts:
-        if not part or part.is_deleted or not part.in_stock:
+        if not part or part.is_deleted or not part.in_stock or int(part.qty or 0) <= 0:
             continue
         if needle and not public_part_matches_query(part, needle, cross_map):
-            continue
-        photo_url = primary_part_photo(part)
-        if not photo_url and not needle:
             continue
         key = normalize_text(part.part_number or "").strip().upper()
         current = best_by_number.get(key)
@@ -1825,6 +1873,7 @@ def build_showcase_parts(parts, query_text: str = "", limit: int = 12, cross_map
     ordered = sorted(
         best_by_number.values(),
         key=lambda part: (
+            0 if needle and compact_part_code(part.part_number) == compact_part_code(needle) else 1,
             hashlib.md5(normalize_text(part.part_number or "").encode("utf-8", errors="ignore")).hexdigest(),
             normalize_text(part.name or "").casefold(),
         ),
@@ -4744,6 +4793,15 @@ def public_part_photo(part: Part | None) -> str:
     return public_part_gallery_urls(part)[0]
 
 
+def storefront_image_url(source: str, width: int = 640) -> str:
+    parsed = urlsplit(source)
+    if parsed.netloc and parsed.netloc != urlsplit(public_site_base_url()).netloc:
+        return source
+    if parsed.path.startswith("/uploads/"):
+        return url_for("storefront_thumbnail", width=width, filename=parsed.path[len("/uploads/"):])
+    return source
+
+
 def template_gallery_urls(template: PartTemplate) -> list[str]:
     if not template:
         return []
@@ -5230,11 +5288,15 @@ def build_cart_state(db, cart: dict | None, *, lock_rows: bool = False):
         query = query.with_for_update()
     parts = query.all() if query is not None else []
     parts_by_id = {part.id: part for part in parts}
+    warehouse_ids = {part.warehouse_id for part in parts if part.warehouse_id}
+    warehouses = db.query(Warehouse).filter(Warehouse.id.in_(warehouse_ids)).all() if warehouse_ids else []
+    markups = {warehouse.id: warehouse.markup_percent for warehouse in warehouses}
 
     normalized_cart = {}
     issues = []
     items = []
-    total = 0.0
+    total = Decimal("0.00")
+    total_uah = Decimal("0.00")
 
     for part_id, requested_qty in requested_entries:
         part = parts_by_id.get(part_id)
@@ -5265,14 +5327,21 @@ def build_cart_state(db, cart: dict | None, *, lock_rows: bool = False):
                 }
             )
 
-        subtotal = float(part.price_usd or 0) * actual_qty
+        markup = markups.get(part.warehouse_id, 0) or 0
+        unit_price_usd = retail_price_usd(part.price_usd or 0, markup)
+        unit_price_uah = Decimal(display_uah(part.price_usd or 0, markup))
+        subtotal = unit_price_usd * actual_qty
         total += subtotal
+        total_uah += unit_price_uah * actual_qty
         normalized_cart[str(part.id)] = actual_qty
         items.append(
             {
                 "part": part,
                 "qty": actual_qty,
                 "subtotal": subtotal,
+                "unit_price_usd": unit_price_usd,
+                "unit_price_uah": unit_price_uah,
+                "subtotal_uah": unit_price_uah * actual_qty,
                 "available_qty": available_qty,
             }
         )
@@ -5280,6 +5349,7 @@ def build_cart_state(db, cart: dict | None, *, lock_rows: bool = False):
     return {
         "items": items,
         "total": total,
+        "total_uah": total_uah,
         "normalized_cart": normalized_cart,
         "issues": issues,
     }
@@ -6465,13 +6535,19 @@ def build_mobile_lookup_payload(db, part_number: str):
     }
 
 
+def retail_price_usd(price_usd, markup_percent=0) -> Decimal:
+    # Round the selling unit price once, identically in the feed, cart and order.
+    price = Decimal(str(price_usd or 0)) * (1 + Decimal(str(markup_percent or 0)) / 100)
+    return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def display_usd(price_usd: float, markup_percent: float) -> str:
-    return f"{float(price_usd) * (1 + float(markup_percent) / 100.0):.2f}"
+    return f"{retail_price_usd(price_usd, markup_percent):.2f}"
 
 
 def display_uah(price_usd: float, markup_percent: float) -> str:
-    usd = float(price_usd) * (1 + float(markup_percent) / 100.0)
-    return f"{usd * DEFAULT_UAH_RATE:.2f}"
+    uah = retail_price_usd(price_usd, markup_percent) * Decimal(str(DEFAULT_UAH_RATE))
+    return f"{uah.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
 
 
 def display_public_price_uah(price_usd: float, markup_percent: float = 0) -> str:
@@ -7080,7 +7156,7 @@ def build_part_product_schema(
 ) -> str:
     display_number = normalize_text(display_part_number or part.part_number or "").strip()
     part_url = canonical_url or public_part_url(part)
-    gallery = [absolute_public_url(url) for url in public_part_gallery_urls(part)]
+    gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
     price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
     categories = seo_part_categories(part)
     brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type))
@@ -7395,11 +7471,11 @@ def cached_public_active_parts(db) -> list[Part]:
 
 
 def cached_home_active_parts(db) -> list[Part]:
-    return public_cache_remember(("parts", "home_active"), lambda: home_active_parts(db))
+    return cached_unique_public_parts(db)
 
 
 def cached_catalog_active_parts(db) -> list[Part]:
-    return public_cache_remember(("parts", "catalog_active"), lambda: catalog_active_parts(db))
+    return cached_unique_public_parts(db)
 
 
 def cached_unique_public_parts(db) -> list[Part]:
@@ -7841,7 +7917,17 @@ def seo_listing_schema(title: str, description: str, url: str, parts: list[Part]
 
 def render_seo_listing(parts: list[Part], title: str, description: str, canonical_url: str, *, intro: str = "", related=None):
     related = related or {}
-    visible_parts = parts[:72]
+    pagination = public_catalog_pagination(request.args.get("page"), len(parts), per_page=48)
+    validate_public_page_number(request.args.get("page"), pagination["pages"])
+    base_url = canonical_url
+    def listing_page_url(page):
+        return f"{base_url}?page={page}" if page > 1 else base_url
+    canonical_url = listing_page_url(pagination["page"])
+    expected_args = {"page": str(pagination["page"])} if pagination["page"] > 1 else {}
+    if request.args.to_dict() != expected_args or any(len(request.args.getlist(k)) > 1 for k in request.args):
+        return canonical_redirect(canonical_url)
+    visible_parts = parts[pagination["offset"]:pagination["end_offset"]]
+    page_title = title + (f" — сторінка {pagination['page']}" if pagination["page"] > 1 else "")
     return render_template(
         "seo_listing.html",
         title=title,
@@ -7849,20 +7935,22 @@ def render_seo_listing(parts: list[Part], title: str, description: str, canonica
         intro=intro or description,
         parts=visible_parts,
         total_count=len(parts),
+        pagination=pagination,
+        catalog_page_url=lambda page: urlsplit(listing_page_url(page)).path + (f"?page={page}" if page > 1 else ""),
         related=related,
         breadcrumbs=[
             {"label": "Головна", "url": url_for("home")},
             {"label": "Каталог", "url": url_for("catalog")},
             {"label": title, "url": canonical_url},
         ],
-        seo_part_links=seo_part_link_entries(parts, limit=96),
+        seo_part_links=[],
         seo_faq_items=seo_listing_faq_items(title, parts),
         display_usd=display_usd,
         display_uah=display_uah,
-        seo_title=f"{title} | USAparts.top",
+        seo_title=f"{page_title} | USAparts.top",
         seo_description=compact_meta_text(description, limit=155),
         canonical_url=canonical_url,
-        json_ld=seo_listing_schema(title, description, canonical_url, parts),
+        json_ld=seo_listing_schema(page_title, description, canonical_url, visible_parts),
     )
 
 
@@ -7916,7 +8004,8 @@ def sitemap_cached_response(cache_name: str, builder) -> Response:
 
 
 def sitemap_index_locations() -> list[tuple[str, str]]:
-    today = datetime.utcnow().date().isoformat()
+    # Do not claim every sitemap changed today when inventory is unchanged.
+    today = ""
     locations = [
         (public_url_for("sitemap_pages_xml"), today),
         (public_url_for("sitemap_catalog_xml"), today),
@@ -8610,7 +8699,7 @@ def inject_globals():
     orders_new_count = 0
     orders_active_count = 0
     product_reviews_pending_count = 0
-    if session.get("admin_auth"):
+    if session.get("admin_auth") and request.path.startswith("/admin"):
         db = SessionLocal()
         try:
             app_notifications_count = (
@@ -8687,6 +8776,8 @@ def inject_globals():
         "display_public_price_uah": display_public_price_uah,
         "primary_part_photo": primary_part_photo,
         "public_part_photo": public_part_photo,
+        "storefront_image_url": storefront_image_url,
+        "storefront_asset_version": STOREFRONT_ASSET_VERSION,
         "primary_car_photo": primary_car_photo,
         "primary_template_photo": primary_template_photo,
         "template_gallery_urls": template_gallery_urls,
@@ -8934,7 +9025,7 @@ def sitemap_parts_xml():
 def sitemap_parts_legacy_xml(page):
     if page == 1:
         return redirect(public_url_for("sitemap_parts_xml"), code=301)
-    return sitemap_xml_response([])
+    abort(404)
 
 
 @app.route("/sitemap/cross-parts.xml")
@@ -8967,6 +9058,10 @@ def sitemap_cross_parts_xml():
 
 @app.route("/sitemap/images.xml")
 def sitemap_images_xml():
+    return sitemap_cached_response("images", build_sitemap_images_response)
+
+
+def build_sitemap_images_response():
     db = SessionLocal()
     try:
         nodes = []
@@ -9541,6 +9636,7 @@ def catalog():
         cross_map = cached_cross_numbers_map_for_parts(db, parts_pool, f"catalog-{condition or 'all'}")
         all_matching_parts, parts_total = build_showcase_parts(parts_pool, q, limit=max(len(parts_pool), 1), cross_map=cross_map)
         pagination = public_catalog_pagination(requested_page, parts_total, per_page=48)
+        validate_public_page_number(requested_page, pagination["pages"])
         normalized_values = {}
         if q:
             normalized_values["q"] = q
@@ -9608,16 +9704,16 @@ def catalog():
             condition=condition,
             warehouse_catalogs=warehouse_catalogs,
             seo_entries=seo_entries,
-            seo_part_links=seo_part_link_entries(unique_public_parts, limit=96),
+            seo_part_links=[],
             search_found_without_photo=search_found_without_photo,
             safe_photo=safe_photo,
             display_usd=display_usd,
             display_uah=display_uah,
-            seo_title=f"{catalog_title} | USAparts.top",
+            seo_title=f"{catalog_title}" + (f" — сторінка {pagination['page']}" if pagination["page"] > 1 else "") + " | USAparts.top",
             seo_description=catalog_description,
             canonical_url=catalog_canonical_url,
-            seo_noindex=bool(q),
-            json_ld="" if q else seo_listing_schema(catalog_title, catalog_description, catalog_canonical_url, all_matching_parts),
+            seo_noindex=bool(q or condition),
+            json_ld="" if q else seo_listing_schema(catalog_title, catalog_description, catalog_canonical_url, parts),
         )
     finally:
         db.close()
@@ -9631,7 +9727,7 @@ def seo_brand_page(slug):
         entries = cached_seo_entries(db)
         brand = next((entry for entry in entries["brands"] if entry["slug"] == slug), None)
         if not brand:
-            return redirect(url_for("catalog"), code=302)
+            abort(404)
         parts = seo_filter_parts(all_parts, brand_slug=slug)
         title = f"Запчастини {brand['label']}"
         description = f"Каталог запчастин {brand['label']} на USAparts.top. Пошук і замовлення по OEM номеру, фото, ціна та наявність на складі."
@@ -9656,10 +9752,10 @@ def seo_brand_category_page(brand_slug, category_slug):
         brand = next((entry for entry in entries["brands"] if entry["slug"] == brand_slug), None)
         category = next((entry for entry in entries["categories"] if entry["slug"] == category_slug), None)
         if not brand or not category:
-            return redirect(url_for("catalog"), code=302)
+            abort(404)
         parts = seo_filter_parts(all_parts, brand_slug=brand_slug, category_slug=category_slug)
         if not parts:
-            return redirect(url_for("seo_brand_page", slug=brand_slug), code=302)
+            abort(404)
         title = f"{category['label']} {brand['label']}"
         description = f"{category['label']} {brand['label']} на USAparts.top. Наявні позиції з фото, ціною та OEM номером для швидкого замовлення."
         return render_seo_listing(
@@ -9683,7 +9779,7 @@ def seo_vehicle_page(slug):
         warehouse_entries = cached_warehouse_catalog_entries(db)
         vehicle = next((entry for entry in warehouse_entries if entry["slug"] == slug), None)
         if not vehicle:
-            return redirect(url_for("catalog"), code=302)
+            abort(404)
         parts = seo_filter_parts(all_parts, vehicle_slug=slug)
         title = f"Запчастини {vehicle['label']}"
         description = f"Б/у запчастини для {vehicle['label']} з авто зі США. Наявність, фото, ціна та швидке замовлення по OEM номеру."
@@ -9707,10 +9803,10 @@ def seo_category_page(slug):
         entries = cached_seo_entries(db)
         category = next((entry for entry in entries["categories"] if entry["slug"] == slug), None)
         if not category:
-            return redirect(url_for("catalog"), code=302)
+            abort(404)
         parts = seo_filter_parts(all_parts, category_slug=slug)
         title = f"{category['label']} для авто з США"
-        description = f"{category['label']} в наявності на USAparts.top. Підбір по OEM номеру, фото товару, ціна в USD та гривні."
+        description = f"{category['label']} в наявності на USAparts.top. Підбір по OEM номеру, фото товару, ціна в гривні."
         return render_seo_listing(
             parts,
             title,
@@ -9732,10 +9828,10 @@ def seo_vehicle_category_page(category_slug, vehicle_slug):
         category = next((entry for entry in entries["categories"] if entry["slug"] == category_slug), None)
         vehicle = next((entry for entry in entries["vehicles"] if entry["slug"] == vehicle_slug), None)
         if not category or not vehicle:
-            return redirect(url_for("catalog"), code=302)
+            abort(404)
         parts = seo_filter_parts(all_parts, category_slug=category_slug, vehicle_slug=vehicle_slug)
         if not parts:
-            return redirect(url_for("seo_category_page", slug=category_slug), code=302)
+            abort(404)
         title = f"{category['label']} {vehicle['label']}"
         description = f"{category['label']} для {vehicle['label']} з авто зі США. Наявні позиції з фото, ціною та OEM номером."
         return render_seo_listing(
@@ -9757,8 +9853,7 @@ def part_detail(part_id, slug=None):
     try:
         part = db.get(Part, part_id)
         if not part or part.is_deleted:
-            flash("Товар не знайдено", "error")
-            return redirect(url_for("catalog"))
+            abort(404)
         canonical_slug = part_seo_slug(part)
         requested_slug = (slug or "").strip("/")
         if requested_slug != canonical_slug:
@@ -9811,8 +9906,7 @@ def cross_part_detail(cross_number, part_id, slug=None):
         clean_cross = normalize_cross_number(cross_number)
         part = db.get(Part, part_id)
         if not clean_cross or not part or part.is_deleted:
-            flash("Товар не знайдено", "error")
-            return redirect(url_for("catalog"))
+            abort(404)
         template = find_part_template_by_cross(db, clean_cross)
         if not template or compact_part_code(template.part_number or "") != compact_part_code(part.part_number or ""):
             return redirect(part_detail_url(part), code=302)
@@ -10001,8 +10095,7 @@ def car_detail_public(car_id):
     try:
         car = db.get(Car, car_id)
         if not car:
-            flash("Авто не знайдено", "error")
-            return redirect(url_for("cars_public"))
+            abort(404)
         photos = parse_media_urls(car.image_urls)
         video_url = youtube_embed_url(car.youtube_url)
         car_title = compact_meta_text(car.brand, car.model, car.year, limit=90)
@@ -10068,6 +10161,7 @@ def cart_view():
             "cart.html",
             items=snapshot["items"],
             total=snapshot["total"],
+            total_uah=snapshot["total_uah"],
             seo_title="Кошик | USAparts.top",
             seo_description="Кошик замовлення запчастин USAparts.top.",
             canonical_url=public_url_for("cart_view"),
@@ -10154,7 +10248,7 @@ def checkout():
                 part_number=item["part"].part_number,
                 name=item["part"].name,
                 qty=item["qty"],
-                price_usd=item["part"].price_usd
+                price_usd=item["unit_price_usd"]
             ))
             track_stats_event(
                 db,
@@ -15236,7 +15330,43 @@ def api_mobile_packing_packed(request_id):
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
-    return send_file(UPLOAD_DIR / filename)
+    return send_from_directory(UPLOAD_DIR, filename)
+
+
+@app.route("/media/<int:width>/<path:filename>")
+def storefront_thumbnail(width, filename):
+    if width not in {320, 640, 960}:
+        abort(404)
+    source = (UPLOAD_DIR / filename).resolve()
+    if not source.is_relative_to(UPLOAD_DIR.resolve()) or not source.is_file():
+        abort(404)
+    stamp = source.stat()
+    key = hashlib.sha256(f"{filename}:{stamp.st_mtime_ns}:{stamp.st_size}:{width}".encode()).hexdigest()
+    folder = UPLOAD_DIR / ".thumbnails"
+    folder.mkdir(exist_ok=True)
+    target = folder / f"{key}.webp"
+    if not target.exists():
+        temporary = folder / f"{key}-{uuid4().hex}.tmp"
+        try:
+            with Image.open(source) as original:
+                photo = ImageOps.exif_transpose(original)
+                photo.thumbnail((width, width), Image.Resampling.LANCZOS)
+                if photo.mode not in {"RGB", "RGBA"}:
+                    photo = photo.convert("RGB")
+                photo.save(temporary, format="WEBP", quality=82, method=4)
+            os.replace(temporary, target)
+        except (OSError, ValueError, Image.DecompressionBombError):
+            return send_from_directory(UPLOAD_DIR, filename)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return send_file(target, mimetype="image/webp", max_age=86400, conditional=True)
+
+
+@app.errorhandler(404)
+def public_not_found(error):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "not_found"}), 404
+    return render_template("not_found.html", seo_title="Сторінку не знайдено | USAparts.top", seo_noindex=True), 404
 
 
 @app.route("/google6a2f4ce00040ba4f.html")
@@ -15245,9 +15375,13 @@ def google_site_verification():
 
 
 if __name__ == "__main__":
+    from waitress import serve
     wait_for_db()
     seed_if_empty()
     start_backup_scheduler()
-    app.run(host="0.0.0.0", port=8080, debug=False)
+    # Keep one process for background jobs and in-memory invalidation. Proxy
+    # headers are handled by the existing external_request_* helpers above.
+    serve(app, host="0.0.0.0", port=8080, threads=8,
+          clear_untrusted_proxy_headers=False, channel_timeout=60)
 
 

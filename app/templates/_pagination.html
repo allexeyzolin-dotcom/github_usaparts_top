@@ -1,0 +1,14 @@
+{% if pagination and pagination.pages > 1 %}
+<nav class="catalog-pagination" aria-label="Сторінки каталогу">
+  <span class="muted">{{ pagination.start_index }}–{{ pagination.end_index }} з {{ pagination.total }}</span>
+  <div class="catalog-page-links">
+    {% if pagination.has_prev %}<a class="page-link" rel="prev" href="{{ catalog_page_url(pagination.prev_page) }}" aria-label="Попередня сторінка">←</a>{% endif %}
+    {% if pagination.page_numbers[0] > 1 %}<a class="page-link" href="{{ catalog_page_url(1) }}">1</a><span>…</span>{% endif %}
+    {% for number in pagination.page_numbers %}
+    <a class="page-link{% if number == pagination.page %} is-active{% endif %}" href="{{ catalog_page_url(number) }}"{% if number == pagination.page %} aria-current="page"{% endif %}>{{ number }}</a>
+    {% endfor %}
+    {% if pagination.page_numbers[-1] < pagination.pages %}<span>…</span><a class="page-link" href="{{ catalog_page_url(pagination.pages) }}">{{ pagination.pages }}</a>{% endif %}
+    {% if pagination.has_next %}<a class="page-link" rel="next" href="{{ catalog_page_url(pagination.next_page) }}" aria-label="Наступна сторінка">→</a>{% endif %}
+  </div>
+</nav>
+{% endif %}

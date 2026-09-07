@@ -1,0 +1,24 @@
+{% set photo = public_part_photo(part) %}
+{% set gallery = part_gallery_urls(part) %}
+<article class="showcase-card">
+  <a class="product-card-media" href="{{ part_detail_url(part) }}" aria-label="{{ part_seo_name(part) }}">
+    <span class="product-card-badge">{{ part_condition_label(part) }}</span>
+    <span class="watermarked-photo">
+      <img class="showcase-img" src="{{ storefront_image_url(photo, 640) }}" width="640" height="480" alt="{{ part_seo_name(part) }}" loading="{{ 'eager' if eager_image|default(false) else 'lazy' }}" decoding="async">
+    </span>
+    {% if gallery|length > 1 %}<span class="photo-count-badge">{{ gallery|length }} фото</span>{% endif %}
+  </a>
+  <div class="showcase-body">
+    <div class="product-card-label">OEM / КОД ДЕТАЛІ</div>
+    <a class="showcase-code" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
+    <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) or part.part_number }}</a></h3>
+    {% if part.brand %}<div class="product-card-brand">{{ clean_text(part.brand) }}</div>{% endif %}
+    <div class="product-card-bottom">
+      <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent if part.warehouse else 0) }}</div>
+      <div class="product-card-stock">В наявності · {{ part.qty }} шт.</div>
+      <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
+        <button class="btn primary full" type="submit">До кошика <span aria-hidden="true">↗</span></button>
+      </form>
+    </div>
+  </div>
+</article>

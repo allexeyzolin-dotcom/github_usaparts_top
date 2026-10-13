@@ -1883,8 +1883,13 @@ def build_showcase_parts(parts, query_text: str = "", limit: int = 12, cross_map
 
 
 def build_home_showcase_parts(parts, limit: int = 12):
-    """Random home selection, preferring guaranteed stock even for duplicate OEMs."""
+    """Random photographed products, preferring guaranteed stock for duplicate OEMs."""
     parts = list(parts)
+    _, total = build_showcase_parts(parts, limit=0)
+    # Use attached product photos, not the has_photo flag or the display placeholder.
+    parts = [part for part in parts if part and primary_part_photo(part)
+             and urlsplit(primary_part_photo(part)).path not in {
+                 PUBLIC_PART_PLACEHOLDER_IMAGE, "/static/photo-unavailable.svg"}]
     guaranteed = [part for part in parts if part and part.warehouse
                   and " ".join(normalize_text(part.warehouse.name or "").casefold().split())
                   == "склад гарантованої наявності"]
@@ -1895,7 +1900,7 @@ def build_home_showcase_parts(parts, limit: int = 12):
     remaining, _ = build_showcase_parts(others, limit=len(others))
     random.shuffle(priority)
     random.shuffle(remaining)
-    return (priority + remaining)[:max(limit, 0)], len(priority) + len(remaining)
+    return (priority + remaining)[:max(limit, 0)], total
 
 
 def public_part_matches_query(part: Part, needle: str, cross_map: dict[str, list[str]] | None = None) -> bool:

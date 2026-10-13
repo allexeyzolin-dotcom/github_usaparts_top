@@ -5,9 +5,11 @@ import app.app as site
 
 
 class HomeShowcaseTests(unittest.TestCase):
-    def part(self, identifier, warehouse_name, code=None, qty=1, deleted=False, in_stock=True):
+    def part(self, identifier, warehouse_name, code=None, qty=1, deleted=False, in_stock=True,
+             photo="https://example.com/product.jpg"):
         return site.Part(id=identifier, part_number=code or f"OEM{identifier}", name="Деталь",
                          qty=qty, in_stock=in_stock, is_deleted=deleted, has_photo=False,
+                         photo_urls=photo, showcase_photo_urls="",
                          warehouse=site.Warehouse(name=warehouse_name))
 
     def test_guaranteed_warehouse_wins_duplicate_oem_and_fills_first(self):
@@ -37,6 +39,24 @@ class HomeShowcaseTests(unittest.TestCase):
                  self.part(4, "Tiguan 2")]
         result, total = site.build_home_showcase_parts(parts)
         self.assertEqual([p.id for p in result], [4])
+        self.assertEqual(total, 1)
+
+    def test_only_attached_photos_qualify_in_both_warehouses(self):
+        no_photo = self.part(1, "Склад гарантованої наявності", photo="")
+        no_photo.has_photo = True
+        placeholder = self.part(2, "Склад гарантованої наявності", photo=site.PUBLIC_PART_PLACEHOLDER_IMAGE)
+        other_missing = self.part(3, "Tiguan 2", photo="")
+        real_photo = self.part(4, "Tiguan 2")
+        result, total = site.build_home_showcase_parts([no_photo, placeholder, other_missing, real_photo])
+        self.assertEqual([p.id for p in result], [4])
+        self.assertEqual(total, 4)  # The catalog count still includes products without photos.
+
+    def test_gallery_photo_qualifies_and_photographed_duplicate_is_kept(self):
+        missing = self.part(1, "Склад гарантованої наявності", code="SAME", photo="")
+        gallery = self.part(2, "Tiguan 2", code="SAME", photo="")
+        gallery.showcase_photo_urls = "https://example.com/gallery.jpg"
+        result, total = site.build_home_showcase_parts([missing, gallery])
+        self.assertEqual(result, [gallery])
         self.assertEqual(total, 1)
 
 

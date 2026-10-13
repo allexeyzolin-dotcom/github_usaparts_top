@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-labelledby="title">
+  <title id="title">Фото недоступне</title>
+  <rect width="640" height="640" fill="#f1f2ed"/>
+  <g fill="none" stroke="#526575" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="226" y="230" width="188" height="142" rx="16"/>
+    <path d="m251 230 19-28h100l19 28"/>
+    <circle cx="320" cy="300" r="39"/>
+    <path d="m216 389 208-190" stroke="#b52f25"/>
+  </g>
+  <text x="320" y="440" text-anchor="middle" fill="#102b3f" font-family="Arial,sans-serif" font-size="28" font-weight="700">Фото недоступне</text>
+  <text x="320" y="480" text-anchor="middle" fill="#526575" font-family="Arial,sans-serif" font-size="21">Уточніть у продавця</text>
+</svg>

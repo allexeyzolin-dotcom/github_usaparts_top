@@ -50,6 +50,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=20260906">
   {% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='storefront.css') }}?v={{ storefront_asset_version }}">
+  <script defer src="{{ url_for('static', filename='image-fallback.js') }}?v=20261013" data-fallback="{{ url_for('static', filename='photo-unavailable.svg') }}"></script>
   <link rel="preload" href="{{ url_for('static', filename='manrope.ttf') }}" as="font" type="font/ttf" crossorigin>
   {% if json_ld|default('') %}
   <script type="application/ld+json">{{ json_ld|safe }}</script>

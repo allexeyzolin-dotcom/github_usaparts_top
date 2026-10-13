@@ -46,6 +46,8 @@
 .public-shop-theme .store-header-search input{border-radius:7px 0 0 7px;border-right:0;min-height:46px;font-size:13px}
 .public-shop-theme .store-header-search .btn{border-radius:0 7px 7px 0;flex-shrink:0}
 .public-shop-theme .store-actions{display:flex;gap:22px;align-items:center;font-size:13px;font-weight:800;white-space:nowrap}
+.public-shop-theme .store-actions .cart-link{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink)}
+.public-shop-theme .store-actions .cart-link:hover{background:#e9eddf;border-color:#aab8bf;color:var(--ink)}
 .public-shop-theme .cabinet{padding:0;border:0;background:none;color:var(--muted)}
 .public-shop-theme .cart-badge{display:inline-flex;background:#ead9b3;color:var(--ink);min-width:23px;height:23px;align-items:center;justify-content:center;border-radius:50%;margin-left:5px;font-size:11px}
 .public-shop-theme .store-nav{background:transparent;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}

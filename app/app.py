@@ -26,6 +26,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, send_from_directory, jsonify, session, Response, has_request_context, abort
+from .sitemap_support import sitemap_documents
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
 from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -48,7 +49,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
 
 PUBLIC_CACHE_TTL_SECONDS = max(int(os.getenv("PUBLIC_CACHE_TTL_SECONDS", "180") or 0), 0)
-SITEMAP_CACHE_TTL_SECONDS = max(int(os.getenv("SITEMAP_CACHE_TTL_SECONDS", "1800") or 0), 0)
+SITEMAP_CACHE_TTL_SECONDS = max(int(os.getenv("SITEMAP_CACHE_TTL_SECONDS", "300") or 0), 0)
 SITEMAP_PRIORITY_PARTS_LIMIT = max(int(os.getenv("SITEMAP_PRIORITY_PARTS_LIMIT", "300") or 300), 1)
 PUBLIC_CACHE_MAX_ITEMS = max(int(os.getenv("PUBLIC_CACHE_MAX_ITEMS", "128") or 0), 16)
 _PUBLIC_CACHE: dict[tuple, tuple[float, object]] = {}
@@ -7323,10 +7324,6 @@ def sitemap_image_url_node(location: str, images: list[dict], lastmod: str = "")
             continue
         lines.append("    <image:image>")
         lines.append(f"      <image:loc>{xml_escape(image_url)}</image:loc>")
-        if image.get("title"):
-            lines.append(f"      <image:title>{xml_escape(image['title'])}</image:title>")
-        if image.get("caption"):
-            lines.append(f"      <image:caption>{xml_escape(image['caption'])}</image:caption>")
         lines.append("    </image:image>")
     lines.append("  </url>")
     return "\n".join(lines)
@@ -7960,7 +7957,7 @@ def sitemap_xml_response(nodes: list[str]) -> Response:
     body += "\n".join(nodes)
     body += "\n</urlset>\n"
     response = Response(body, mimetype="application/xml")
-    response.headers["Cache-Control"] = "public, max-age=3600"
+    response.headers["Cache-Control"] = f"public, max-age={SITEMAP_CACHE_TTL_SECONDS}"
     return response
 
 
@@ -7970,7 +7967,7 @@ def sitemap_image_xml_response(nodes: list[str]) -> Response:
     body += "\n".join(nodes)
     body += "\n</urlset>\n"
     response = Response(body, mimetype="application/xml")
-    response.headers["Cache-Control"] = "public, max-age=3600"
+    response.headers["Cache-Control"] = f"public, max-age={SITEMAP_CACHE_TTL_SECONDS}"
     return response
 
 
@@ -7984,7 +7981,7 @@ def sitemap_index_response(locations: list[tuple[str, str]]) -> Response:
         lines.append("  </sitemap>")
     lines.append("</sitemapindex>")
     response = Response("\n".join(lines) + "\n", mimetype="application/xml")
-    response.headers["Cache-Control"] = "public, max-age=3600"
+    response.headers["Cache-Control"] = f"public, max-age={SITEMAP_CACHE_TTL_SECONDS}"
     return response
 
 
@@ -7999,7 +7996,62 @@ def sitemap_cached_response(cache_name: str, builder) -> Response:
 
     response = builder()
     public_cache_set(cache_key, response.get_data(as_text=True), ttl_seconds=SITEMAP_CACHE_TTL_SECONDS)
+    response.headers["Cache-Control"] = f"public, max-age={SITEMAP_CACHE_TTL_SECONDS}"
     response.headers["X-Cache"] = "MISS"
+    return response
+
+
+def sitemap_inventory_documents() -> dict[str, list[str]]:
+    return public_cache_remember(
+        ("sitemap_inventory", public_site_base_url()),
+        build_sitemap_inventory_documents,
+        ttl_seconds=SITEMAP_CACHE_TTL_SECONDS,
+    )
+
+
+def build_sitemap_inventory_documents() -> dict[str, list[str]]:
+    """Include every public card, including repeated OEMs and unavailable stock."""
+    db = SessionLocal()
+    try:
+        parts = (db.query(Part).filter(Part.is_deleted == False)
+                 .order_by(Part.id.asc()).yield_per(500))
+        part_nodes, image_nodes = [], []
+        for part in parts:
+            location = public_part_url(part)
+            lastmod = sitemap_lastmod(part.updated_at or part.created_at)
+            part_nodes.append(sitemap_url_node(location, lastmod=lastmod))
+            images = [{"loc": absolute_public_url(url)} for url in part_gallery_urls(part)]
+            if images:
+                image_nodes.append(sitemap_image_url_node(location, images, lastmod=lastmod))
+        for car in db.query(Car).order_by(Car.id.asc()).yield_per(500):
+            images = [{"loc": absolute_public_url(url)} for url in parse_media_urls(car.image_urls)]
+            if images:
+                image_nodes.append(sitemap_image_url_node(
+                    public_url_for("car_detail_public", car_id=car.id), images,
+                    lastmod=sitemap_lastmod(car.created_at),
+                ))
+        return {"parts": sitemap_documents(part_nodes),
+                "images": sitemap_documents(image_nodes, images=True)}
+    finally:
+        db.close()
+
+
+def sitemap_inventory_locations(kind: str, documents: list[str]) -> list[tuple[str, str]]:
+    if len(documents) == 1:
+        return [(public_url_for(f"sitemap_{kind}_xml"), "")]
+    return [(public_url_for(f"sitemap_{kind}_page_xml", page=page), "")
+            for page in range(1, len(documents) + 1)]
+
+
+def sitemap_inventory_response(kind: str, page: int | None = None) -> Response:
+    documents = sitemap_inventory_documents()[kind]
+    if page is None and len(documents) > 1:
+        return sitemap_index_response(sitemap_inventory_locations(kind, documents))
+    page = 1 if page is None else page
+    if page < 1 or page > len(documents):
+        abort(404)
+    response = Response(documents[page - 1], mimetype="application/xml")
+    response.headers["Cache-Control"] = f"public, max-age={SITEMAP_CACHE_TTL_SECONDS}"
     return response
 
 
@@ -8009,16 +8061,14 @@ def sitemap_index_locations() -> list[tuple[str, str]]:
     locations = [
         (public_url_for("sitemap_pages_xml"), today),
         (public_url_for("sitemap_catalog_xml"), today),
-        (public_url_for("sitemap_images_xml"), today),
         (public_url_for("sitemap_cars_xml"), today),
     ]
+    documents = sitemap_inventory_documents()
+    for kind in ("parts", "images"):
+        locations.extend(sitemap_inventory_locations(kind, documents[kind]))
     db = SessionLocal()
     try:
         parts = cached_unique_public_parts(db)
-        if parts:
-            locations.append((public_url_for("sitemap_priority_parts_xml"), today))
-        if len(parts) > SITEMAP_PRIORITY_PARTS_LIMIT:
-            locations.append((public_url_for("sitemap_parts_xml"), today))
         entries = cached_seo_entries(db)
         if entries["brands"]:
             locations.append((public_url_for("sitemap_brands_xml"), today))
@@ -8035,10 +8085,6 @@ def sitemap_index_locations() -> list[tuple[str, str]]:
             locations.append((public_url_for("sitemap_cross_parts_xml"), today))
     except Exception:
         app.logger.exception("Unable to build dynamic sitemap index")
-        locations.extend([
-            (public_url_for("sitemap_priority_parts_xml"), today),
-            (public_url_for("sitemap_parts_xml"), today),
-        ])
     finally:
         db.close()
     return locations
@@ -8995,37 +9041,12 @@ def sitemap_priority_parts_xml():
 
 @app.route("/sitemap/parts.xml")
 def sitemap_parts_xml():
-    def build_response():
-        db = SessionLocal()
-        try:
-            parts = cached_unique_public_parts(db)
-            priority_part_ids = {part.id for part in sitemap_priority_parts(parts)}
-            nodes = []
-            for part in parts:
-                if part.id in priority_part_ids:
-                    continue
-                nodes.append(
-                    sitemap_url_node(
-                        public_part_url(part),
-                        lastmod=sitemap_lastmod(part.updated_at),
-                        changefreq="weekly",
-                        priority="0.8",
-                    )
-                )
-            if not nodes:
-                nodes.append(sitemap_url_node(public_url_for("catalog"), changefreq="daily", priority="0.9"))
-            return sitemap_xml_response(nodes)
-        finally:
-            db.close()
-
-    return sitemap_cached_response("parts", build_response)
+    return sitemap_inventory_response("parts")
 
 
 @app.route("/sitemap/parts-<int:page>.xml")
-def sitemap_parts_legacy_xml(page):
-    if page == 1:
-        return redirect(public_url_for("sitemap_parts_xml"), code=301)
-    abort(404)
+def sitemap_parts_page_xml(page):
+    return sitemap_inventory_response("parts", page)
 
 
 @app.route("/sitemap/cross-parts.xml")
@@ -9058,54 +9079,12 @@ def sitemap_cross_parts_xml():
 
 @app.route("/sitemap/images.xml")
 def sitemap_images_xml():
-    return sitemap_cached_response("images", build_sitemap_images_response)
+    return sitemap_inventory_response("images")
 
 
-def build_sitemap_images_response():
-    db = SessionLocal()
-    try:
-        nodes = []
-        for part in cached_unique_public_parts(db):
-            gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
-            if not gallery:
-                continue
-            title = compact_meta_text(part.part_number, part.name, limit=120)
-            images = [
-                {
-                    "loc": url,
-                    "title": title,
-                    "caption": compact_meta_text("Фото запчастини", part.part_number, part.name, limit=160),
-                }
-                for url in gallery
-            ]
-            nodes.append(sitemap_image_url_node(public_part_url(part), images, lastmod=sitemap_lastmod(part.updated_at)))
-
-        cars = db.query(Car).order_by(desc(Car.created_at), desc(Car.id)).all()
-        for car in cars:
-            photos = [absolute_public_url(url) for url in parse_media_urls(car.image_urls)]
-            if not photos:
-                continue
-            title = compact_meta_text(car.brand, car.model, car.year, limit=120)
-            images = [
-                {
-                    "loc": url,
-                    "title": title,
-                    "caption": compact_meta_text("Фото авто", car.brand, car.model, car.vin, limit=160),
-                }
-                for url in photos
-            ]
-            nodes.append(
-                sitemap_image_url_node(
-                    public_url_for("car_detail_public", car_id=car.id),
-                    images,
-                    lastmod=sitemap_lastmod(car.created_at),
-                )
-            )
-        if not nodes:
-            nodes.append(sitemap_url_node(public_url_for("home"), changefreq="daily", priority="1.0"))
-        return sitemap_image_xml_response(nodes)
-    finally:
-        db.close()
+@app.route("/sitemap/images-<int:page>.xml")
+def sitemap_images_page_xml(page):
+    return sitemap_inventory_response("images", page)
 
 
 @app.route("/sitemap/cars.xml")

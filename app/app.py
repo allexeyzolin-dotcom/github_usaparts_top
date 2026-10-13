@@ -1882,6 +1882,22 @@ def build_showcase_parts(parts, query_text: str = "", limit: int = 12, cross_map
     return ordered[:limit], len(ordered)
 
 
+def build_home_showcase_parts(parts, limit: int = 12):
+    """Random home selection, preferring guaranteed stock even for duplicate OEMs."""
+    parts = list(parts)
+    guaranteed = [part for part in parts if part and part.warehouse
+                  and " ".join(normalize_text(part.warehouse.name or "").casefold().split())
+                  == "склад гарантованої наявності"]
+    priority, _ = build_showcase_parts(guaranteed, limit=len(guaranteed))
+    priority_codes = {normalize_text(part.part_number or "").strip().upper() for part in priority}
+    others = [part for part in parts if part
+              and normalize_text(part.part_number or "").strip().upper() not in priority_codes]
+    remaining, _ = build_showcase_parts(others, limit=len(others))
+    random.shuffle(priority)
+    random.shuffle(remaining)
+    return (priority + remaining)[:max(limit, 0)], len(priority) + len(remaining)
+
+
 def public_part_matches_query(part: Part, needle: str, cross_map: dict[str, list[str]] | None = None) -> bool:
     if not part:
         return False
@@ -7468,7 +7484,8 @@ def cached_public_active_parts(db) -> list[Part]:
 
 
 def cached_home_active_parts(db) -> list[Part]:
-    return cached_unique_public_parts(db)
+    # Select the preferred warehouse before deduplicating OEMs for the homepage.
+    return cached_public_active_parts(db)
 
 
 def cached_catalog_active_parts(db) -> list[Part]:
@@ -9321,7 +9338,7 @@ def home():
         search_found_without_photo = False
         parts_pool = cached_home_active_parts(db)
         cross_map = cached_cross_numbers_map_for_parts(db, parts_pool, "home")
-        featured, featured_total = build_showcase_parts(parts_pool, q, limit=display_count, cross_map=cross_map)
+        featured, featured_total = build_home_showcase_parts(parts_pool, limit=display_count)
         if q and featured_total == 0:
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)

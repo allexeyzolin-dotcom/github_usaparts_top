@@ -1,0 +1,29 @@
+{% macro product_seo_editor(number) %}
+<details class="product-seo-editor" data-product-seo data-part-number="{{ number }}" data-token="{{ product_search_token }}" data-endpoint="{{ url_for('admin_product_search') }}">
+  <summary><span>Пошук Google · SEO</span><small data-seo-mode>Автоматично</small></summary>
+  <div class="product-seo-editor-body">
+    <p class="product-seo-help">Фрази, заголовок і опис створюються для кожного товару автоматично. Тут можна задати власні. Зміни SEO зберігаються окремою кнопкою.</p>
+    <div class="product-seo-preview" aria-label="Приклад вигляду у Google">
+      <span data-seo-url>usaparts.top</span>
+      <strong data-seo-preview-title></strong>
+      <p data-seo-preview-description></p>
+    </div>
+    <label>Заголовок у Google <small data-seo-title-count>0 / 100</small>
+      <input type="text" maxlength="100" data-seo-title placeholder="Автоматично з назви й артикулу">
+    </label>
+    <label>Короткий опис <small data-seo-description-count>0 / 160</small>
+      <textarea rows="3" maxlength="160" data-seo-description placeholder="Автоматичний опис товару"></textarea>
+    </label>
+    <label>Пошукові фрази
+      <textarea rows="4" maxlength="2000" data-seo-queries placeholder="Одна фраза на рядок. Порожнє поле — автоматичні фрази."></textarea>
+    </label>
+    <p class="product-seo-help">До 6 точних фраз. Вказуйте лише підтверджені назви, моделі й артикули. Порожні поля оновлюються разом із товаром. Google може змінити текст результату.</p>
+    <div class="button-row">
+      <button type="button" class="btn primary small" data-seo-action="save" disabled>Зберегти SEO</button>
+      <button type="button" class="btn ghost small" data-seo-action="generate" disabled>Сформувати фрази</button>
+      <button type="button" class="btn ghost small" data-seo-action="reset" disabled>Повернути автоматичні</button>
+    </div>
+    <div class="product-seo-status" role="status" aria-live="polite" data-seo-status>Відкрийте блок, щоб завантажити налаштування.</div>
+  </div>
+</details>
+{% endmacro %}

@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_part_seo_editor.html' import product_seo_editor with context %}
 {% block admin_content %}
 <div class="panel-header">
   <div>
@@ -206,6 +207,8 @@
                   </div>
 
                   <textarea name="description" placeholder="Службовий опис">{{ p.description }}</textarea>
+
+                  {{ product_seo_editor(p.part_number) }}
 
                   <div class="warehouse-inline-grid">
                     <input type="number" step="0.01" name="price_usd" value="{{ p.price_usd }}" placeholder="Ціна USD">

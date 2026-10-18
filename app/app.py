@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import secrets
 import requests
 import random
 import shutil
@@ -27,6 +28,7 @@ from tempfile import TemporaryDirectory
 
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, send_from_directory, jsonify, session, Response, has_request_context, abort
 from .sitemap_support import sitemap_documents
+from .product_search import generate_product_search, query_list, clean_text as clean_search_text
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
 from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -182,6 +184,15 @@ class PartTemplate(Base):
     has_photo = Column(Boolean, nullable=False, default=False)
     has_description = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class PartSearchProfile(Base):
+    __tablename__ = "part_search_profiles"
+    part_key = Column(String(255), primary_key=True)
+    title = Column(String(100), nullable=False, default="")
+    description = Column(String(160), nullable=False, default="")
+    queries_json = Column(Text, nullable=False, default="[]")
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -7175,6 +7186,7 @@ def build_part_product_schema(
     review_summary: dict | None = None,
     reviews: list[ProductReview] | None = None,
     cross_numbers: list[str] | None = None,
+    search_profile: dict | None = None,
 ) -> str:
     display_number = normalize_text(display_part_number or part.part_number or "").strip()
     part_url = canonical_url or public_part_url(part)
@@ -7184,6 +7196,8 @@ def build_part_product_schema(
     brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type))
     seo_name = part_seo_name(part, display_number, limit=120)
     seo_description = part_seo_description(part, display_number, price_uah=price, include_main_part_number=True, limit=300)
+    if search_profile:
+        seo_description = search_profile["summary"]
     product_payload = {
         "@type": "Product",
         "@id": f"{part_url}#product",
@@ -7258,6 +7272,8 @@ def build_part_product_schema(
 
     title = part_seo_name(part, display_number, limit=90)
     description = part_seo_description(part, display_number, price_uah=price, include_main_part_number=True, limit=160)
+    if search_profile:
+        title, description = search_profile["title"], search_profile["description"]
     return graph_json_ld(
         webpage_schema_payload(title, description, part_url),
         breadcrumb_schema_payload(
@@ -9847,6 +9863,99 @@ def seo_vehicle_category_page(category_slug, vehicle_slug):
         db.close()
 
 
+def product_search_profile(db, part, *, cross_numbers=(), display_number=None):
+    generated = generate_product_search(
+        name=normalize_text(part.name or ""), number=display_number or part.part_number,
+        brand=normalize_text(getattr(part, "brand", "") or ""),
+        condition=part_condition_label(part),
+        available=bool(getattr(part, "in_stock", False) and int(getattr(part, "qty", 0) or 0) > 0),
+        cross_numbers=cross_numbers,
+    )
+    profile = db.get(PartSearchProfile, compact_part_code(part.part_number))
+    if profile:
+        # A cross-number URL retains its own identity in title and description.
+        if not display_number or compact_part_code(display_number) == compact_part_code(part.part_number):
+            generated["title"] = profile.title or generated["title"]
+            generated["description"] = profile.description or generated["description"]
+            if profile.description:
+                generated["summary"] = profile.description
+        try:
+            custom_queries = query_list(json.loads(profile.queries_json or "[]"))
+        except (ValueError, TypeError):
+            custom_queries = []
+        generated["queries"] = custom_queries or generated["queries"]
+    return generated
+
+
+@app.context_processor
+def inject_product_search_token():
+    if session.get("admin_auth") and request.path.startswith("/admin"):
+        session.setdefault("product_search_token", secrets.token_urlsafe(32))
+        return {"product_search_token": session["product_search_token"]}
+    return {}
+
+
+@app.route("/admin/parts/seo", methods=["GET", "POST"])
+@admin_required
+def admin_product_search():
+    payload = request.get_json(silent=True) if request.method == "POST" else request.args
+    payload = payload or {}
+    if request.method == "POST":
+        token = str(payload.get("token") or "")
+        if not token or not secrets.compare_digest(token, session.get("product_search_token", "")):
+            return jsonify(ok=False, error="Сесію оновлено. Перезавантажте сторінку."), 403
+    number = normalize_text(payload.get("part_number") or "").strip().upper()
+    if not number or len(number) > 255:
+        return jsonify(ok=False, error="Вкажіть коректний артикул."), 400
+    db = SessionLocal()
+    try:
+        template = find_part_template(db, number)
+        part = (db.query(Part).filter(Part.part_number == number, Part.is_deleted == False)
+                .order_by(desc(Part.in_stock), desc(Part.qty), Part.id).first())
+        source = part or template
+        if not source:
+            return jsonify(ok=False, error="Товар не знайдено."), 404
+        crosses = template_cross_numbers(template)
+        key = compact_part_code(source.part_number)
+        profile = db.get(PartSearchProfile, key)
+        action = payload.get("action", "preview")
+        if request.method == "POST" and action not in {"save", "reset", "generate"}:
+            return jsonify(ok=False, error="Невідома дія."), 400
+        if request.method == "POST" and action == "save":
+            title = clean_search_text(payload.get("title"))
+            description = clean_search_text(payload.get("description"))
+            raw_queries = payload.get("queries", "")
+            if not isinstance(raw_queries, str) or len(raw_queries) > 2000 or len(title) > 100 or len(description) > 160:
+                return jsonify(ok=False, error="Заголовок: до 100 символів; опис: до 160; фрази: до 2000."), 400
+            if profile is None:
+                profile = PartSearchProfile(part_key=key)
+                db.add(profile)
+            profile.title = title
+            profile.description = description
+            profile.queries_json = json.dumps(query_list(raw_queries), ensure_ascii=False)
+            profile.updated_at = now()
+        elif request.method == "POST" and action == "reset" and profile:
+            db.delete(profile)
+        if request.method == "POST" and action in {"save", "reset"}:
+            # Make sitemap lastmod reflect public copy changes, without inventory writes.
+            db.query(Part).filter(Part.part_number == source.part_number).update({Part.updated_at: now()})
+            db.commit()
+            public_cache_clear()
+        generated = generate_product_search(
+            name=normalize_text(source.name or ""), number=source.part_number,
+            brand=normalize_text(source.brand or ""), condition=part_condition_label(source),
+            available=bool(part and part.in_stock and int(part.qty or 0) > 0), cross_numbers=crosses,
+        )
+        effective = product_search_profile(db, source, cross_numbers=crosses)
+        return jsonify(ok=True, generated=generated, effective=effective,
+                       custom={"title": profile.title if profile and action != "reset" else "",
+                               "description": profile.description if profile and action != "reset" else "",
+                               "queries": json.loads(profile.queries_json or "[]") if profile and action != "reset" else []},
+                       url=public_part_url(part) if part else "")
+    finally:
+        db.close()
+
+
 @app.route("/part/<int:part_id>", methods=["GET"], strict_slashes=False)
 @app.route("/part/<int:part_id>/<path:slug>", methods=["GET"], strict_slashes=False)
 def part_detail(part_id, slug=None):
@@ -9869,6 +9978,7 @@ def part_detail(part_id, slug=None):
         reviews = approved_product_reviews(db, part.id)
         part_template = find_part_template(db, part.part_number)
         part_cross_numbers = template_cross_numbers(part_template)
+        search_profile = product_search_profile(db, part, cross_numbers=part_cross_numbers)
         part_title = compact_meta_text(part_seo_name(part, limit=80), "купити запчастину з США", limit=95)
         part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
         part_og_image = absolute_public_url(public_part_photo(part))
@@ -9879,8 +9989,9 @@ def part_detail(part_id, slug=None):
             safe_photo=safe_photo,
             display_usd=display_usd,
             display_uah=display_uah,
-            seo_title=f"{part_title} | USAparts.top",
-            seo_description=part_seo_description(part, price_uah=part_price, limit=160),
+            seo_title=search_profile["title"],
+            seo_description=search_profile["description"],
+            product_search=search_profile,
             canonical_url=public_part_url(part),
             og_type="product",
             og_image_url=part_og_image,
@@ -9893,6 +10004,7 @@ def part_detail(part_id, slug=None):
                 review_summary=review_summary,
                 reviews=reviews,
                 cross_numbers=part_cross_numbers,
+                search_profile=search_profile,
             ),
         )
     finally:
@@ -9924,6 +10036,7 @@ def cross_part_detail(cross_number, part_id, slug=None):
         review_summary = product_review_summary(db, part.id)
         reviews = approved_product_reviews(db, part.id)
         part_cross_numbers = template_cross_numbers(template)
+        search_profile = product_search_profile(db, part, cross_numbers=part_cross_numbers, display_number=clean_cross)
         part_title = compact_meta_text(part_seo_name(part, clean_cross, limit=80), "крос-номер запчастини з США", limit=95)
         part_price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
         part_og_image = absolute_public_url(public_part_photo(part))
@@ -9937,15 +10050,9 @@ def cross_part_detail(cross_number, part_id, slug=None):
             safe_photo=safe_photo,
             display_usd=display_usd,
             display_uah=display_uah,
-            seo_title=f"{part_title} | USAparts.top",
-            seo_description=part_seo_description(
-                part,
-                clean_cross,
-                price_uah=part_price,
-                prefix="Купити запчастину по крос-номеру",
-                include_main_part_number=True,
-                limit=160,
-            ),
+            seo_title=search_profile["title"],
+            seo_description=search_profile["description"],
+            product_search=search_profile,
             canonical_url=cross_url,
             og_type="product",
             og_image_url=part_og_image,
@@ -9960,6 +10067,7 @@ def cross_part_detail(cross_number, part_id, slug=None):
                 review_summary=review_summary,
                 reviews=reviews,
                 cross_numbers=part_cross_numbers,
+                search_profile=search_profile,
             ),
         )
     finally:

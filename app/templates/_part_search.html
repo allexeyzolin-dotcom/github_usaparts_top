@@ -1,0 +1,18 @@
+{% if product_search|default(none) %}
+<section class="card product-search-card" aria-labelledby="product-search-heading">
+  <div class="product-search-head">
+    <h2 id="product-search-heading">Про запчастину</h2>
+    <button type="button" class="product-copy-code" data-copy-part-number="{{ visible_part_number }}">Скопіювати артикул</button>
+  </div>
+  <p>{{ product_search.summary }}</p>
+  {% if product_search.queries %}
+  <details class="product-search-phrases">
+    <summary>Назви та артикули для пошуку</summary>
+    <ul>
+      {% for phrase in product_search.queries %}<li>{{ phrase }}</li>{% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  <span class="product-copy-status" role="status" aria-live="polite" data-copy-status></span>
+</section>
+{% endif %}

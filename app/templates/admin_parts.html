@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_part_seo_editor.html' import product_seo_editor with context %}
 {% block admin_content %}
 <div class="panel-header">
   <div>
@@ -235,6 +236,8 @@
             <label class="field-label">Службова інформація</label>
             <textarea name="description">{{ clean_text(item.description) }}</textarea>
 
+            {{ product_seo_editor(item.partNumber) }}
+
             <label class="field-label">Youtube посилання</label>
             <input name="youtube_url" value="{{ item.youtubeUrl or '' }}">
 
@@ -337,6 +340,8 @@
 
             <label class="field-label">6. Службова інформація</label>
             <textarea name="description">{{ clean_text(part.description) }}</textarea>
+
+            {{ product_seo_editor(part.part_number) }}
 
             <label class="field-label">7. Youtube посилання</label>
             <input name="youtube_url" value="{{ part.youtube_url or '' }}">

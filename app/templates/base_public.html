@@ -55,6 +55,10 @@
   {% if json_ld|default('') %}
   <script type="application/ld+json">{{ json_ld|safe }}</script>
   {% endif %}
+  {% if request.endpoint in ['part_detail', 'cross_part_detail'] %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='product-search.css') }}?v=20261018-1">
+  <script defer src="{{ url_for('static', filename='product-search.js') }}?v=20261018-1"></script>
+  {% endif %}
 </head>
 <body class="public-shop-theme">
   <!-- Google Tag Manager (noscript) -->

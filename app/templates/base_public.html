@@ -247,5 +247,11 @@
   })();
 
   </script>
+  {% if request.endpoint in ['home', 'catalog', 'part_detail', 'cross_part_detail'] %}
+  <!-- AutoPro partnership: load asynchronously on the parts storefront. -->
+  <script>
+  !function(t,e){"use strict";function r(t){return t&&"object"==typeof t&&"default"in t?t:{default:t}}var i=r(t),n=r(e);window.auto_redirect_settings=window.auto_redirect_settings||{uid:i.default,timeout:n.default};const o=document.getElementsByTagName("script")[0],u=document.createElement("script");u.async=!0,u.src="https://a1.avto.pro/partnership/v1/auto-redirect.js",o.parentNode.insertBefore(u,o)}(337792,5);
+  </script>
+  {% endif %}
 </body>
 </html>

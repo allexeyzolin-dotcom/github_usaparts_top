@@ -2,6 +2,7 @@
 import json
 import re
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 from sqlalchemy import create_engine
@@ -160,6 +161,43 @@ class ProductSearchTests(unittest.TestCase):
         for template in ["admin_parts.html", "warehouse_detail.html"]:
             source, _, _ = site.app.jinja_env.loader.get_source(site.app.jinja_env, template)
             self.assertIn("product_seo_editor(", source)
+
+
+class MerchantSchemaTests(unittest.TestCase):
+    def test_parts_use_google_taxonomy_without_losing_shop_categories(self):
+        part = site.Part(id=1, part_number="RADIATOR", name="Радіатор охолодження",
+                         brand="BMW", price_usd=50, qty=1, in_stock=True,
+                         created_at=datetime(2026, 10, 1), updated_at=datetime(2026, 10, 20))
+        with site.app.test_request_context("/"):
+            graph = json.loads(site.build_part_product_schema(part, None))["@graph"]
+        product = next(item for item in graph if item["@type"] == "Product")
+        self.assertEqual(product["category"], {
+            "@type": "CategoryCode",
+            "inCodeSet": "https://www.google.com/basepages/producttype/taxonomy-with-ids.en-US.txt",
+            "codeValue": "899",
+        })
+        self.assertTrue(any(prop["name"] == "Категорія" for prop in product["additionalProperty"]))
+        self.assertEqual(product["offers"]["validFrom"], "2026-10-20")
+        self.assertLessEqual(product["offers"]["validFrom"], product["offers"]["priceValidUntil"])
+        self.assertEqual(product["offers"]["priceCurrency"], "UAH")
+        self.assertNotIn("image", product)
+
+    def test_car_offer_uses_car_taxonomy_and_actual_publication_date(self):
+        car = site.Car(id=1, brand="Ford", model="Escape", year=2018,
+                       price_usd=10000, status="in_stock", created_at=datetime(2026, 10, 2))
+        with site.app.test_request_context("/"):
+            graph = json.loads(site.build_car_product_schema(car, []))["@graph"]
+        product = next(item for item in graph if item["@type"] == "Product")
+        self.assertEqual(product["category"]["codeValue"], "916")
+        self.assertEqual(product["offers"]["validFrom"], "2026-10-02")
+
+    def test_missing_dates_do_not_fabricate_an_offer_start_date(self):
+        part = site.Part(id=1, part_number="UNDATED", name="Крило", price_usd=20,
+                         qty=1, in_stock=True)
+        with site.app.test_request_context("/"):
+            graph = json.loads(site.build_part_product_schema(part, None))["@graph"]
+        product = next(item for item in graph if item["@type"] == "Product")
+        self.assertNotIn("validFrom", product["offers"])
 
 
 class SearchGenerationTests(unittest.TestCase):

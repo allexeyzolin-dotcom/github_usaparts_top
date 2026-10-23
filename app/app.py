@@ -109,6 +109,7 @@ BACKUP_SCHEDULER_STARTED = False
 BACKUP_SCHEDULER_INTERVAL_SECONDS = max(int(os.getenv("BACKUP_SCHEDULER_INTERVAL_SECONDS", "900") or 900), 60)
 GOOGLE_MERCHANT_SYNC_LOCK = threading.Lock()
 GOOGLE_MERCHANT_API_BASE = "https://merchantapi.googleapis.com"
+GOOGLE_PRODUCT_TAXONOMY_URL = "https://www.google.com/basepages/producttype/taxonomy-with-ids.en-US.txt"
 GOOGLE_MERCHANT_SCOPE = "https://www.googleapis.com/auth/content"
 GOOGLE_MERCHANT_PRODUCT_LIMIT_HELP_URL = "https://support.google.com/merchants/answer/9727343"
 
@@ -7071,6 +7072,22 @@ def seo_price_valid_until() -> str:
     return (datetime.utcnow() + timedelta(days=days)).date().isoformat()
 
 
+def offer_validity_payload(record) -> dict:
+    payload = {"priceValidUntil": seo_price_valid_until()}
+    confirmed_at = getattr(record, "updated_at", None) or record.created_at
+    if confirmed_at:
+        payload["validFrom"] = confirmed_at.date().isoformat()
+    return payload
+
+
+def google_product_category_payload(code: str) -> dict:
+    return {
+        "@type": "CategoryCode",
+        "inCodeSet": GOOGLE_PRODUCT_TAXONOMY_URL,
+        "codeValue": code,
+    }
+
+
 def webpage_schema_payload(title: str, description: str, url: str) -> dict:
     return {
         "@type": "WebPage",
@@ -7220,7 +7237,7 @@ def build_part_product_schema(
             "url": part_url,
             "priceCurrency": "UAH",
             "price": price,
-            "priceValidUntil": seo_price_valid_until(),
+            **offer_validity_payload(part),
             "availability": "https://schema.org/InStock" if part.in_stock and int(part.qty or 0) > 0 else "https://schema.org/OutOfStock",
             "itemCondition": part_schema_item_condition(part),
             "inventoryLevel": {
@@ -7248,8 +7265,11 @@ def build_part_product_schema(
         )
     if gallery:
         product_payload["image"] = gallery
-    if categories:
-        product_payload["category"] = ", ".join(category["label"] for category in categories[:3])
+    product_payload["category"] = google_product_category_payload("899")
+    for category in categories[:3]:
+        product_payload["additionalProperty"].append(
+            {"@type": "PropertyValue", "name": "Категорія", "value": category["label"]}
+        )
     if warehouse:
         warehouse_label = warehouse_public_name(warehouse) or seo_clean_label(warehouse.name)
         product_payload["additionalProperty"].append(
@@ -7297,7 +7317,7 @@ def build_car_product_schema(car: Car, photos: list[str]) -> str:
         "name": title,
         "url": car_url,
         "sku": normalize_text(car.vin or f"car-{car.id}").strip(),
-        "category": "Vehicle",
+        "category": google_product_category_payload("916"),
         "image": [absolute_public_url(url) for url in photos],
         "description": description,
         "offers": {
@@ -7305,7 +7325,7 @@ def build_car_product_schema(car: Car, photos: list[str]) -> str:
             "url": car_url,
             "priceCurrency": "UAH",
             "price": display_uah(car.price_usd or 0, 0),
-            "priceValidUntil": seo_price_valid_until(),
+            **offer_validity_payload(car),
             "availability": "https://schema.org/InStock" if car.status == "in_stock" else "https://schema.org/PreOrder",
             "itemCondition": "https://schema.org/UsedCondition",
             "seller": {"@id": f"{public_site_base_url()}/#organization"},

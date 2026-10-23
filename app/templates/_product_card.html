@@ -1,12 +1,14 @@
 {% set photo = public_part_photo(part) %}
-{% set gallery = part_gallery_urls(part) %}
+{% set gallery = storefront_part_gallery_urls(part) %}
+{% set catalog_photo = part_catalog_photo(part) %}
 <article class="showcase-card">
   <a class="product-card-media" href="{{ part_detail_url(part) }}" aria-label="{{ part_seo_name(part) }}">
     <span class="product-card-badge">{{ part_condition_label(part) }}</span>
-    <span class="watermarked-photo">
+    <span class="watermarked-photo{% if catalog_photo %} catalog-reference-photo{% endif %}">
       <img class="showcase-img" src="{{ storefront_image_url(photo, 640) }}" width="640" height="480" alt="{{ part_seo_name(part) }}" loading="{{ 'eager' if eager_image|default(false) else 'lazy' }}" decoding="async">
     </span>
     {% if gallery|length > 1 %}<span class="photo-count-badge">{{ gallery|length }} фото</span>{% endif %}
+    {% if catalog_photo %}<span class="catalog-photo-badge">Каталожне фото</span>{% endif %}
   </a>
   <div class="showcase-body">
     <div class="product-card-label">OEM / КОД ДЕТАЛІ</div>

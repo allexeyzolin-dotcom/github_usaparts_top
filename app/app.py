@@ -3,6 +3,7 @@ import gzip
 import hashlib
 import io
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -29,6 +30,7 @@ from tempfile import TemporaryDirectory
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, send_from_directory, jsonify, session, Response, has_request_context, abort
 from .sitemap_support import sitemap_documents
 from .product_search import generate_product_search, query_list, clean_text as clean_search_text
+from .catalog_photos import CATALOG_PHOTOS
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
 from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -49,6 +51,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
+mimetypes.add_type("image/webp", ".webp")
 
 PUBLIC_CACHE_TTL_SECONDS = max(int(os.getenv("PUBLIC_CACHE_TTL_SECONDS", "180") or 0), 0)
 SITEMAP_CACHE_TTL_SECONDS = max(int(os.getenv("SITEMAP_CACHE_TTL_SECONDS", "300") or 0), 0)
@@ -4818,8 +4821,27 @@ def part_gallery_urls(part: Part) -> list[str]:
 PUBLIC_PART_PLACEHOLDER_IMAGE = "/static/product-photo-placeholder.png"
 
 
-def public_part_gallery_urls(part: Part | None) -> list[str]:
+def part_catalog_photo(part: Part | None) -> dict | None:
+    if not part or part_gallery_urls(part):
+        return None
+    reference = CATALOG_PHOTOS.get(part.id)
+    if (reference
+            and compact_part_code(part.part_number or "") == compact_part_code(reference["part_number"])
+            and normalize_text(part.brand or "").strip().upper() == reference["brand"]):
+        return reference
+    return None
+
+
+def storefront_part_gallery_urls(part: Part | None) -> list[str]:
     gallery = part_gallery_urls(part)
+    if gallery:
+        return gallery
+    reference = part_catalog_photo(part)
+    return [reference["image"]] if reference else []
+
+
+def public_part_gallery_urls(part: Part | None) -> list[str]:
+    gallery = storefront_part_gallery_urls(part)
     return gallery if gallery else [PUBLIC_PART_PLACEHOLDER_IMAGE]
 
 
@@ -7207,7 +7229,7 @@ def build_part_product_schema(
 ) -> str:
     display_number = normalize_text(display_part_number or part.part_number or "").strip()
     part_url = canonical_url or public_part_url(part)
-    gallery = [absolute_public_url(url) for url in part_gallery_urls(part)]
+    gallery = [absolute_public_url(url) for url in storefront_part_gallery_urls(part)]
     price = display_uah(part.price_usd, warehouse.markup_percent if warehouse else 0)
     categories = seo_part_categories(part)
     brand_name = seo_clean_label(part.brand or part.brand_export or producer_type_label(part.producer_type))
@@ -8077,8 +8099,11 @@ def build_sitemap_inventory_documents() -> dict[str, list[str]]:
         for part in parts:
             location = public_part_url(part)
             lastmod = sitemap_lastmod(part.updated_at or part.created_at)
+            reference = part_catalog_photo(part)
+            if reference:
+                lastmod = max(lastmod, reference["verified_on"])
             part_nodes.append(sitemap_url_node(location, lastmod=lastmod))
-            images = [{"loc": absolute_public_url(url)} for url in part_gallery_urls(part)]
+            images = [{"loc": absolute_public_url(url)} for url in storefront_part_gallery_urls(part)]
             if images:
                 image_nodes.append(sitemap_image_url_node(location, images, lastmod=lastmod))
         for car in db.query(Car).order_by(Car.id.asc()).yield_per(500):
@@ -8873,6 +8898,8 @@ def inject_globals():
         "parse_media_urls": parse_media_urls,
         "youtube_embed_url": youtube_embed_url,
         "part_gallery_urls": part_gallery_urls,
+        "storefront_part_gallery_urls": storefront_part_gallery_urls,
+        "part_catalog_photo": part_catalog_photo,
         "public_part_gallery_urls": public_part_gallery_urls,
         "part_detail_url": part_detail_url,
         "display_usd": display_usd,

@@ -1,0 +1,22 @@
+{% extends 'base_public.html' %}
+{% block conversion_tracking %}
+  {% if google_ads_conversion %}
+  <!-- Google Ads: Покупка, only after a committed website order. -->
+  <script>
+    // Retire the pending browser ID used by the existing GTM checkout tag.
+    try { sessionStorage.removeItem('usaparts_ads_pending_purchase_v1'); } catch (error) {}
+    gtag('event', 'conversion', {{ google_ads_conversion|tojson }});
+  </script>
+  {% endif %}
+{% endblock %}
+{% block content %}
+<div class="container narrow">
+  <div class="card compact-card">
+    <h1>Дякуємо! Замовлення прийнято</h1>
+    <p>Замовлення №{{ confirmation.transaction_id }} успішно оформлено. Менеджер зв'яжеться з вами за вказаними контактними даними найближчим часом.</p>
+    <div class="price-row">Вартість товарів: {{ '%.2f'|format(confirmation.value) }} грн</div>
+    <p class="muted">Доставка оплачується окремо.</p>
+    <a class="btn primary" href="{{ url_for('catalog') }}">Повернутися до каталогу</a>
+  </div>
+</div>
+{% endblock %}

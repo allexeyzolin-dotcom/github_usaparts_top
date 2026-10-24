@@ -10429,8 +10429,13 @@ def checkout():
             flash_news(db, "telegram", "Помилка Telegram", f"Замовлення #{order.id} створено, але Telegram не прийняв повідомлення: {telegram_error}", "error")
             db.commit()
         session["cart"] = {}
-        flash("Дякуємо, ваше замовлення успішно прийнято. Менеджер зв'яжеться з вами за вказаними контактними даними найближчим часом", "success")
-        return redirect(url_for("home"))
+        session["checkout_confirmation"] = {
+            "transaction_id": str(order.id),
+            "value": float(snapshot["total_uah"]),
+            "currency": "UAH",
+        }
+        session["google_ads_conversion_pending"] = True
+        return redirect(url_for("checkout_success"))
     except ValueError as exc:
         db.rollback()
         snapshot = build_cart_state(db, session.get("cart", {}))
@@ -10440,6 +10445,29 @@ def checkout():
         return redirect(url_for("cart_view"))
     finally:
         db.close()
+
+
+@app.route("/checkout/success")
+def checkout_success():
+    confirmation = session.get("checkout_confirmation")
+    if not confirmation:
+        return redirect(url_for("home"))
+    conversion = None
+    if session.pop("google_ads_conversion_pending", False):
+        conversion = {
+            **confirmation,
+            "send_to": "AW-16746839372/zox0CJaEzqMcEMz6wbE-",
+        }
+    response = app.make_response(render_template(
+        "order_success.html",
+        confirmation=confirmation,
+        google_ads_conversion=conversion,
+        seo_title="Замовлення прийнято | USAparts.top",
+        seo_noindex=True,
+        seo_nofollow=True,
+    ))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @app.route("/api/np/cities")

@@ -200,7 +200,8 @@ class StorefrontTests(unittest.TestCase):
                          price_usd=Decimal("10.01"), in_stock=True, is_deleted=False)
         price = Decimal("10.76")
         snapshot = {"items": [{"part": part, "qty": 2, "unit_price_usd": price}],
-                    "total": price * 2, "normalized_cart": {"777": 2}, "issues": []}
+                    "total": price * 2, "total_uah": Decimal("893.08"),
+                    "normalized_cart": {"777": 2}, "issues": []}
         db = MagicMock()
         with site.app.test_request_context("/checkout", method="POST", data={"customer_name": "Test"}):
             site.session["cart"] = {"777": 2}

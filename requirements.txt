@@ -9,3 +9,5 @@ qrcode==7.4.2
 Pillow==11.1.0
 playwright==1.52.0
 google-auth>=2.29.0,<3.0.0
+cryptography==50.0.2
+tzdata>=2025.2

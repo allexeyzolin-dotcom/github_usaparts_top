@@ -8,6 +8,7 @@ import mimetypes
 import os
 import re
 import secrets
+import sys
 import requests
 import random
 import shutil
@@ -5128,6 +5129,8 @@ def find_part_for_order_item(db, item: OrderItem):
         part = db.get(Part, item.part_id)
         if part:
             return part
+    if item.order and item.order.external_source == "prom":
+        return None  # Prom lines require an explicit, reviewed product mapping.
     part_number = (item.part_number or "").strip()
     if not part_number:
         return None
@@ -5165,6 +5168,7 @@ def inventory_reserve_error_message(error_code: str) -> str:
 
 
 def reserve_order_inventory(db, order: Order) -> int:
+    db.query(Order).filter_by(id=order.id).populate_existing().with_for_update().one()
     if order.stock_reserved:
         return 0
     planned_reservations = {}
@@ -5183,6 +5187,8 @@ def reserve_order_inventory(db, order: Order) -> int:
             {"part": part, "required_qty": 0},
         )
         planned["required_qty"] += qty
+    if planned_reservations:
+        db.query(Part).filter(Part.id.in_(sorted(planned_reservations))).order_by(Part.id).populate_existing().with_for_update(key_share=True).all()
     for planned in planned_reservations.values():
         part = planned["part"]
         required_qty = int(planned["required_qty"] or 0)
@@ -5218,8 +5224,12 @@ def reserve_order_inventory(db, order: Order) -> int:
 
 
 def release_order_inventory(db, order: Order) -> int:
+    db.query(Order).filter_by(id=order.id).populate_existing().with_for_update().one()
     if not order.stock_reserved:
         return 0
+    part_ids = sorted({item.part_id for item in order.items if item.part_id})
+    if part_ids:
+        db.query(Part).filter(Part.id.in_(part_ids)).order_by(Part.id).populate_existing().with_for_update(key_share=True).all()
     returned_units = 0
     for item in order.items:
         part = find_part_for_order_item(db, item)
@@ -13374,15 +13384,13 @@ def admin_order_refresh_ttn(order_id):
 @app.route("/admin/orders/sync/autopro", methods=["POST"])
 @admin_required
 def admin_sync_autopro_orders():
-    flash("Інтеграцію Autopro вимкнено в кабінеті.", "error")
-    return redirect(url_for("admin_orders"))
+    return redirect(url_for("admin_marketplaces", tab="avtopro"))
 
 
 @app.route("/admin/orders/sync/prom", methods=["POST"])
 @admin_required
 def admin_sync_prom_orders():
-    flash("Інтеграцію Prom.ua вимкнено в кабінеті.", "error")
-    return redirect(url_for("admin_orders"))
+    return redirect(url_for("admin_marketplaces", tab="prom"))
 
 
 
@@ -15645,11 +15653,16 @@ def avtopro_price_feed(warehouse_id, token):
 
 
 
+from . import marketplaces
+marketplace_models = marketplaces.install(app, sys.modules[__name__])
+
+
 if __name__ == "__main__":
     from waitress import serve
     wait_for_db()
     seed_if_empty()
     start_backup_scheduler()
+    marketplaces.start_scheduler()
     # Keep one process for background jobs and in-memory invalidation. Proxy
     # headers are handled by the existing external_request_* helpers above.
     serve(app, host="0.0.0.0", port=8080, threads=8,

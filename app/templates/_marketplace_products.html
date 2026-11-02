@@ -1,0 +1,36 @@
+<div class="mp-card mp-table-wrap">
+<table class="mp-table mp-products">
+  <thead><tr><th>Товар Prom</th><th>Товар на вашому складі</th><th>Сайт / Prom</th><th>Стан обміну</th></tr></thead>
+  <tbody>
+  {% for row in product_rows %}{% set link = row.link %}
+  <tr>
+    <td><strong>{{ link.sku or 'Без артикула' }}</strong><span class="mp-product-name">{{ link.name }}</span><small>{{ '%.2f'|format(link.price) }} {{ link.currency }} · Prom №{{ link.remote_id }}</small></td>
+    <td>
+      {% if row.part %}<strong>{{ row.part.part_number }}</strong><small>{{ row.warehouse.name if row.warehouse else '' }}</small>{% endif %}
+      <details class="mp-map-details" {% if not row.part %}open{% endif %}>
+        <summary>{{ 'Змінити відповідник' if row.part else 'Зіставити зі складом' }}</summary>
+        <form method="post" class="mp-map-form">{{ action_fields('map') }}
+          <input type="hidden" name="link_id" value="{{ link.id }}"><input type="hidden" name="part_id" required>
+          <div class="mp-lookup"><input type="search" data-part-search placeholder="Знайти на складі…" aria-label="Знайти відповідник {{ link.sku }}" autocomplete="off"><div class="mp-lookup-results" role="listbox"></div></div>
+          <button class="mp-small-btn" disabled>Зіставити</button>
+        </form>
+      </details>
+    </td>
+    <td><div class="mp-quantities"><b>{{ row.qty if row.qty is not none else '—' }}</b><span>/</span><b>{{ link.remote_qty if link.remote_qty is not none else '—' }}</b><small>шт.</small></div></td>
+    <td>
+      {% if link.issue %}<span class="mp-pill amber">Потрібна звірка</span><small class="mp-issue">{{ link.issue }}</small>
+      {% elif not link.part_id %}<span class="mp-pill gray">Не зіставлено</span>
+      {% elif link.stock_ready %}<span class="mp-pill green">Готовий до обміну</span>
+      {% else %}<span class="mp-pill amber">Звірте залишок</span>{% endif %}
+      {% if row.part and (link.issue or not link.stock_ready) %}
+      <div class="mp-resolve">
+        <form method="post" onsubmit="return confirm('Використати залишок сайту для цієї картки Prom?')">{{ action_fields('resolve_site') }}<input type="hidden" name="link_id" value="{{ link.id }}"><button class="mp-small-btn">Взяти із сайту →</button></form>
+        <form method="post" onsubmit="return confirm('Замінити доступний залишок на сайті кількістю з Prom?')">{{ action_fields('resolve_prom') }}<input type="hidden" name="link_id" value="{{ link.id }}"><button class="mp-small-btn muted">Взяти з Prom</button></form>
+      </div>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="4"><div class="mp-empty"><span>▤</span><h3>{{ 'За цим запитом товарів немає' if search else 'Каталог ще не завантажений' }}</h3><p>Після підключення Prom тут з’являться товари, кількість і відповідники зі складу.</p><a href="{{ url_for('admin_marketplaces', tab='prom') }}">До підключення →</a></div></td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>

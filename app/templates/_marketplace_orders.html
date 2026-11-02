@@ -1,0 +1,15 @@
+<div class="mp-order-list">
+{% for row in order_rows %}
+<article class="mp-card mp-order">
+  <div class="mp-order-heading"><div><span class="mp-eyebrow">PROM</span><h3>№{{ row.state.remote_id }}</h3><small>Змінено {{ row.state.modified_at|mp_time }}</small></div><span class="mp-pill {{ 'gray' if row.state.status == 'canceled' else 'green' }}">{{ row.label }}</span><strong>{{ '%.2f'|format(row.state.total_uah) }} ₴</strong></div>
+  <div class="mp-order-items">{% for item in row['items'] %}<div><span><b>{{ item.sku }}</b> · {{ item.name }}</span><strong>{{ item.quantity }} шт.</strong></div>{% endfor %}</div>
+  <div class="mp-order-foot"><div><span class="mp-pill {{ 'amber' if row.state.issue else 'gray' }}">{{ 'Потребує уваги' if row.state.issue else ('Історичне · без списання' if row.state.historical else ('Резерв створено' if row.order and row.order.stock_reserved else 'Без резерву')) }}</span>{% if row.state.payment_status == 'paid' %}<span class="mp-pill purple">Оплачено</span>{% endif %}</div>
+  {% if row.state.historical and row.state.status not in ['canceled','delivered'] %}
+    <form method="post" onsubmit="return confirm('Зарезервувати товари цього історичного замовлення з поточних залишків сайту?')">{{ action_fields('adopt_order') }}<input type="hidden" name="state_id" value="{{ row.state.id }}"><button class="mp-small-btn">Взяти в облік</button></form>
+  {% elif row.state.issue %}
+    <form method="post" {% if row.state.return_pending %}onsubmit="return confirm('Підтверджуєте фізичне повернення товару на склад?')"{% endif %}>{{ action_fields('return_order' if row.state.return_pending else 'retry_order') }}<input type="hidden" name="state_id" value="{{ row.state.id }}"><button class="mp-small-btn">{{ 'Підтвердити повернення' if row.state.return_pending else 'Повторити обробку' }}</button></form>
+  {% endif %}</div>
+  {% if row.state.issue %}<p class="mp-order-issue">{{ row.state.issue }}</p>{% endif %}
+</article>
+{% else %}<div class="mp-card mp-empty"><span>↙</span><h3>Замовлень ще немає</h3><p>Підключіть API Prom, щоб отримувати замовлення у цьому кабінеті.</p></div>{% endfor %}
+</div>

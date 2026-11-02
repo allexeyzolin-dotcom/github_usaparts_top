@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 import app.app as site
 from app import marketplaces as mp
 from app.prom_api import PromClient, PromError, money, quantity
+from app.server_secrets import session_secret
 
 
 class FakeProm:
@@ -301,6 +302,17 @@ class MarketplaceTests(unittest.TestCase):
             with self.assertRaises(PromError):
                 mp.cipher()
             self.assertEqual(key_file.read_bytes(), b"invalid-key")
+
+    def test_production_example_session_secret_is_replaced_once_and_retained(self):
+        with TemporaryDirectory() as directory:
+            example = "change-me-to-a-long-random-secret"
+            created = session_secret(example, directory, production=True)
+            self.assertGreaterEqual(len(created), 40)
+            self.assertNotEqual(created, example)
+            self.assertEqual(session_secret(example, directory, production=True), created)
+            self.assertEqual(session_secret("strong-existing-secret-at-least-32", directory, production=True),
+                             "strong-existing-secret-at-least-32")
+            self.assertEqual(session_secret(example, directory), example)
 
     def test_populated_orders_and_journal_render_with_escaped_product_names(self):
         row = self.raw()

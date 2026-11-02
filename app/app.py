@@ -33,6 +33,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, sen
 from .sitemap_support import sitemap_documents
 from .product_search import generate_product_search, query_list, clean_text as clean_search_text
 from .catalog_photos import CATALOG_PHOTOS
+from .server_secrets import session_secret
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
 from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -52,7 +53,9 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
+app.secret_key = session_secret(os.getenv("SECRET_KEY", "dev-secret"),
+    os.getenv("BACKUP_DIR", str(PROJECT_ROOT / "backups")),
+    production=os.getenv("FLASK_ENV") == "production")
 mimetypes.add_type("image/webp", ".webp")
 
 PUBLIC_CACHE_TTL_SECONDS = max(int(os.getenv("PUBLIC_CACHE_TTL_SECONDS", "180") or 0), 0)
@@ -6324,6 +6327,10 @@ def create_site_backup(sync_to_drive=False, triggered_by="manual"):
                 if marketplace_key.is_file():
                     zipf.write(marketplace_key, "secrets/marketplace-encryption.key")
                     zipf.writestr("secrets/README.txt", "Restore marketplace-encryption.key to BACKUP_DIR/.marketplace-encryption.key with mode 0600 before starting the application. Keep this archive private.\n")
+                session_key = BACKUP_DIR / ".session-secret.key"
+                if session_key.is_file():
+                    zipf.write(session_key, "secrets/session-secret.key")
+                    zipf.writestr("secrets/README_SESSION.txt", "Restore session-secret.key to BACKUP_DIR/.session-secret.key with mode 0600 before starting the application. It also protects encrypted integration tokens. Keep this archive private.\n")
                 add_directory_to_zip(zipf, export_dir, "exports")
                 add_directory_to_zip(zipf, json_dir, "data_json")
                 add_directory_to_zip(zipf, UPLOAD_DIR, "uploads")

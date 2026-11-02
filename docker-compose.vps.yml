@@ -18,6 +18,7 @@ services:
   web:
     image: ${WEB_IMAGE:-usa-auto-parts-site:vps-latest}
     build: .
+    pull_policy: build
     restart: unless-stopped
     depends_on:
       db:

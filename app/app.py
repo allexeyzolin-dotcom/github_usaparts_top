@@ -6320,6 +6320,10 @@ def create_site_backup(sync_to_drive=False, triggered_by="manual"):
                 zipf.write(database_dump, f"database/{database_dump.name}")
                 zipf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
                 zipf.writestr("README_RESTORE.txt", restore_readme)
+                marketplace_key = BACKUP_DIR / ".marketplace-encryption.key"
+                if marketplace_key.is_file():
+                    zipf.write(marketplace_key, "secrets/marketplace-encryption.key")
+                    zipf.writestr("secrets/README.txt", "Restore marketplace-encryption.key to BACKUP_DIR/.marketplace-encryption.key with mode 0600 before starting the application. Keep this archive private.\n")
                 add_directory_to_zip(zipf, export_dir, "exports")
                 add_directory_to_zip(zipf, json_dir, "data_json")
                 add_directory_to_zip(zipf, UPLOAD_DIR, "uploads")

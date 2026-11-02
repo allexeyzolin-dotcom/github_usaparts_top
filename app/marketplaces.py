@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import threading
+import tempfile
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -42,7 +43,28 @@ def put(db, name, value):
 def cipher():
     secret = str(SITE.app.secret_key or "")
     if len(secret) < 20 or secret in {"dev-secret", "change-me-to-a-long-random-secret"}:
-        raise PromError("Для збереження токена потрібен захищений SECRET_KEY сервера")
+        # Older installations use the example session secret. Never derive a
+        # token key from it: retain a random key on the persistent backup volume.
+        path = SITE.BACKUP_DIR / ".marketplace-encryption.key"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".mp-key-", delete=False) as handle:
+                    temporary = handle.name
+                    os.chmod(temporary, 0o600)
+                    handle.write(Fernet.generate_key())
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                try:
+                    try:
+                        os.link(temporary, path)
+                    except FileExistsError:
+                        pass
+                finally:
+                    os.unlink(temporary)
+            return Fernet(path.read_bytes().strip())
+        except (OSError, ValueError):
+            raise PromError("Недоступний постійний ключ шифрування маркетплейсів. Перевірте сховище резервних копій") from None
     key = hashlib.sha256(("marketplaces:v1:" + secret).encode()).digest()
     return Fernet(base64.urlsafe_b64encode(key))
 

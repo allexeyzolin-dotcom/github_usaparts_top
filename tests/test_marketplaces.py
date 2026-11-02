@@ -2,6 +2,8 @@
 import copy
 import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
@@ -284,6 +286,21 @@ class MarketplaceTests(unittest.TestCase):
             self.assertNotIn(secret, mp.setting(db, "prom_token"))
             self.assertEqual(mp.token(db), secret)
         self.assertNotIn(secret, self.client.get("/admin/marketplaces?tab=prom").text)
+
+    def test_example_session_secret_uses_persistent_random_encryption_key(self):
+        with TemporaryDirectory() as directory, patch.object(site, "BACKUP_DIR", Path(directory)):
+            site.app.secret_key = "change-me-to-a-long-random-secret"
+            first = mp.cipher()
+            encrypted = first.encrypt(b"PRIVATE_FAKE_TOKEN")
+            key_file = Path(directory) / ".marketplace-encryption.key"
+            original = key_file.read_bytes()
+            self.assertEqual(mp.cipher().decrypt(encrypted), b"PRIVATE_FAKE_TOKEN")
+            self.assertEqual(key_file.read_bytes(), original)
+            self.assertNotIn(b"PRIVATE_FAKE_TOKEN", original)
+            key_file.write_bytes(b"invalid-key")
+            with self.assertRaises(PromError):
+                mp.cipher()
+            self.assertEqual(key_file.read_bytes(), b"invalid-key")
 
     def test_populated_orders_and_journal_render_with_escaped_product_names(self):
         row = self.raw()

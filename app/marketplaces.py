@@ -385,7 +385,7 @@ def sync_stock(db, client):
             continue
         try:
             remote = client.product(link.remote_id)
-            remote_qty = quantity(remote.get("quantity_in_stock"))
+            remote_qty = quantity(remote["quantity_in_stock"]) if remote.get("quantity_in_stock") is not None else None
             remote_presence = str(remote.get("presence") or "")
             link.remote_qty = remote_qty
             link.presence = remote_presence
@@ -728,7 +728,9 @@ def install(app, site):
                             remote = candidate.product(link.remote_id)
                         finally:
                             candidate.close()
-                        qty = quantity(remote.get("quantity_in_stock"))
+                        qty = quantity(remote["quantity_in_stock"]) if remote.get("quantity_in_stock") is not None else None
+                        if action == "resolve_prom" and qty is None:
+                            raise PromError("Prom не вказав кількість. Для цієї позиції оберіть залишок сайту")
                         part = db.query(site.Part).filter_by(id=link.part_id).populate_existing().with_for_update(key_share=True).one()
                         if action == "resolve_prom":
                             before = available(part)

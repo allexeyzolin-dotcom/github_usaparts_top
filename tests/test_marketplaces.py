@@ -358,6 +358,36 @@ class MarketplaceTests(unittest.TestCase):
                 with self.assertRaises(PromError):
                     mp.verify_stock_access(db, self.fake)
 
+    def test_missing_prom_quantity_requires_explicit_site_reconciliation(self):
+        self.fake.products[str(self.remote['id'])]['quantity_in_stock'] = None
+        with self.sessions() as db:
+            link = db.query(mp.MODELS.Link).one()
+            link.remote_qty = None
+            link.synced_qty = None
+            link.stock_ready = False
+            link.issue = 'Звірте початковий залишок'
+            db.commit()
+            self.assertEqual(mp.sync_stock(db, self.fake), 0)
+            self.assertEqual(self.fake.writes, [])
+            identifier = link.id
+        with patch.object(mp, 'PromClient', return_value=self.fake), patch.object(mp, 'kick'):
+            self.post('resolve_site', link_id=identifier)
+        with self.sessions() as db:
+            self.assertTrue(db.query(mp.MODELS.Link).one().stock_ready)
+            self.assertEqual(mp.sync_stock(db, self.fake), 1)
+            self.assertEqual(self.fake.product(self.remote['id'])['quantity_in_stock'], 3)
+            self.assertEqual(db.get(site.Part, 1).qty, 3)
+
+    def test_missing_prom_quantity_cannot_replace_site_stock_with_zero(self):
+        self.fake.products[str(self.remote['id'])]['quantity_in_stock'] = None
+        with self.sessions() as db:
+            identifier = db.query(mp.MODELS.Link).one().id
+        with patch.object(mp, 'PromClient', return_value=self.fake), patch.object(mp, 'kick') as kick:
+            self.post('resolve_prom', link_id=identifier)
+            kick.assert_not_called()
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.Part, 1).qty, 3)
+
     def test_transport_never_leaks_credentials_or_follows_redirects(self):
         transport = Mock()
         transport.request.return_value = Mock(status_code=403)

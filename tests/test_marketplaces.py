@@ -33,6 +33,7 @@ class FakeProm:
         self.writes.append((str(identifier), qty))
         row = self.products[str(identifier)]
         row.update(quantity_in_stock=qty, presence="available" if qty else "not_available")
+        return True
 
     def close(self):
         pass
@@ -326,7 +327,7 @@ class MarketplaceTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;", rendered)
         self.assertNotIn('<script>alert("not executable")', rendered)
 
-    def test_idempotent_absolute_write_requires_processed_id(self):
+    def test_absolute_write_rejects_errors_and_distinguishes_real_noop_response(self):
         transport = Mock()
         response = Mock(status_code=200)
         response.json.return_value = {"processed_ids": [], "errors": {"1":"rejected"}}
@@ -339,6 +340,23 @@ class MarketplaceTests(unittest.TestCase):
         payload = transport.request.call_args.kwargs["json"]
         self.assertEqual(payload, [{"id":1,"quantity_in_stock":0,"presence":"not_available"}])
         self.assertFalse(transport.request.call_args.kwargs["allow_redirects"])
+        response.json.return_value = {"processed_ids": [], "errors": {}, "warnings": {}}
+        self.assertFalse(client.stock(1, 0))
+        response.json.return_value = {"processed_ids": [999], "errors": {}}
+        with self.assertRaises(PromError):
+            client.stock(1, 0)
+
+    def test_unchanged_probe_checks_readback_without_claiming_a_real_change(self):
+        with self.sessions() as db, patch.object(self.fake, "stock", return_value=False):
+            self.assertEqual(mp.verify_stock_access(db, self.fake), 3)
+            self.assertTrue(mp.setting(db, "prom_endpoint_verified"))
+            self.assertFalse(mp.setting(db, "prom_write_verified"))
+        with self.sessions() as db, patch.object(self.fake, "stock", return_value=False):
+            original = self.fake.product
+            reads = [original(self.remote['id']), {**original(self.remote['id']), 'quantity_in_stock':2}]
+            with patch.object(self.fake, "product", side_effect=reads):
+                with self.assertRaises(PromError):
+                    mp.verify_stock_access(db, self.fake)
 
     def test_transport_never_leaks_credentials_or_follows_redirects(self):
         transport = Mock()

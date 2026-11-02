@@ -432,14 +432,17 @@ def verify_stock_access(db, client):
         current = client.product(link.remote_id)
         if current.get("quantity_in_stock") is None or quantity(current["quantity_in_stock"]) != qty or current.get("presence") != expected:
             continue
-        client.stock(link.remote_id, qty)
+        processed = client.stock(link.remote_id, qty)
         confirmed = client.product(link.remote_id)
         if quantity(confirmed.get("quantity_in_stock")) != qty or confirmed.get("presence") != expected:
             raise PromError("Prom не підтвердив запис кількості")
-        put(db, "prom_write_verified", datetime.utcnow().isoformat())
+        put(db, "prom_endpoint_verified", datetime.utcnow().isoformat())
+        if processed:
+            put(db, "prom_write_verified", datetime.utcnow().isoformat())
         if not qty:
             put(db, "prom_zero_verified", datetime.utcnow().isoformat())
-        log(db, "Права запису Prom перевірено", f"{link.sku}: збережено попередні {qty} шт. і перевірено відповідь", level="success")
+        log(db, "Перевірка залишків Prom завершена", f"{link.sku}: підтверджено попередні {qty} шт. " +
+            ("Prom підтвердив обробку запису." if processed else "API прийняв запит без змін; реальну зміну кількості ще не перевірено."), level="success")
         db.commit()
         return qty
     raise PromError("Для перевірки запису спочатку зіставте й звірте хоча б один товар")
@@ -776,7 +779,8 @@ def install(app, site):
             config = {key: setting(db, "prom_" + key, default) for key, default in
                       [("connected", ""), ("auto", "0"), ("stock", "1"), ("notifications", "1"),
                        ("interval", "120"), ("last_success", ""), ("last_error", ""), ("started_at", ""),
-                       ("write_verified", ""), ("zero_verified", "")]}
+                       ("write_verified", ""), ("endpoint_verified", ""), ("zero_verified", "")]}
+            telegram = site.telegram_settings(db)
             last_run = db.query(Run).order_by(Run.id.desc()).first()
             search = request.args.get("q", "").strip()[:100]
             page = max(1, request.args.get("page", 1, type=int))
@@ -815,6 +819,7 @@ def install(app, site):
                                                                token=private_key)) if private_key else ""})
             return render_template("admin_marketplaces.html", tab=tab, csrf_token=form_token, config=config,
                 preview=bool(site.app.config.get("MARKETPLACE_PREVIEW")),
+                telegram_configured=bool(telegram["bot_token"] and telegram["chat_id"]),
                 counts={"products": links_count, "mapped": mapped_count, "ready": ready_count,
                         "issues": issues, "order_issues": order_issues,
                         "orders": db.query(func.count(OrderState.id)).scalar() or 0},

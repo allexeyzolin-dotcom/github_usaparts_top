@@ -122,7 +122,12 @@ class PromClient:
         data = self.request("POST", "/products/edit", payload=[{
             "id": int(identifier), "quantity_in_stock": qty,
             "presence": "available" if qty else "not_available"}])
-        processed = {str(value) for value in data.get("processed_ids", [])}
-        if str(identifier) not in processed or data.get("errors"):
+        identifiers = data.get("processed_ids")
+        if not isinstance(identifiers, list):
+            raise PromError("Prom не повернув результат обробки залишку")
+        processed = {str(value) for value in identifiers}
+        if data.get("errors") or (processed and str(identifier) not in processed):
             raise PromError("Prom не підтвердив зміну залишку. Перевірте права запису й різновиди")
-        return data
+        # Real API returns [] with no errors for an unchanged product. Callers
+        # must read back stock even when the API reports no processed IDs.
+        return str(identifier) in processed

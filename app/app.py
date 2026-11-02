@@ -1,4 +1,5 @@
 import csv
+from .avtopro_feed import build_price_csv, FeedError
 import gzip
 import hashlib
 import io
@@ -8943,6 +8944,7 @@ def robots_txt():
         "User-agent: *",
         "Disallow: /admin/",
         "Disallow: /api/",
+        "Disallow: /feeds/",
         "Disallow: /cart/add/",
         "Disallow: /cart/remove/",
         "Disallow: /checkout",
@@ -15556,6 +15558,91 @@ def public_not_found(error):
 @app.route("/google6a2f4ce00040ba4f.html")
 def google_site_verification():
     return send_file(BASE_DIR / "google6a2f4ce00040ba4f.html", mimetype="text/html")
+
+
+def avtopro_feed_setting(warehouse_id):
+    return f"avtopro_feed_token:{warehouse_id}"
+
+
+@app.route("/admin/avtopro-feeds", methods=["GET", "POST"])
+@admin_required
+def admin_avtopro_feeds():
+    form_token = session.setdefault("avtopro_feed_form_token", secrets.token_urlsafe(32))
+    db = SessionLocal()
+    try:
+        if request.method == "POST":
+            if not secrets.compare_digest(form_token, request.form.get("csrf_token", "")):
+                abort(403)
+            warehouse_id = request.form.get("warehouse_id", type=int)
+            if not warehouse_id or not db.get(Warehouse, warehouse_id):
+                abort(404)
+            action = request.form.get("action")
+            if action not in {"enable", "disable"}:
+                abort(400)
+            key = avtopro_feed_setting(warehouse_id)
+            setting = db.query(ApiSetting).filter(ApiSetting.setting_key == key).one_or_none()
+            if action == "enable":
+                # Repeated clicks keep the existing URL, so scheduled downloads keep working.
+                if not setting or not setting.setting_value:
+                    set_setting(db, key, secrets.token_urlsafe(32))
+            elif setting:
+                setting.setting_value = ""
+                setting.updated_at = now()
+            db.commit()
+            return redirect(url_for("admin_avtopro_feeds"))
+        settings = get_api_settings_map(db)
+        stock_rows = db.query(Part.warehouse_id, func.count(Part.id), func.sum(Part.qty)).filter(
+            Part.is_deleted == False, Part.in_stock == True, Part.qty > 0
+        ).group_by(Part.warehouse_id).all()
+        stock = {identifier: (int(count), int(quantity or 0)) for identifier, count, quantity in stock_rows}
+        feeds = []
+        for warehouse in db.query(Warehouse).order_by(Warehouse.name, Warehouse.id).all():
+            token = settings.get(avtopro_feed_setting(warehouse.id), "")
+            feed_url = absolute_public_url(url_for("avtopro_price_feed", warehouse_id=warehouse.id, token=token)) if token else ""
+            positions, quantity = stock.get(warehouse.id, (0, 0))
+            feeds.append({"warehouse": warehouse, "url": feed_url, "positions": positions, "quantity": quantity})
+        response = Response(render_template("admin_avtopro_feeds.html", feeds=feeds, form_token=form_token))
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+    finally:
+        db.close()
+
+
+@app.route("/feeds/avtopro/<int:warehouse_id>/<token>/prices.csv")
+def avtopro_price_feed(warehouse_id, token):
+    db = SessionLocal()
+    try:
+        setting = db.query(ApiSetting).filter(ApiSetting.setting_key == avtopro_feed_setting(warehouse_id)).one_or_none()
+        if not setting or not setting.setting_value or not secrets.compare_digest(setting.setting_value, token):
+            abort(404)
+        if not db.get(Warehouse, warehouse_id):
+            abort(404)
+        parts = db.query(Part).filter(Part.warehouse_id == warehouse_id).order_by(Part.id).all()
+        # Preserve each warehouse record's manufacturer and base USD price.
+        # Private description/stock notes never belong in a downloadable price file.
+        records = [{"brand": p.brand_export or p.brand, "code": p.part_number_export or p.part_number,
+                    "price": p.price_usd, "qty": int(p.qty or 0), "in_stock": p.in_stock,
+                    "deleted": p.is_deleted, "used": p.avtopro_flag_1,
+                    "restored": p.avtopro_flag_2, "name": p.name,
+                    "photos": parse_media_urls(p.photo_urls)} for p in parts]
+        try:
+            payload, count = build_price_csv(records)
+        except FeedError as error:
+            response = Response(str(error), status=503, content_type="text/plain; charset=utf-8")
+        else:
+            response = Response(payload, content_type="text/csv; charset=utf-8")
+            response.headers["Content-Disposition"] = f'attachment; filename="avtopro-warehouse-{warehouse_id}.csv"'
+            response.headers["X-Product-Count"] = str(count)
+            response.set_etag(hashlib.sha256(payload).hexdigest())
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+    finally:
+        db.close()
+
+
 
 
 if __name__ == "__main__":

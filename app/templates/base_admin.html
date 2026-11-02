@@ -22,6 +22,7 @@
     </a>
     <div></div>
     <div class="header-right admin-header-links">
+      <a class="nav-link {% if request.endpoint == 'admin_avtopro_feeds' %}is-active{% endif %}" href="{{ url_for('admin_avtopro_feeds') }}">Автопро</a>
       <a class="nav-link {% if request.endpoint == 'admin_cars' %}is-active{% endif %}" href="{{ url_for('admin_cars') }}">Авто</a>
       <a class="nav-link {% if request.endpoint == 'admin_statistics' %}is-active{% endif %}" href="{{ url_for('admin_statistics') }}">Статистика</a>
       <a class="nav-link {% if request.endpoint in ['admin_reviews', 'admin_review_status'] %}is-active{% endif %}" href="{{ url_for('admin_reviews') }}">

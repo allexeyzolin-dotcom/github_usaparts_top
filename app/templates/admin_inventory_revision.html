@@ -1,0 +1,102 @@
+{% extends 'base_admin.html' %}
+{% block admin_body_class %}inventory-revision-page{% if is_mobile_revision %} revision-mobile-client{% endif %}{% endblock %}
+{% block admin_content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261107-1">
+<section id="inventory-revision" data-search-url="{{ url_for('inventory_revision_search') }}"
+         data-save-url="{{ url_for('inventory_revision_save') }}" data-upload-url="{{ url_for('inventory_revision_photos') }}" data-token="{{ revision_token }}">
+  <div class="panel-header">
+    <div>
+      <h2>Ревізія</h2>
+      <div class="muted">Окрема база товарів із фактично перевіреною кількістю.</div>
+      <div class="revision-current-author">Додає: {{ revision_actor }}</div>
+    </div>
+    <a class="btn ghost" href="{{ url_for('inventory_revision_export') }}">Експорт бази CSV</a>
+  </div>
+
+  <div class="card revision-entry">
+    <label class="field-label" for="revision-number">Номер товару / штрихкод</label>
+    <form id="revision-search-form" class="revision-input-row" autocomplete="off">
+      <input id="revision-number" placeholder="Введіть щонайменше 3 символи" maxlength="255"
+             aria-controls="revision-results" aria-describedby="revision-search-status" autofocus>
+      <button type="submit" class="btn primary">Створити картку</button>
+    </form>
+    <div id="revision-search-status" class="helper-note" role="status">Почніть вводити номер — з’являться картки з основної бази та ревізії.</div>
+    <div id="revision-results" class="revision-results" hidden></div>
+  </div>
+
+  <div class="revision-summary">
+    <span><strong>{{ total }}</strong> карток</span>
+    <span><strong>{{ units }}</strong> перевірених одиниць</span>
+    <span class="badge success">Перевірена наявність</span>
+  </div>
+  <div class="helper-note revision-independence">Дані основної бази можна скопіювати в нову картку. Збережена картка ревізії має власні дані та кількість.</div>
+
+  <div class="revision-cards">
+    {% for item in cards %}
+    <article class="card revision-stock-card">
+      <div class="revision-thumb">
+        {% if item.photo_urls %}
+        <img src="{{ item.photo_urls[0] }}" alt="{{ item.name }}" loading="lazy">
+        {% else %}<span>Без фото</span>{% endif %}
+      </div>
+      <div class="revision-card-details">
+        <div class="revision-card-top"><strong class="revision-code">{{ item.part_number }}</strong><span class="badge success">Перевірена наявність</span></div>
+        <div class="revision-authorship"><span class="revision-author-badge">Додав: {{ item.created_by }}</span>{% if item.updated_by != item.created_by %}<span>Остання перевірка: {{ item.updated_by }}</span>{% endif %}</div>
+        <h3>{{ item.name }}</h3>
+        <div class="muted">{{ item.brand }}{% if item.brand %} · {% endif %}{{ item.producer_type }} · ${{ item.price_usd }}</div>
+        {% if item.warehouse_name or item.location %}<div class="muted">{{ item.warehouse_name }}{% if item.warehouse_name and item.location %} / {% endif %}{{ item.location }}</div>{% endif %}
+        <div class="helper-note">Картка #{{ item.id }} · Перевірено {{ item.verified_label }}</div>
+      </div>
+      <div class="revision-card-actions">
+        <strong class="revision-qty">{{ item.qty }} <small>шт.</small></strong>
+        <button type="button" class="btn primary small" data-revision-add="{{ loop.index0 }}">Додати кількість</button>
+        <button type="button" class="btn ghost small" data-revision-edit="{{ loop.index0 }}">Редагувати</button>
+      </div>
+    </article>
+    {% else %}
+    <div class="card revision-empty"><h3>База ревізії поки порожня</h3><p class="muted">Введіть номер знайденого товару та збережіть його фактичну кількість.</p></div>
+    {% endfor %}
+  </div>
+  {% if pages > 1 %}
+  <nav class="revision-pagination" aria-label="Сторінки ревізії">
+    {% if page > 1 %}<a class="btn ghost small" href="{{ url_for('admin_inventory_revision', page=page-1, client='android' if is_mobile_revision else none) }}">← Назад</a>{% endif %}
+    <span>{{ page }} / {{ pages }}</span>
+    {% if page < pages %}<a class="btn ghost small" href="{{ url_for('admin_inventory_revision', page=page+1, client='android' if is_mobile_revision else none) }}">Далі →</a>{% endif %}
+  </nav>
+  {% endif %}
+  <script type="application/json" id="revision-page-cards">{{ cards|tojson }}</script>
+</section>
+
+<dialog id="revision-editor" class="revision-dialog" aria-labelledby="revision-editor-title">
+  <form id="revision-card-form">
+    <div class="revision-dialog-head"><h2 id="revision-editor-title">Нова картка ревізії</h2><button type="button" class="btn ghost small" data-close-editor aria-label="Закрити картку">✕</button></div>
+    <p id="revision-editor-help" class="helper-note"></p>
+    <div class="revision-fields">
+      <label>Номер товару<input name="part_number" maxlength="255" required></label>
+      <label>Фактична кількість, шт.<input name="qty" type="number" min="1" max="2147483647" step="1" value="1" required></label>
+      <label class="revision-wide">Назва товару<input name="name" maxlength="500" required></label>
+      <label>Бренд<input name="brand" maxlength="255"></label>
+      <label>Тип виробника<input name="producer_type" maxlength="32" value="OEM" list="revision-producer-types"></label>
+      <label>Ціна, USD<input name="price_usd" type="number" min="0" max="9999999999.99" step="0.01" value="0" required></label>
+      <label>Штрихкод<input name="barcode" maxlength="255"></label>
+      <label>Склад (назва)<input name="warehouse_name" maxlength="255"></label>
+      <label>Місце / полиця<input name="location" maxlength="255"></label>
+      <label class="revision-wide">Опис / примітка<textarea name="description" maxlength="20000" rows="3"></textarea></label>
+      <label class="revision-wide">Додати фото<input id="revision-photo-files" type="file" accept="image/jpeg,image/png,image/webp" multiple><span class="helper-note">JPG, PNG або WebP, до 10 МБ на фото.</span></label>
+      <label class="revision-wide">Посилання на фото (кожне з нового рядка)<textarea name="photo_urls" rows="2"></textarea></label>
+      <div id="revision-photo-preview" class="revision-photo-preview revision-wide"></div>
+      <label>Відео YouTube<input name="youtube_url" type="url" maxlength="500"></label>
+      <label>Додаткові номери<textarea name="cross_numbers" maxlength="5000" rows="2"></textarea></label>
+    </div>
+    <datalist id="revision-producer-types"><option value="OEM"><option value="Aftermarket"></datalist>
+    <p id="revision-save-status" class="revision-status" role="status"></p>
+    <div class="revision-dialog-actions"><button type="button" class="btn ghost" data-close-editor>Скасувати</button><button id="revision-save" class="btn primary" type="submit">Зберегти перевірений товар</button></div>
+  </form>
+</dialog>
+
+<dialog id="revision-choice" class="revision-dialog revision-choice" aria-labelledby="revision-choice-title">
+  <h2 id="revision-choice-title"></h2><p id="revision-choice-text"></p>
+  <div id="revision-choice-items"></div><div id="revision-choice-actions" class="revision-dialog-actions"></div>
+</dialog>
+<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261107-1"></script>
+{% endblock %}

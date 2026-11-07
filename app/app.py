@@ -15667,6 +15667,10 @@ def avtopro_price_feed(warehouse_id, token):
 from . import marketplaces
 marketplace_models = marketplaces.install(app, sys.modules[__name__])
 
+from .inventory_revision import register_inventory_revision
+
+RevisionPart, RevisionOperation = register_inventory_revision(sys.modules[__name__])
+
 
 if __name__ == "__main__":
     from waitress import serve

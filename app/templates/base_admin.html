@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='product-search.css') }}?v=20261018-1">
   <script defer src="{{ url_for('static', filename='product-search.js') }}?v=20261018-1"></script>
 </head>
-<body class="admin-theme">
+<body class="admin-theme {% block admin_body_class %}{% endblock %}">
   <header class="topbar">
     <a href="{{ url_for('home') }}" class="logo site-logo" aria-label="USAparts.top">
       <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
@@ -76,6 +76,7 @@
         <nav class="admin-nav admin-nav-main">
           <a class="nav-link {% if request.endpoint == 'admin_parts' %}is-active{% endif %}" href="{{ url_for('admin_parts') }}">Запчастини</a>
           <a class="nav-link {% if request.endpoint == 'admin_products' %}is-active{% endif %}" href="{{ url_for('admin_products') }}">Склади</a>
+          <a class="nav-link {% if request.endpoint == 'admin_inventory_revision' %}is-active{% endif %}" href="{{ url_for('admin_inventory_revision') }}">Ревізія</a>
           <a class="nav-link {% if request.endpoint in ['admin_receiving', 'admin_receiving_import'] %}is-active{% endif %}" href="{{ url_for('admin_receiving') }}">
             Прийом товару
             {% if receiving_draft_count %}

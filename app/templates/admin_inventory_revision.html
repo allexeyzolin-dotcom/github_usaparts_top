@@ -1,7 +1,7 @@
 {% extends 'base_admin.html' %}
 {% block admin_body_class %}inventory-revision-page{% if is_mobile_revision %} revision-mobile-client{% endif %}{% endblock %}
 {% block admin_content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261107-2">
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261107-3">
 <section id="inventory-revision" data-search-url="{{ url_for('inventory_revision_search') }}"
          data-save-url="{{ url_for('inventory_revision_save') }}" data-upload-url="{{ url_for('inventory_revision_photos') }}" data-token="{{ revision_token }}">
   <div class="panel-header">
@@ -98,5 +98,5 @@
   <h2 id="revision-choice-title"></h2><p id="revision-choice-text"></p>
   <div id="revision-choice-items"></div><div id="revision-choice-actions" class="revision-dialog-actions"></div>
 </dialog>
-<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261107-2"></script>
+<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261107-3"></script>
 {% endblock %}

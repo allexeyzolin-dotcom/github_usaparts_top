@@ -96,13 +96,13 @@
         { value: 'increment', label: 'Додати кількість', primary: true }, { value: 'new', label: 'Створити нову картку' }
       ]);
       if (answer.action === 'increment') openEditor(item, 'increment');
-      if (answer.action === 'new') openEditor(item, 'create', 'new_card');
+      if (answer.action === 'new') openEditor({ ...item, photo_urls: [] }, 'create', 'new_card');
     } else {
       const answer = await ask('Використати дані картки?', `${item.part_number} · ${item.name}. Фактичну кількість ви вкажете окремо.`, [
         { value: 'copy', label: 'Використати дані', primary: true }, { value: 'blank', label: 'Створити нову' }
       ]);
       if (answer.action === 'copy') openEditor(item);
-      if (answer.action === 'blank') openEditor({ part_number: item.part_number });
+      if (answer.action === 'blank') openEditor({ ...item, photo_urls: [] });
     }
   }
 

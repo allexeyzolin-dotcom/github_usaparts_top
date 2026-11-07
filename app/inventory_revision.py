@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from PIL import Image, UnidentifiedImageError
 
-from flask import jsonify, render_template, request, session, Response
+from flask import g, jsonify, render_template, request, session, Response
 from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, desc, func, or_, text, select
 from sqlalchemy.exc import IntegrityError
 
@@ -25,6 +25,8 @@ def number_key(value):
 
 
 def register_inventory_revision(site):
+    from .native_revision_auth import register_native_revision_auth
+    site.NativeRevisionSession, revision_access = register_native_revision_auth(site)
     class RevisionPart(site.Base):
         __tablename__ = "revision_parts"
         id = Column(Integer, primary_key=True)
@@ -94,6 +96,8 @@ def register_inventory_revision(site):
         return jsonify(ok=False, error=message, **extra), status
 
     def valid_token():
+        if getattr(g, "native_revision_authorized", False):
+            return True
         token = request.headers.get("X-Revision-Token", "")
         expected = session.get("revision_token", "")
         return bool(token and expected and secrets.compare_digest(token, expected))
@@ -137,8 +141,28 @@ def register_inventory_revision(site):
                                    revision_token=session["revision_token"], is_mobile_revision=mobile,
                                    revision_actor=session.get("revision_mobile_user") or "Сайт")
 
+    @site.app.route("/api/mobile/inventory-revision")
+    @revision_access
+    def native_inventory_revision_list():
+        with site.SessionLocal() as db:
+            total, units = db.query(func.count(RevisionPart.id), func.coalesce(func.sum(RevisionPart.qty), 0)).one()
+            pages = max((total + 49) // 50, 1)
+            page = min(max(request.args.get("page", 1, type=int) or 1, 1), pages)
+            rows = db.query(RevisionPart).order_by(desc(RevisionPart.verified_at), desc(RevisionPart.id)).offset((page - 1) * 50).limit(50).all()
+            return jsonify(ok=True, cards=[card(row) for row in rows], total=total, units=units, page=page, pages=pages, user_name=g.native_revision_actor)
+
+    @site.app.route("/api/mobile/inventory-revision/<int:card_id>")
+    @revision_access
+    def native_inventory_revision_card(card_id):
+        with site.SessionLocal() as db:
+            row = db.get(RevisionPart, card_id)
+            if not row:
+                return error("Картку не знайдено.", 404)
+            return jsonify(ok=True, card=card(row))
+
+    @site.app.route("/api/mobile/inventory-revision/search")
     @site.app.route("/admin/revision/search")
-    @site.admin_required
+    @revision_access
     def inventory_revision_search():
         query = request.args.get("q", "").strip()[:255]
         if len(query) < 3:
@@ -193,8 +217,9 @@ def register_inventory_revision(site):
             raise ValueError("Некоректне посилання на відео.")
         return values
 
+    @site.app.route("/api/mobile/inventory-revision/photos", methods=["POST"])
     @site.app.route("/admin/revision/photos", methods=["POST"])
-    @site.admin_required
+    @revision_access
     def inventory_revision_photos():
         if not valid_token():
             return error("Сесію оновлено. Перезавантажте сторінку.", 403)
@@ -232,8 +257,9 @@ def register_inventory_revision(site):
             urls.append(url)
         return json.dumps(urls, ensure_ascii=False)
 
+    @site.app.route("/api/mobile/inventory-revision/save", methods=["POST"])
     @site.app.route("/admin/revision/save", methods=["POST"])
-    @site.admin_required
+    @revision_access
     def inventory_revision_save():
         if not valid_token():
             return error("Сесію оновлено. Перезавантажте сторінку.", 403)
@@ -249,8 +275,8 @@ def register_inventory_revision(site):
         except (ValueError, TypeError) as exc:
             return error(str(exc))
         fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        actor = session.get("revision_mobile_user") or "Сайт"
-        via = "mobile" if session.get("revision_mobile_user") else "website"
+        actor = getattr(g, "native_revision_actor", None) or session.get("revision_mobile_user") or "Сайт"
+        via = "mobile" if getattr(g, "native_revision_authorized", False) or session.get("revision_mobile_user") else "website"
         with site.SessionLocal() as db:
             if db.get_bind().dialect.name == "postgresql":
                 # Serialize a number even before its first card exists. Concurrent
@@ -313,8 +339,9 @@ def register_inventory_revision(site):
                 raise
             return jsonify(ok=True, card=card(target))
 
+    @site.app.route("/api/mobile/inventory-revision/export")
     @site.app.route("/admin/revision/export")
-    @site.admin_required
+    @revision_access
     def inventory_revision_export():
         output = io.StringIO(newline="")
         writer = csv.writer(output, delimiter=";")

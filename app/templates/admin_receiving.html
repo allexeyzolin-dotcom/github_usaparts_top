@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_storage_location_field.html' import location_field %}
 {% block admin_content %}
 <div class="panel-header">
   <div>
@@ -33,6 +34,8 @@
       {% endfor %}
     </select>
     <div class="helper-note">Якщо вибрати <strong>Всі товари</strong>, картки оновляться в базі без прив'язки до складу. Прив'язати товар до складу можна пізніше.</div>
+    {{ location_field(required=false) }}
+    <div class="helper-note">Спільне місце лише для позицій без заповненого місця зберігання.</div>
     <button class="btn primary" {% if not draft %}disabled{% endif %}>Зберегти поточний список</button>
   </form>
 </div>
@@ -87,6 +90,7 @@
 
           <label class="field-label">Назва</label>
           <input name="title" value="{{ item.title }}">
+      {{ location_field(item.storageLocation) }}
 
           <div class="button-row">
             <div style="flex:1">

@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_storage_location_field.html' import location_field %}
 {% from '_part_seo_editor.html' import product_seo_editor with context %}
 {% block admin_content %}
 <div class="panel-header">
@@ -98,6 +99,7 @@
 
       <label class="field-label">2. Опис</label>
       <input id="create-name" name="name" placeholder="Короткий опис товару" required>
+      {{ location_field() }}
 
       <label class="field-label">3. Кількість, шт.</label>
       <input id="create-qty" type="number" min="0" name="qty" value="0" placeholder="0" required>
@@ -226,6 +228,7 @@
 
             <label class="field-label">Опис</label>
             <input name="name" value="{{ clean_text(item.name) }}" required>
+      {{ location_field(item.storageLocation) }}
 
             <label class="field-label">Кількість для вибраного складу</label>
             <input type="number" min="0" name="qty" value="{{ item.primaryQty }}">
@@ -303,6 +306,7 @@
 
             <label class="field-label">2. Опис</label>
             <input name="name" value="{{ clean_text(part.name) }}" required>
+      {{ location_field(part.storage_location) }}
 
             <label class="field-label">3. Кількість, шт.</label>
             <input type="number" min="0" name="qty" value="{{ part.qty }}" required>
@@ -726,6 +730,11 @@ function promptPrintLabels(partId, defaultQty) {
   }
 
   async function saveForm(form, force = false) {
+    if (!form.checkValidity()) {
+      const status = form.querySelector("[data-save-status]");
+      if (status) status.textContent = "Вкажіть місце на складі та заповніть обов’язкові поля.";
+      return false;
+    }
     const state = getState(form);
     if (!state.dirty && !force) return true;
     if (state.saving) {

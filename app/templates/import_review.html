@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_storage_location_field.html' import location_field %}
 {% block admin_content %}
 <div class="panel-header">
   <div>
@@ -57,6 +58,7 @@
               <div>Ціна: {{ c.after_price }}</div>
               <label class="field-label" style="margin-top:8px;display:block">Кількість</label>
               <input type="number" min="0" step="1" name="after_qty_{{ c.id }}" value="{{ c.after_qty }}">
+      {{ location_field(c.storage_location, required=c.apply_change, name='storage_location_' ~ c.id) }}
               <div class="muted" style="margin-top:8px">Опис: {{ c.after_name or '—' }}</div>
             </td>
             <td>
@@ -79,7 +81,7 @@
     </div>
 
     <div class="button-row">
-      <button class="btn danger" name="action" value="skip_all" type="submit">Скасувати імпорт</button>
+      <button class="btn danger" name="action" value="skip_all" type="submit" formnovalidate>Скасувати імпорт</button>
       <button class="btn primary" name="action" value="selected" type="submit">Прийняти зміни</button>
       <button class="btn ghost" name="action" value="all" type="submit">Прийняти всі зміни</button>
     </div>

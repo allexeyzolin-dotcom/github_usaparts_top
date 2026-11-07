@@ -76,8 +76,8 @@
     form.elements.qty.min = action === 'update' ? '0' : '1';
     const increment = action === 'increment';
     editor.dataset.mode = action;
-    form.querySelectorAll('.revision-fields > label').forEach(label => { label.hidden = increment && !label.querySelector('[name="qty"]'); });
-    form.querySelectorAll('input, textarea').forEach(element => { element.readOnly = increment && element.name !== 'qty'; });
+    form.querySelectorAll('.revision-fields > label').forEach(label => { label.hidden = increment && !label.querySelector('[name="qty"], [name="location"]'); });
+    form.querySelectorAll('input, textarea').forEach(element => { element.readOnly = increment && !['qty', 'location'].includes(element.name); });
     document.getElementById('revision-photo-files').disabled = increment;
     document.getElementById('revision-editor-title').textContent = increment ? 'Додати кількість' : action === 'update' ? 'Редагувати картку ревізії' : 'Нова картка ревізії';
     document.getElementById('revision-editor-help').textContent = increment
@@ -115,7 +115,7 @@
       const content = document.createElement('span'); content.className = 'revision-result-text';
       const code = document.createElement('strong'); code.textContent = item.part_number + ' · ' + item.name;
       const meta = document.createElement('small');
-      meta.textContent = [item.brand, item.warehouse_name, item.location, item.source === 'revision' ? `${item.qty} шт. · Додав: ${item.created_by} · Перевірена наявність` : 'Основна база · ' + (item.source === 'template' ? 'картотека' : 'склад')].filter(Boolean).join(' · ');
+      meta.textContent = [item.brand, item.warehouse_name, item.location, item.source === 'revision' ? `${item.qty} шт. · Додав: ${item.created_by} · Перевірена наявність` : 'Усі товари'].filter(Boolean).join(' · ');
       content.append(code, meta); button.append(content);
       button.addEventListener('click', () => useCard(item)); results.append(button);
     });
@@ -134,7 +134,7 @@
       if (input.value.trim() !== query) return;
       results.replaceChildren();
       renderGroup('Уже перевірені товари — база ревізії', data.revision);
-      renderGroup('Картки з основної бази', data.catalog);
+      renderGroup('Усі товари', data.catalog);
       results.hidden = !data.revision.length && !data.catalog.length;
       searchStatus.textContent = results.hidden ? 'Збігів немає. Натисніть «Створити картку», щоб додати товар вручну.' : 'Оберіть картку або створіть нову. Основна база використовується для підказок.';
     } catch (err) { if (err.name !== 'AbortError') searchStatus.textContent = err.message; }

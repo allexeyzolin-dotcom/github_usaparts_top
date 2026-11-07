@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_storage_location_field.html' import location_field %}
 {% block admin_content %}
 <div class="panel-header">
   <div>
@@ -45,6 +46,7 @@
 
       <label class="field-label">Опис товару</label>
       <input name="title" data-role="title" value="{{ transit_form['title'] }}" placeholder="Короткий опис запчастини">
+      {{ location_field() }}
 
       <label class="field-label">Службова інформація</label>
       <textarea name="service_info" data-role="service-info" placeholder="Внутрішні нотатки або розширений опис">{{ transit_form['serviceInfo'] }}</textarea>
@@ -111,7 +113,7 @@
       {% endif %}
 
       <div class="helper-note">Статус після збереження: <strong>В дорозі</strong>.</div>
-      <button class="btn primary" type="submit">
+      <button class="btn primary" type="submit" formnovalidate>
         {% if transit_draft_items %}
         Зберегти список товарів в дорозі ({{ transit_draft_items|length }})
         {% else %}
@@ -232,6 +234,7 @@
                         <form id="arrive-transit-form-{{ order.id }}" method="post" action="{{ url_for('admin_transit_arrive', order_id=order.id) }}">
                           <input type="hidden" name="label_qty" value="{{ order.qty }}">
                           <input type="hidden" name="print_labels" value="0">
+      {{ location_field(order.storageLocation) }}
                           <button
                             class="btn {% if order.acceptedQty > 0 %}primary{% else %}ghost{% endif %} small"
                             type="button"
@@ -285,6 +288,7 @@
 
                       <label class="field-label">Опис товару</label>
                       <input name="title" data-role="title" value="{{ order.title }}" required>
+      {{ location_field(order.storageLocation) }}
 
                       <label class="field-label">Службова інформація</label>
                       <textarea name="service_info" data-role="service-info">{{ order.serviceInfo }}</textarea>

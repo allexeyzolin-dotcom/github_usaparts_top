@@ -39,6 +39,10 @@ class InventoryRevisionTests(unittest.TestCase):
                 site.Part(id=2, warehouse_id=1, part_number="DELETED-123", name="Видалений", is_deleted=True),
                 site.PartTemplate(id=1, part_number="TEMPLATE-123", name="Картка без складу", brand="BMW",
                                   cross_numbers_json='["CROSS-111"]'),
+                site.PartTemplate(id=2, part_number="06G-127-028H", name="Паливний насос", brand="VAG",
+                                  barcode="12345678", price_usd=20, storage_location="A-12",
+                                  description="Опис оригіналу", photo_urls='["/uploads/original.png"]',
+                                  showcase_photo_urls='["https://example.test/gallery.jpg"]'),
             ])
         Image.new("RGB", (4, 4), "blue").save(Path(self.temp.name) / "original.png")
 
@@ -55,7 +59,7 @@ class InventoryRevisionTests(unittest.TestCase):
 
     def save(self, payload=None, **changes):
         data = {"action": "create", "request_id": str(uuid4()), "part_number": "REV-001", "name": "Перевірена деталь",
-                "qty": "2", "price_usd": "12.50", "photo_urls": [], "producer_type": "OEM"}
+                "qty": "2", "price_usd": "12.50", "photo_urls": [], "producer_type": "OEM", "location": "A-12"}
         data.update(payload or {})
         data.update(changes)
         return self.client.post("/admin/revision/save", json=data, headers={"X-Revision-Token": "revision-test-token"})
@@ -91,8 +95,10 @@ class InventoryRevisionTests(unittest.TestCase):
         self.assertEqual(self.client.get("/admin/revision/search?q=06").json["catalog"], [])
         source = self.client.get("/admin/revision/search?q=06g127").json["catalog"][0]
         self.assertEqual(source["part_number"], "06G-127-028H")
-        self.assertEqual(source["qty"], 40)
-        self.assertEqual(source["warehouse_name"], "Головний склад")
+        self.assertEqual(source["qty"], 0)
+        self.assertEqual(source["source"], "template")
+        self.assertEqual(source["warehouse_name"], "")
+        self.assertEqual(source["location"], "A-12")
         self.assertEqual(len(source["photo_urls"]), 2)
         self.assertEqual(self.client.get("/admin/revision/search?q=DELETED").json["catalog"], [])
         template = self.client.get("/admin/revision/search?q=template").json["catalog"][0]
@@ -114,11 +120,12 @@ class InventoryRevisionTests(unittest.TestCase):
         with self.sessions.begin() as db:
             db.delete(db.get(site.Warehouse, 1))
             db.delete(db.get(site.PartTemplate, 1))
+            db.delete(db.get(site.PartTemplate, 2))
         (Path(self.temp.name) / "original.png").unlink()
         with self.sessions() as db:
             independent = db.get(site.RevisionPart, saved["id"])
             self.assertEqual(independent.qty, 3)
-            self.assertEqual(independent.warehouse_name, "Головний склад")
+            self.assertEqual(independent.warehouse_name, "")
             self.assertEqual(independent.name, "Паливний насос")
         self.assertTrue((Path(self.temp.name) / Path(local_photo).name).is_file())
         self.assertEqual(self.client.get("/admin/revision").status_code, 200)
@@ -171,7 +178,7 @@ class InventoryRevisionTests(unittest.TestCase):
         for changes in ({"qty": "-1"}, {"qty": "0"}, {"qty": "1.5"}, {"qty": True}, {"qty": "2147483648"},
                         {"price_usd": "NaN"}, {"price_usd": "Infinity"}, {"price_usd": "-1"}, {"price_usd": "1.001"},
                         {"name": ""}, {"part_number": "---"}, {"part_number": "A" * 256}, {"name": ["bad"]},
-                        {"photo_urls": "bad"}, {"photo_urls": [None]}, {"youtube_url": "javascript:alert(1)"}):
+                        {"photo_urls": "bad"}, {"photo_urls": [None]}, {"youtube_url": "javascript:alert(1)"}, {"location": " "}):
             with self.subTest(changes=changes):
                 self.assertEqual(self.save(**changes).status_code, 400)
         with self.sessions() as db:

@@ -142,6 +142,7 @@ class Part(Base):
     __tablename__ = "parts"
     id = Column(Integer, primary_key=True)
     warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=False)
+    storage_location = Column(String(255), nullable=False, default="")
     part_number = Column(String(255), nullable=False, index=True)
     barcode = Column(String(8), nullable=False, default="", index=True)
     brand = Column(String(255), nullable=False, default="")
@@ -177,6 +178,7 @@ class Part(Base):
 
 class PartTemplate(Base):
     __tablename__ = "part_templates"
+    storage_location = Column(String(255), nullable=False, default="")
     id = Column(Integer, primary_key=True)
     part_number = Column(String(255), nullable=False, unique=True, index=True)
     cross_numbers_json = Column(Text, nullable=False, default="[]")
@@ -207,6 +209,7 @@ class PartSearchProfile(Base):
 
 class TransitOrder(Base):
     __tablename__ = "transit_orders"
+    storage_location = Column(String(255), nullable=False, default="")
     id = Column(Integer, primary_key=True)
     batch_id = Column(String(64), nullable=False, default="")
     part_template_id = Column(Integer, ForeignKey("part_templates.id"), nullable=True)
@@ -380,6 +383,7 @@ class ProductReview(Base):
 
 class ReceivingDraftItem(Base):
     __tablename__ = "receiving_draft_items"
+    storage_location = Column(String(255), nullable=False, default="")
     id = Column(Integer, primary_key=True)
     warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
     part_number = Column(String(255), nullable=False, index=True)
@@ -1374,6 +1378,7 @@ def sync_template_from_part(db, part: Part, prefer_part_values: bool = False):
             "youtube_url": merge_master_value(existing_template.youtube_url, payload["youtube_url"]),
         }
 
+    payload["storage_location"] = part.storage_location or (existing_template.storage_location if existing_template else "")
     template, _ = upsert_part_template(db, part.part_number, payload)
     if part.barcode and not template.barcode:
         template.barcode = part.barcode
@@ -1503,6 +1508,7 @@ def build_all_goods_cards(db, query_text: str = ""):
         cards.append(
             {
                 "partNumber": part_number,
+                "storageLocation": (template.storage_location if template else exemplar.storage_location if exemplar else ""),
                 "templateId": template.id if template else None,
                 "name": name or part_number,
                 "description": description,
@@ -2495,6 +2501,7 @@ def serialize_transit_order(db, order: TransitOrder):
 
     return {
         "id": order.id,
+        "storageLocation": order.storage_location,
         "batchId": normalize_text(order.batch_id or "").strip(),
         "partNumber": normalize_text(order.part_number or ""),
         "barcode": normalize_text(order.barcode or ""),
@@ -2753,6 +2760,7 @@ def get_transit_draft_items():
             {
                 "draftId": draft_id,
                 "partNumber": part_number,
+                "storageLocation": normalize_text(raw.get("storageLocation") or "").strip(),
                 "title": title,
                 "serviceInfo": normalize_text(raw.get("serviceInfo") or "").strip(),
                 "priceUsd": float(raw.get("priceUsd") or 0),
@@ -2889,6 +2897,7 @@ def prepare_transit_item_input(
 
     return {
         "partNumber": part_number,
+        "storageLocation": request_location(),
         "title": title,
         "serviceInfo": service_info,
         "priceUsd": float(price_usd or 0),
@@ -2946,6 +2955,7 @@ def persist_transit_order(db, item: dict, short_description: str, full_descripti
         part_template_id=template_id,
         linked_part_id=linked_part_id,
         part_number=part_number,
+        storage_location=clean_location(item.get("storageLocation") or request_location()),
         barcode=barcode or "",
         title=title,
         service_info=service_info,
@@ -2968,6 +2978,8 @@ def apply_transit_arrival_to_part(db, order: TransitOrder):
     part_number = normalize_text(order.part_number or "").strip().upper()
     if accepted_qty <= 0 or not part_number:
         return None, 0
+
+    order.storage_location = clean_location(request_location() or order.storage_location)
 
     target_part = db.get(Part, order.linked_part_id) if order.linked_part_id else None
     if target_part and normalize_text(target_part.part_number or "").strip().upper() != part_number:
@@ -2995,6 +3007,7 @@ def apply_transit_arrival_to_part(db, order: TransitOrder):
             target_part.barcode = normalize_text(order.barcode).strip()
         target_part.has_photo = bool(primary_part_photo(target_part))
         target_part.has_description = bool((target_part.description or "").strip())
+        target_part.storage_location = clean_location(order.storage_location)
         target_part.updated_at = now()
         ensure_part_barcode(db, target_part)
         sync_template_from_part(db, target_part)
@@ -3042,6 +3055,7 @@ def apply_transit_arrival_to_part(db, order: TransitOrder):
         target_template.barcode = normalize_text(order.barcode).strip()
     target_template.has_photo = bool(primary_template_photo(target_template))
     target_template.has_description = bool((target_template.description or "").strip())
+    target_template.storage_location = clean_location(order.storage_location)
     target_template.updated_at = now()
     ensure_template_barcode(db, target_template)
     order.part_template_id = target_template.id
@@ -4501,6 +4515,8 @@ def upsert_part_template(db, part_number: str, payload: dict | None = None):
 
     payload = payload or {}
     template.part_number = normalized
+    if "storage_location" in payload:
+        template.storage_location = clean_location(payload["storage_location"], required=False)
     if "brand" in payload:
         template.brand = normalize_text(payload.get("brand") or "").strip()
     if "producer_type" in payload:
@@ -4892,6 +4908,7 @@ def serialize_receiving_item(db, item: ReceivingDraftItem):
         "warehouseName": warehouse.name if warehouse else "Без складу",
         "barcode": item.barcode or "",
         "partNumber": item.part_number,
+        "storageLocation": item.storage_location,
         "title": item.title,
         "qty": int(item.qty or 0),
         "priceUsd": float(item.price_usd or 0),
@@ -4990,6 +5007,7 @@ def upsert_template_from_receiving_item(db, item: ReceivingDraftItem, add_unassi
     if add_unassigned_qty:
         payload["unassigned_qty"] = template_unassigned_qty(existing_template) + int(item.qty or 0)
 
+    payload["storage_location"] = item.storage_location
     template, created = upsert_part_template(db, part_number, payload)
     if item.barcode and not template.barcode:
         template.barcode = item.barcode
@@ -4998,7 +5016,14 @@ def upsert_template_from_receiving_item(db, item: ReceivingDraftItem, add_unassi
     return template, created
 
 
-def import_receiving_items(db, items, warehouse_id: int | None):
+def import_receiving_items(db, items, warehouse_id: int | None, default_location=""):
+    items = list(items)
+    # Validate every row before changing stock, so a missing position is atomic.
+    for item in items:
+        try:
+            item.storage_location = clean_location(item.storage_location or default_location)
+        except ValueError:
+            raise ValueError(f"Вкажіть місце на складі для товару {item.part_number}.") from None
     warehouse = db.get(Warehouse, warehouse_id) if warehouse_id else None
     if warehouse_id and not warehouse:
         raise ValueError("warehouse_not_found")
@@ -5037,6 +5062,8 @@ def import_receiving_items(db, items, warehouse_id: int | None):
         )
         before_part_qty = 0 if not existing or existing.is_deleted else int(existing.qty or 0)
         if existing:
+            existing.storage_location = item.storage_location
+        if existing:
             if item.barcode and not existing.barcode:
                 existing.barcode = item.barcode
             ensure_part_barcode(db, existing)
@@ -5056,6 +5083,7 @@ def import_receiving_items(db, items, warehouse_id: int | None):
         else:
             new_part = Part(
                 warehouse_id=warehouse_id,
+                storage_location=item.storage_location,
                 part_number=part_number,
                 barcode=(template.barcode or item.barcode or "").strip(),
                 brand=normalize_text(template.brand or "").strip(),
@@ -8358,6 +8386,7 @@ def parse_avtopro_csv(file_storage):
         return re.sub(r"[^a-zа-я0-9]+", "", text)
 
     header_aliases = {
+        "storage_location": {"storage_location", "storageLocation", "location", "bin", "shelf", "місце на складі", "місце зберігання", "знаходження на складі", "знаходження", "розташування", "полиця", "комірка", "ячейка", "местонахождение", "место на складе"},
         "brand": {
             "производитель", "виробник", "бренд", "марка", "brand", "manufacturer", "producer",
         },
@@ -8433,6 +8462,7 @@ def parse_avtopro_csv(file_storage):
         return {
             "brand": brand,
             "part_number": part_number,
+            "storage_location": mapped_value(row, header_map, "storage_location"),
             "name": name,
             "price_usd": price_usd,
             "qty": qty,
@@ -8671,6 +8701,8 @@ def import_payload_inventory_differs_from_part(part: Part | None, payload: dict)
 def import_payload_card_differs_from_part(part: Part | None, payload: dict) -> bool:
     if not part or part.is_deleted:
         return True
+    if payload.get("storage_location") and payload["storage_location"] != part.storage_location:
+        return True
     if not import_same_text(part.name, payload.get("name")):
         return True
     return False
@@ -8691,6 +8723,8 @@ def wait_for_db(max_attempts=30, delay=2):
 
 def seed_if_empty():
     Base.metadata.create_all(engine)
+    migrate_storage_locations(engine)
+    index_existing_storage_locations()
     with engine.begin() as conn:
         try:
             conn.exec_driver_sql("ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'new'")
@@ -11793,6 +11827,7 @@ def admin_part_prefill():
                 "part": {
                     "id": part.id,
                     "partNumber": part.part_number or "",
+                    "storageLocation": part.storage_location,
                     "brand": part.brand or "",
                     "producerType": part.producer_type or "OEM",
                     "name": part.name or "",
@@ -11829,6 +11864,7 @@ def admin_part_prefill():
             "part": {
                 "id": None,
                 "partNumber": template.part_number or "",
+                "storageLocation": template.storage_location,
                 "crossNumber": part_number if cross_match else "",
                 "brand": template.brand or "",
                 "producerType": template.producer_type or "OEM",
@@ -13500,7 +13536,7 @@ def admin_receiving_import():
             flash("Чернетка прийому товару порожня.", "error")
             return redirect(url_for("admin_receiving", warehouse_id=source_scope))
 
-        imported, updated, warehouse, template_created, template_updated = import_receiving_items(db, items, warehouse_id)
+        imported, updated, warehouse, template_created, template_updated = import_receiving_items(db, items, warehouse_id, default_location=request.form.get("storage_location", ""))
         for item in items:
             db.delete(item)
         db.commit()
@@ -13517,8 +13553,9 @@ def admin_receiving_import():
             "success",
         )
         return redirect(url_for("admin_receiving", warehouse_id="all"))
-    except ValueError:
-        flash("Склад не знайдено.", "error")
+    except ValueError as exc:
+        db.rollback()
+        flash(str(exc), "error")
         return redirect(url_for("admin_receiving"))
     finally:
         db.close()
@@ -13989,6 +14026,7 @@ def import_preview():
             flash("РЎРєР»Р°Рґ РЅРµ Р·РЅР°Р№РґРµРЅРѕ", "error")
             return redirect(url_for("admin_products"))
         rows = parse_avtopro_csv(file)
+        rows = prepare_import_locations(db, rows, request.form.get("storage_location", ""))
         session_row = ImportSession(warehouse_id=warehouse_id, file_name=file.filename or "import.csv", created_at=now())
         db.add(session_row)
         db.commit()
@@ -14047,7 +14085,7 @@ def import_preview():
         session_row.same_rows = same_rows
         flash_news(db, "import", "Сформовано preview імпорту", f"{warehouse.name}: нових {new_rows}, розбіжностей {changed_rows}, змінених описів {description_rows}.", "info")
         db.commit()
-        return redirect(url_for("import_review", session_id=session_row.id))
+        return redirect(url_for("import_review", session_id=session_row.id, only="all"))
     except Exception as e:
         db.rollback()
         flash(f"РџРѕРјРёР»РєР° РїРѕСЂС–РІРЅСЏРЅРЅСЏ С–РјРїРѕСЂС‚Сѓ: {e}", "error")
@@ -14095,6 +14133,7 @@ def import_review(session_id):
             part = existing_parts.get(normalize_text(change.part_number or "").strip().upper())
             change.before_name = normalize_text(part.name if part else "").strip()
             change.after_name = normalize_text(payload.get("name") or "").strip()
+            change.storage_location = payload.get("storage_location") or (part.storage_location if part else "")
         all_changes = db.query(ImportChange).filter(ImportChange.import_session_id == session_id).all()
         summary = {
             "all": len(all_changes),
@@ -14202,6 +14241,12 @@ def confirm_import(session_id):
                 c.after_qty = qty_value
                 c.after_stock = qty_value > 0
                 payload = json.loads(c.payload_json)
+                new_location = request_location_for(c.part_number)
+                if action != "skip_all" and new_location and new_location != payload.get("storage_location", ""):
+                    c.apply_change = True
+                    if c.change_type == "same":
+                        c.change_type = "description"
+                payload["storage_location"] = request_location_for(c.part_number) or payload.get("storage_location", "")
                 payload["qty"] = qty_value
                 payload["in_stock"] = qty_value > 0
                 c.payload_json = json.dumps(payload, ensure_ascii=False)
@@ -14217,6 +14262,7 @@ def confirm_import(session_id):
             if not c.apply_change:
                 continue
             payload = json.loads(c.payload_json)
+            payload["storage_location"] = request_location_for(c.part_number) or payload.get("storage_location", "")
             part = db.query(Part).filter(Part.warehouse_id == session_row.warehouse_id, Part.part_number == c.part_number).one_or_none()
             if part:
                 part.is_deleted = False
@@ -14803,8 +14849,9 @@ def api_mobile_receiving_import():
             "templateCreated": template_created,
             "templateUpdated": template_updated,
         })
-    except ValueError:
-        return jsonify({"error": "warehouse_not_found"}), 404
+    except ValueError as exc:
+        db.rollback()
+        return jsonify({"error": "storage_location_required", "message": str(exc)}), 400
     finally:
         db.close()
 
@@ -15670,6 +15717,9 @@ marketplace_models = marketplaces.install(app, sys.modules[__name__])
 from .inventory_revision import register_inventory_revision
 
 RevisionPart, RevisionOperation = register_inventory_revision(sys.modules[__name__])
+
+from .storage_locations import register_storage_locations, migrate_storage_locations, request_location, request_location_for, clean_location
+StorageLocation = register_storage_locations(sys.modules[__name__])
 
 
 if __name__ == "__main__":

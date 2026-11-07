@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_storage_location_field.html' import location_field %}
 {% block admin_content %}
 <div class="container narrow">
   {% if show_resume_prompt %}
@@ -60,6 +61,7 @@
 
       <label class="field-label">Фактична кількість</label>
       <input type="number" min="0" name="qty" value="{{ part.qty }}">
+      {{ location_field(part.storage_location) }}
 
       <label class="field-label">Додати або замінити фото</label>
       <input type="file" name="photo" accept="image/*" capture="environment">

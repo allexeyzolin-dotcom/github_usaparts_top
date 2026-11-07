@@ -1,0 +1,7 @@
+{% macro location_field(value='', required=true, name='storage_location') -%}
+<label class="storage-location-field">
+  <span class="field-label">Місце на складі{% if required %} *{% endif %}</span>
+  <input name="{{ name }}" value="{{ value or '' }}" maxlength="255" data-storage-location autocomplete="off" {% if required %}required{% endif %} placeholder="Наприклад: A-12 / полиця 3">
+  <small>Впишіть місце або виберіть зі списку після 3 символів.</small>
+</label>
+{%- endmacro %}

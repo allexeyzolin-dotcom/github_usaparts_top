@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from PIL import Image, UnidentifiedImageError
 
 from flask import jsonify, render_template, request, session, Response
-from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, desc, func, or_, text
+from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, desc, func, or_, text, select
 from sqlalchemy.exc import IntegrityError
 
 
@@ -77,7 +77,7 @@ def register_inventory_revision(site):
             "producer_type": row.producer_type, "description": row.description,
             "price_usd": str(row.price_usd or 0), "qty": int(getattr(row, "qty", 0) or 0),
             "warehouse_name": getattr(row, "warehouse_name", warehouse),
-            "location": getattr(row, "location", ""), "photo_urls": gallery,
+            "location": getattr(row, "location", getattr(row, "storage_location", "")), "photo_urls": gallery,
             "youtube_url": row.youtube_url,
             "cross_numbers": (row.cross_numbers if source == "revision" else
                               "\n".join(site.template_cross_numbers(row)) if source == "template" else ""),
@@ -146,12 +146,16 @@ def register_inventory_revision(site):
         with site.SessionLocal() as db:
             revision = db.query(RevisionPart).filter(or_(matches(RevisionPart.part_number, query),
                                                        RevisionPart.barcode == query)).order_by(RevisionPart.id).limit(20).all()
-            parts = db.query(site.Part).filter(site.Part.is_deleted.is_(False),
-                or_(matches(site.Part.part_number, query), site.Part.barcode == query)).order_by(site.Part.part_number, site.Part.id).limit(15).all()
             templates = db.query(site.PartTemplate).filter(or_(matches(site.PartTemplate.part_number, query),
-                site.PartTemplate.barcode == query)).order_by(site.PartTemplate.part_number, site.PartTemplate.id).limit(15).all()
-            catalog = [card(row, "part") for row in parts] + [card(row, "template") for row in templates]
-            # A warehouse card can contain distinct photos/notes, so keep each selectable.
+                site.PartTemplate.barcode == query)).order_by(site.PartTemplate.part_number, site.PartTemplate.id).limit(25).all()
+            catalog = [card(row, "template") for row in templates]
+            # The "all products" view also contains legacy articles that have no
+            # master card yet. Use one representative per article, never per warehouse.
+            has_master = db.query(site.PartTemplate.id).filter(func.upper(site.PartTemplate.part_number) == func.upper(site.Part.part_number)).exists()
+            legacy_ids = db.query(func.min(site.Part.id)).filter(site.Part.is_deleted.is_(False), ~has_master,
+                or_(matches(site.Part.part_number, query), site.Part.barcode == query)).group_by(func.upper(site.Part.part_number)).limit(25).subquery()
+            legacy = db.query(site.Part).filter(site.Part.id.in_(select(legacy_ids.c[0]))).all()
+            catalog += [card(row, "catalog") for row in legacy]
             catalog.sort(key=lambda item: (number_key(item["part_number"]) != number_key(query), item["part_number"]))
             return jsonify(ok=True, revision=[card(row) for row in revision], catalog=catalog[:25])
 
@@ -166,6 +170,8 @@ def register_inventory_revision(site):
             values[field] = value.strip()
         values["part_number"] = unicodedata.normalize("NFKC", values["part_number"]).upper()
         values["part_key"] = number_key(values["part_number"])
+        from .storage_locations import clean_location
+        values["location"] = clean_location(values["location"])
         if not values["part_key"] or not values["name"] or len(values["part_number"]) > 255:
             raise ValueError("Вкажіть номер та назву товару.")
         qty = str(payload.get("qty", ""))
@@ -278,6 +284,7 @@ def register_inventory_revision(site):
                 if target.qty + values["qty"] > 2147483647:
                     return error("Завелика кількість товару.")
                 target.qty += values["qty"]
+                target.location = values["location"]
             else:
                 if target is None:
                     target = RevisionPart()

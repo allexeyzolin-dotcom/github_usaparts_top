@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_storage_location_field.html' import location_field %}
 {% block admin_content %}
 <div class="panel-header">
   <div>
@@ -69,6 +70,7 @@
         {% endfor %}
       </select>
       <input type="file" name="file" accept=".csv,.xlsx,.xlsm" required>
+      {{ location_field(required=false) }}<div class="helper-note">Спільне місце для рядків без колонки «Місце на складі». Окремі місця можна вказати у попередньому перегляді.</div>
       <button class="btn primary" type="submit">Завантажити файл</button>
     </form>
   </section>

@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_storage_location_field.html' import location_field %}
 {% from '_part_seo_editor.html' import product_seo_editor with context %}
 {% block admin_content %}
 <div class="panel-header">
@@ -62,6 +63,7 @@
         <option value="Аналог">Аналог</option>
       </select>
       <input id="create-name" name="name" placeholder="Назва товару" required>
+      {{ location_field() }}
     </div>
 
     <textarea id="create-description" name="description" placeholder="Службовий опис для кабінету"></textarea>
@@ -199,6 +201,7 @@
 
                   <div class="warehouse-inline-grid">
                     <input name="name" value="{{ p.name }}" placeholder="Назва">
+      {{ location_field(p.storage_location) }}
                     <input name="brand" value="{{ p.brand }}" placeholder="Бренд">
                     <select name="producer_type">
                       <option value="OEM" {% if p.producer_type == 'OEM' %}selected{% endif %}>OEM</option>

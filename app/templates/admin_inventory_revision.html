@@ -1,7 +1,7 @@
 {% extends 'base_admin.html' %}
 {% block admin_body_class %}inventory-revision-page{% if is_mobile_revision %} revision-mobile-client{% endif %}{% endblock %}
 {% block admin_content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261107-3">
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261110-1">
 <section id="inventory-revision" data-search-url="{{ url_for('inventory_revision_search') }}"
          data-save-url="{{ url_for('inventory_revision_save') }}" data-upload-url="{{ url_for('inventory_revision_photos') }}" data-token="{{ revision_token }}">
   <div class="panel-header">
@@ -46,11 +46,17 @@
         <div class="muted">{{ item.brand }}{% if item.brand %} · {% endif %}{{ item.producer_type }} · ${{ item.price_usd }}</div>
         {% if item.warehouse_name or item.location %}<div class="muted">{{ item.warehouse_name }}{% if item.warehouse_name and item.location %} / {% endif %}{{ item.location }}</div>{% endif %}
         <div class="helper-note">Картка #{{ item.id }} · Перевірено {{ item.verified_label }}</div>
+        {% if item.barcode %}<div class="helper-note">Штрихкод: {{ item.barcode }}</div>{% endif %}
       </div>
       <div class="revision-card-actions">
         <strong class="revision-qty">{{ item.qty }} <small>шт.</small></strong>
         <button type="button" class="btn primary small" data-revision-add="{{ loop.index0 }}">Додати кількість</button>
         <button type="button" class="btn ghost small" data-revision-edit="{{ loop.index0 }}">Редагувати</button>
+        <form class="revision-print-form" method="post" action="{{ url_for('inventory_revision_print_labels', card_id=item.id) }}" target="_blank" rel="noopener" data-default-qty="{{ item.qty }}">
+          <input type="hidden" name="revision_token" value="{{ revision_token }}">
+          <input type="hidden" name="label_qty" value="1">
+          <button type="submit" class="btn ghost small">Друк етикетки</button>
+        </form>
       </div>
     </article>
     {% else %}
@@ -78,7 +84,7 @@
       <label>Бренд<input name="brand" maxlength="255"></label>
       <label>Тип виробника<input name="producer_type" maxlength="32" value="OEM" list="revision-producer-types"></label>
       <label>Ціна, USD<input name="price_usd" type="number" min="0" max="9999999999.99" step="0.01" value="0" required></label>
-      <label>Штрихкод<input name="barcode" maxlength="255"></label>
+      <label>Штрихкод<input name="barcode" maxlength="255" placeholder="Автоматично при збереженні"><span class="helper-note">Якщо поле порожнє, штрихкод присвоїться автоматично.</span></label>
       <label>Склад (назва)<input name="warehouse_name" maxlength="255"></label>
       <label>Місце на складі *<input name="location" maxlength="255" data-storage-location required autocomplete="off"></label>
       <label class="revision-wide">Опис / примітка<textarea name="description" maxlength="20000" rows="3"></textarea></label>
@@ -98,5 +104,5 @@
   <h2 id="revision-choice-title"></h2><p id="revision-choice-text"></p>
   <div id="revision-choice-items"></div><div id="revision-choice-actions" class="revision-dialog-actions"></div>
 </dialog>
-<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261107-3"></script>
+<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261110-1"></script>
 {% endblock %}

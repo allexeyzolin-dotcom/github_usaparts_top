@@ -95,12 +95,49 @@ def register_inventory_revision(site):
     def error(message, status=400, **extra):
         return jsonify(ok=False, error=message, **extra), status
 
-    def valid_token():
+    def valid_token(allow_form=False):
         if getattr(g, "native_revision_authorized", False):
             return True
-        token = request.headers.get("X-Revision-Token", "")
+        token = request.headers.get("X-Revision-Token", "") or (request.form.get("revision_token", "") if allow_form else "")
         expected = session.get("revision_token", "")
         return bool(token and expected and secrets.compare_digest(token, expected))
+
+    def ensure_barcode(db, row):
+        if (row.barcode or "").strip():
+            return
+        db.flush()
+        if db.get_bind().dialect.name == "postgresql":
+            # Serialize allocation across different articles and legacy print requests.
+            db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": 726576660001})
+        models = (RevisionPart, site.Part, site.PartTemplate, site.ReceivingDraftItem, site.TransitOrder)
+        # Revision labels have their own EAN-8 range, separate from stock and transit.
+        for offset in range(2_000_000):
+            value = site.barcode_from_numeric_id(8_000_000 + (row.id + offset) % 2_000_000)
+            if not any(db.query(model.id).filter(model.barcode == value).first() for model in models):
+                row.barcode = value
+                return
+        raise RuntimeError("Вичерпано діапазон штрихкодів ревізії.")
+
+    @site.app.route("/admin/revision/<int:card_id>/labels", methods=["POST"])
+    @site.admin_required
+    def inventory_revision_print_labels(card_id):
+        if not valid_token(allow_form=True):
+            return error("Сесію оновлено. Перезавантажте сторінку.", 403)
+        raw_qty = request.form.get("label_qty", "").strip()
+        if not re.fullmatch(r"[0-9]{1,4}", raw_qty) or not 1 <= int(raw_qty) <= 1000:
+            return error("Вкажіть цілу кількість етикеток від 1 до 1000.")
+        with site.SessionLocal() as db:
+            row = db.query(RevisionPart).filter_by(id=card_id).with_for_update().first()
+            if not row:
+                return error("Картку ревізії не знайдено.", 404)
+            ensure_barcode(db, row)
+            label = site.build_print_label(headline=row.part_number, title=row.name,
+                                          description=row.description, barcode=row.barcode,
+                                          context=row.warehouse_name)
+            db.commit()
+            response = site.app.make_response(render_template("print_labels.html", labels=[label] * int(raw_qty)))
+            response.headers["Cache-Control"] = "no-store"
+            return response
 
     def matches(column, query):
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -320,6 +357,8 @@ def register_inventory_revision(site):
                     previous_qty = 0
                 else:
                     previous_qty = target.qty
+                    # An empty field must not invalidate previously printed labels.
+                    values["barcode"] = values["barcode"] or target.barcode
                 values["photo_urls"] = independent_photos(values["photo_urls"])
                 for field, value in values.items():
                     setattr(target, field, value)
@@ -327,6 +366,7 @@ def register_inventory_revision(site):
             target.updated_by = actor
             target.version = (target.version or 0) + 1
             db.flush()
+            ensure_barcode(db, target)
             db.add(RevisionOperation(request_id=request_id, request_hash=fingerprint, part_id=target.id,
                                      actor=actor, action=action, qty_delta=target.qty - previous_qty, qty_after=target.qty))
             try:

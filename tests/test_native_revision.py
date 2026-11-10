@@ -79,6 +79,8 @@ class NativeRevisionTests(unittest.TestCase):
         saved = self.save(headers).json["card"]
         self.assertEqual(saved["created_by"], "Комірник Андрій")
         self.assertEqual(saved["created_via"], "mobile")
+        self.assertRegex(saved["barcode"], r"^[89][0-9]{7}$")
+        self.assertEqual(saved["barcode"][-1], site.ean8_check_digit(saved["barcode"][:7]))
         self.login_web()
         page = self.client.get("/admin/revision")
         self.assertIn("Нативна деталь", page.text)
@@ -90,6 +92,7 @@ class NativeRevisionTests(unittest.TestCase):
         self.assertEqual((fresh["name"], fresh["qty"], fresh["location"]), ("Змінено через сайт", 7, "B-22"))
         self.assertEqual(fresh["created_by"], "Комірник Андрій")
         self.assertEqual(fresh["updated_by"], "Сайт")
+        self.assertEqual(fresh["barcode"], saved["barcode"])
         # And in the opposite direction: the website sees native edits.
         changed = self.save(headers, **{**fresh, "action": "update", "target_id": fresh["id"], "name": "Змінено в додатку"})
         self.assertEqual(changed.status_code, 200, changed.json)

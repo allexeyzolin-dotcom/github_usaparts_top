@@ -80,6 +80,93 @@ class InventoryRevisionTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(db.query(site.RevisionPart).count(), 0)
 
+    def test_new_barcodes_are_unique_searchable_and_stable_on_retry_and_edit(self):
+        self.login()
+        before = self.snapshot_main()
+        operation = {"request_id": str(uuid4())}
+        first = self.save(operation).json["card"]
+        barcode = first["barcode"]
+        self.assertRegex(barcode, r"^[89][0-9]{7}$")
+        self.assertEqual(barcode[-1], site.ean8_check_digit(barcode[:7]))
+        self.assertEqual(self.save(operation).json["card"]["barcode"], barcode)
+        second = self.save(part_number="REV-002").json["card"]
+        self.assertNotEqual(second["barcode"], barcode)
+        matches = self.client.get("/admin/revision/search", query_string={"q": barcode}).json["revision"]
+        self.assertEqual([row["id"] for row in matches], [first["id"]])
+        changed = self.save(action="update", target_id=first["id"], version=first["version"], barcode="").json["card"]
+        self.assertEqual(changed["barcode"], barcode)
+        increased = self.save(action="increment", target_id=first["id"]).json["card"]
+        self.assertEqual(increased["barcode"], barcode)
+        self.assertEqual(before, self.snapshot_main())
+
+    def test_generated_barcode_skips_existing_catalog_and_revision_codes(self):
+        self.login()
+        with self.sessions.begin() as db:
+            db.get(site.Part, 1).barcode = site.barcode_from_numeric_id(8_000_001)
+            db.get(site.PartTemplate, 1).barcode = site.barcode_from_numeric_id(8_000_002)
+        first = self.save().json["card"]
+        second = self.save(part_number="REV-002").json["card"]
+        self.assertEqual(first["barcode"], site.barcode_from_numeric_id(8_000_003))
+        self.assertEqual(second["barcode"], site.barcode_from_numeric_id(8_000_004))
+        supplied = self.save(part_number="EXISTING", barcode="12345678").json["card"]
+        self.assertEqual(supplied["barcode"], "12345678")
+
+    def test_print_labels_requires_login_token_and_a_bounded_integer_quantity(self):
+        url = "/admin/revision/1/labels"
+        self.assertEqual(self.client.post(url, data={"label_qty": "1"}).status_code, 302)
+        self.login()
+        saved = self.save().json["card"]
+        url = f"/admin/revision/{saved['id']}/labels"
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.assertEqual(self.client.post(url, data={"label_qty": "1"}).status_code, 403)
+        for qty in ("", "0", "-1", "1.5", "abc", "1e2", "1001", "999999999999"):
+            with self.subTest(qty=qty):
+                result = self.client.post(url, data={"revision_token": "revision-test-token", "label_qty": qty})
+                self.assertEqual(result.status_code, 400)
+        missing = self.client.post("/admin/revision/999999/labels", data={"revision_token": "revision-test-token", "label_qty": "1"})
+        self.assertEqual(missing.status_code, 404)
+
+    def test_print_labels_renders_requested_copies_and_preserves_inventory(self):
+        self.login()
+        before = self.snapshot_main()
+        saved = self.save(name="Деталь <script>bad</script>", qty="2").json["card"]
+        url = f"/admin/revision/{saved['id']}/labels"
+        response = self.client.post(url, data={"revision_token": "revision-test-token", "label_qty": "3"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.text.count('<section class="label">'), 3)
+        self.assertEqual(response.text.count('<svg '), 3)
+        self.assertEqual(response.text.count(saved["barcode"]), 6)
+        self.assertNotIn("<script>bad</script>", response.text)
+        self.assertIn("size: 58mm 30mm", response.text)
+        self.assertIn("window.print()", response.text)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        with self.sessions() as db:
+            row = db.get(site.RevisionPart, saved["id"])
+            self.assertEqual((row.qty, row.barcode, row.version), (2, saved["barcode"], saved["version"]))
+            self.assertEqual(db.query(site.RevisionOperation).count(), 1)
+        self.assertEqual(before, self.snapshot_main())
+        page = self.client.get("/admin/revision").text
+        self.assertIn('class="revision-print-form"', page)
+        self.assertIn('target="_blank"', page)
+
+    def test_legacy_empty_barcode_is_assigned_once_when_printing_zero_stock(self):
+        self.login()
+        saved = self.save().json["card"]
+        with self.sessions.begin() as db:
+            row = db.get(site.RevisionPart, saved["id"])
+            row.barcode, row.qty = "", 0
+        url = f"/admin/revision/{saved['id']}/labels"
+        data = {"revision_token": "revision-test-token", "label_qty": "1"}
+        first = self.client.post(url, data=data)
+        self.assertEqual(first.status_code, 200)
+        with self.sessions() as db:
+            row = db.get(site.RevisionPart, saved["id"])
+            barcode = row.barcode
+            self.assertTrue(barcode)
+            self.assertEqual(row.qty, 0)
+        self.assertEqual(self.client.post(url, data=data).text, first.text)
+        self.assertIn(barcode, first.text)
+
     def test_page_starts_empty_without_importing_or_changing_main_inventory(self):
         self.login()
         before = self.snapshot_main()

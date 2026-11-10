@@ -153,6 +153,18 @@
   });
   root.querySelectorAll('[data-revision-add]').forEach(button => button.addEventListener('click', () => openEditor(pageCards[Number(button.dataset.revisionAdd)], 'increment')));
   root.querySelectorAll('[data-revision-edit]').forEach(button => button.addEventListener('click', () => openEditor(pageCards[Number(button.dataset.revisionEdit)], 'update')));
+  root.querySelectorAll('.revision-print-form').forEach(printForm => printForm.addEventListener('submit', event => {
+    const defaultQty = Math.min(Math.max(Number(printForm.dataset.defaultQty) || 1, 1), 1000);
+    const answer = window.prompt('Кількість етикеток для друку (від 1 до 1000):', String(defaultQty));
+    if (answer === null) { event.preventDefault(); return; }
+    const value = answer.trim();
+    if (!/^[0-9]{1,4}$/.test(value) || Number(value) < 1 || Number(value) > 1000) {
+      event.preventDefault();
+      window.alert('Вкажіть цілу кількість етикеток від 1 до 1000.');
+      return;
+    }
+    printForm.elements.label_qty.value = String(Number(value));
+  }));
   document.querySelectorAll('[data-close-editor]').forEach(button => button.addEventListener('click', () => { if (!busy) editor.close(); }));
   editor.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
 

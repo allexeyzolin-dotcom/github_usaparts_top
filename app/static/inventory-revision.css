@@ -33,6 +33,9 @@ body.admin-theme #inventory-revision .revision-independence{padding:0;border:0;b
 .revision-card-top{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .revision-code{font-size:18px;letter-spacing:.03em}
 .revision-card-actions{display:grid;gap:8px;min-width:150px;text-align:right}
+.revision-print-form{margin:0;display:flex;min-width:0}
+.revision-print-form .btn{width:100%}
+@media(max-width:650px){.revision-card-actions .revision-print-form{grid-column:2/-1}}
 .revision-qty{font-size:26px;color:#166534}
 .revision-qty small{font-size:13px;font-weight:500}
 .revision-empty{text-align:center;padding:40px!important}

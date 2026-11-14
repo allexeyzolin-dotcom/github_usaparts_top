@@ -1,7 +1,7 @@
 {% extends 'base_admin.html' %}
 {% block admin_body_class %}inventory-revision-page{% if is_mobile_revision %} revision-mobile-client{% endif %}{% endblock %}
 {% block admin_content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261110-1">
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261114-1">
 <section id="inventory-revision" data-search-url="{{ url_for('inventory_revision_search') }}"
          data-save-url="{{ url_for('inventory_revision_save') }}" data-upload-url="{{ url_for('inventory_revision_photos') }}" data-token="{{ revision_token }}">
   <div class="panel-header">
@@ -10,7 +10,11 @@
       <div class="muted">Окрема база товарів із фактично перевіреною кількістю.</div>
       <div class="revision-current-author">Додає: {{ revision_actor }}</div>
     </div>
-    <a class="btn ghost" href="{{ url_for('inventory_revision_export') }}">Експорт бази CSV</a>
+    <div class="button-row revision-export-actions">
+      <a class="btn primary" href="{{ url_for('inventory_revision_export_avtopro') }}">Експорт для Автопро</a>
+      <a class="btn ghost" href="{{ url_for('inventory_revision_export') }}">Експорт бази CSV</a>
+      <a class="btn ghost" href="{{ url_for('admin_avtopro_feeds') }}">Автооновлення Автопро</a>
+    </div>
   </div>
 
   <div class="card revision-entry">
@@ -30,6 +34,7 @@
     <span class="badge success">Перевірена наявність</span>
   </div>
   <div class="helper-note revision-independence">Дані основної бази можна скопіювати в нову картку. Збережена картка ревізії має власні дані та кількість.</div>
+  <div class="helper-note revision-independence">Товари з кількістю понад 0 відображаються на сайті. Для Автопро: CSV у USD, ціна з двома десятковими знаками; виробник та ціна понад 0 обов’язкові.</div>
 
   <div class="revision-cards">
     {% for item in cards %}

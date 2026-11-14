@@ -14,6 +14,7 @@
     <div class="product-card-label">OEM / КОД ДЕТАЛІ</div>
     <a class="showcase-code" href="{{ part_detail_url(part) }}">{{ part.part_number }}</a>
     <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) or part.part_number }}</a></h3>
+    {% if part.revision_publication %}<span class="stock-pill ok">Перевірена наявність</span>{% endif %}
     {% if part.brand %}<div class="product-card-brand">{{ clean_text(part.brand) }}</div>{% endif %}
     <div class="product-card-bottom">
       <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent if part.warehouse else 0) }}</div>

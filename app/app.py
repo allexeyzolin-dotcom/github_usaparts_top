@@ -1280,6 +1280,7 @@ def apply_template_to_parts(db, template: PartTemplate, only_parts=None):
     parts = only_parts
     if parts is None:
         parts = db.query(Part).filter(Part.part_number == template.part_number).all()
+    parts = [part for part in parts if not part.revision_publication]
     for sibling in parts:
         sibling.brand = normalize_text(template.brand or sibling.brand or "").strip()
         sibling.producer_type = producer_type_label(template.producer_type or sibling.producer_type)
@@ -1885,11 +1886,13 @@ def build_showcase_parts(parts, query_text: str = "", limit: int = 12, cross_map
             best_by_number[key] = part
             continue
         current_score = (
+            1 if current.revision_publication else 0,
             int(current.qty or 0),
             1 if current.has_photo else 0,
             current.updated_at.timestamp() if current.updated_at else 0,
         )
         new_score = (
+            1 if part.revision_publication else 0,
             int(part.qty or 0),
             1 if part.has_photo else 0,
             part.updated_at.timestamp() if part.updated_at else 0,
@@ -1913,9 +1916,13 @@ def build_home_showcase_parts(parts, limit: int = 12):
     parts = list(parts)
     _, total = build_showcase_parts(parts, limit=0)
     # Use attached product photos, not the has_photo flag or the display placeholder.
-    parts = [part for part in parts if part and primary_part_photo(part)
-             and urlsplit(primary_part_photo(part)).path not in {
-                 PUBLIC_PART_PLACEHOLDER_IMAGE, "/static/photo-unavailable.svg"}]
+    parts = [part for part in parts if part and (part.revision_publication or
+             (primary_part_photo(part) and urlsplit(primary_part_photo(part)).path not in {
+                 PUBLIC_PART_PLACEHOLDER_IMAGE, "/static/photo-unavailable.svg"}))]
+    counted = [part for part in parts if part.revision_publication]
+    checked, _ = build_showcase_parts(counted, limit=len(counted))
+    checked_codes = {normalize_text(part.part_number or "").strip().upper() for part in checked}
+    parts = [part for part in parts if normalize_text(part.part_number or "").strip().upper() not in checked_codes]
     guaranteed = [part for part in parts if part and part.warehouse
                   and " ".join(normalize_text(part.warehouse.name or "").casefold().split())
                   == "склад гарантованої наявності"]
@@ -1926,7 +1933,8 @@ def build_home_showcase_parts(parts, limit: int = 12):
     remaining, _ = build_showcase_parts(others, limit=len(others))
     random.shuffle(priority)
     random.shuffle(remaining)
-    return (priority + remaining)[:max(limit, 0)], total
+    random.shuffle(checked)
+    return (checked + priority + remaining)[:max(limit, 0)], total
 
 
 def public_part_matches_query(part: Part, needle: str, cross_map: dict[str, list[str]] | None = None) -> bool:
@@ -7576,12 +7584,14 @@ def best_unique_public_parts(parts) -> list[Part]:
         key = seo_clean_label(part.part_number).upper() or f"id-{part.id}"
         current = best_by_number.get(key)
         candidate_score = (
+            1 if part.revision_publication else 0,
             1 if primary_part_photo(part) else 0,
             max(int(part.qty or 0), 0),
             part.updated_at.timestamp() if part.updated_at else 0,
             part.id,
         )
         current_score = (
+            1 if current and current.revision_publication else 0,
             1 if current and primary_part_photo(current) else 0,
             max(int(current.qty or 0), 0) if current else 0,
             current.updated_at.timestamp() if current and current.updated_at else 0,
@@ -8867,6 +8877,7 @@ def seed_if_empty():
                 part.stock_check_note = ""
         for item in db.query(ReceivingDraftItem).all():
             ensure_draft_barcode(db, item)
+        publish_existing_revision_parts(db)
         db.commit()
     finally:
         db.close()
@@ -12364,6 +12375,9 @@ def update_part(part_id):
         if not part:
             flash("Товар не знайдено", "error")
             return redirect(url_for("admin_parts"))
+        if part.revision_publication:
+            flash("Цю картку створено в ревізії. Редагуйте її у вкладці «Ревізія».", "info")
+            return redirect(url_for("admin_inventory_revision"))
         before_qty = int(part.qty or 0)
         before_part_number = normalize_text(part.part_number or "").strip().upper()
 
@@ -15691,7 +15705,7 @@ def avtopro_price_feed(warehouse_id, token):
                     "price": p.price_usd, "qty": int(p.qty or 0), "in_stock": p.in_stock,
                     "deleted": p.is_deleted, "used": p.avtopro_flag_1,
                     "restored": p.avtopro_flag_2, "name": p.name,
-                    "photos": parse_media_urls(p.photo_urls)} for p in parts]
+                    "photos": [absolute_public_url(url) for url in parse_media_urls(p.photo_urls)]} for p in parts]
         try:
             payload, count = build_price_csv(records)
         except FeedError as error:
@@ -15717,6 +15731,9 @@ marketplace_models = marketplaces.install(app, sys.modules[__name__])
 from .inventory_revision import register_inventory_revision
 
 RevisionPart, RevisionOperation = register_inventory_revision(sys.modules[__name__])
+
+from .revision_publication import register_revision_publication
+register_revision_publication(sys.modules[__name__])
 
 from .storage_locations import register_storage_locations, migrate_storage_locations, request_location, request_location_for, clean_location
 StorageLocation = register_storage_locations(sys.modules[__name__])

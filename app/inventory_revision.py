@@ -19,6 +19,8 @@ from flask import g, jsonify, render_template, request, session, Response
 from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, desc, func, or_, text, select
 from sqlalchemy.exc import IntegrityError
 
+from .avtopro_feed import build_price_csv, FeedError
+
 
 def number_key(value):
     return "".join(c for c in unicodedata.normalize("NFKC", value).upper() if c.isalnum())
@@ -127,10 +129,12 @@ def register_inventory_revision(site):
         if not re.fullmatch(r"[0-9]{1,4}", raw_qty) or not 1 <= int(raw_qty) <= 1000:
             return error("Вкажіть цілу кількість етикеток від 1 до 1000.")
         with site.SessionLocal() as db:
+            site.lock_revision_publication(db, card_id)
             row = db.query(RevisionPart).filter_by(id=card_id).with_for_update().first()
             if not row:
                 return error("Картку ревізії не знайдено.", 404)
             ensure_barcode(db, row)
+            site.publish_revision_part(db, row)
             label = site.build_print_label(headline=row.part_number, title=row.name,
                                           description=row.description, barcode=row.barcode,
                                           context=row.warehouse_name)
@@ -214,6 +218,7 @@ def register_inventory_revision(site):
             # master card yet. Use one representative per article, never per warehouse.
             has_master = db.query(site.PartTemplate.id).filter(func.upper(site.PartTemplate.part_number) == func.upper(site.Part.part_number)).exists()
             legacy_ids = db.query(func.min(site.Part.id)).filter(site.Part.is_deleted.is_(False), ~has_master,
+                ~site.Part.revision_publication.has(),
                 or_(matches(site.Part.part_number, query), site.Part.barcode == query)).group_by(func.upper(site.Part.part_number)).limit(25).subquery()
             legacy = db.query(site.Part).filter(site.Part.id.in_(select(legacy_ids.c[0]))).all()
             catalog += [card(row, "catalog") for row in legacy]
@@ -330,6 +335,7 @@ def register_inventory_revision(site):
                 target_id = payload.get("target_id")
                 if type(target_id) is not int:
                     return error("Оберіть картку ревізії.")
+                site.lock_revision_publication(db, target_id)
                 target = db.query(RevisionPart).filter_by(id=target_id).with_for_update().first()
                 if not target:
                     return error("Картку ревізії не знайдено.", 404)
@@ -367,6 +373,7 @@ def register_inventory_revision(site):
             target.version = (target.version or 0) + 1
             db.flush()
             ensure_barcode(db, target)
+            site.publish_revision_part(db, target)
             db.add(RevisionOperation(request_id=request_id, request_hash=fingerprint, part_id=target.id,
                                      actor=actor, action=action, qty_delta=target.qty - previous_qty, qty_after=target.qty))
             try:
@@ -391,10 +398,31 @@ def register_inventory_revision(site):
         writer.writerow(fields + ["label"])
         with site.SessionLocal() as db:
             for row in db.query(RevisionPart).order_by(RevisionPart.id).yield_per(500):
-                values = [str(getattr(row, field)) for field in fields] + ["Перевірена наявність"]
+                values = [format(row.price_usd, ".2f") if field == "price_usd" else str(getattr(row, field))
+                          for field in fields] + ["Перевірена наявність"]
                 # Text remains text when this file is opened in a spreadsheet.
                 writer.writerow(["'" + value if value.lstrip().startswith(("=", "+", "-", "@")) else value for value in values])
         return Response("\ufeff" + output.getvalue(), mimetype="text/csv; charset=utf-8",
-                        headers={"Content-Disposition": 'attachment; filename="verified-inventory.csv"'})
+                        headers={"Content-Disposition": 'attachment; filename="verified-inventory.csv"',
+                                 "Cache-Control": "no-store"})
+
+    @site.app.route("/api/mobile/inventory-revision/export/avtopro")
+    @site.app.route("/admin/revision/export/avtopro")
+    @revision_access
+    def inventory_revision_export_avtopro():
+        with site.SessionLocal() as db:
+            records = ({"brand": row.brand, "code": row.part_number, "price": row.price_usd,
+                        "qty": row.qty, "in_stock": row.qty > 0, "deleted": False,
+                        "used": site.part_condition_code(row) == "USED",
+                        "name": row.name, "photos": [site.absolute_public_url(url) for url in photos(row.photo_urls)]}
+                       for row in db.query(RevisionPart).order_by(RevisionPart.id).yield_per(500))
+            try:
+                payload, count = build_price_csv(records)
+            except FeedError as exc:
+                return Response(str(exc), status=503, content_type="text/plain; charset=utf-8",
+                                headers={"Cache-Control": "no-store"})
+        return Response(payload, content_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="revision-avtopro.csv"',
+                                 "Cache-Control": "no-store", "X-Product-Count": str(count)})
 
     return RevisionPart, RevisionOperation

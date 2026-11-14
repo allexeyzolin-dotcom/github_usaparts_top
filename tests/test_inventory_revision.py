@@ -66,11 +66,18 @@ class InventoryRevisionTests(unittest.TestCase):
 
     def snapshot_main(self):
         with self.sessions() as db:
+            published = db.query(site.RevisionPublication.part_id)
+            setting = db.query(site.ApiSetting).filter_by(setting_key="revision_public_warehouse_id").first()
+            managed_warehouse = int(setting.setting_value) if setting else None
             return {model.__tablename__: [tuple(getattr(row, column.name) for column in model.__table__.columns)
-                    for row in db.query(model).order_by(model.id)] for model in (site.Part, site.PartTemplate, site.Warehouse)}
+                    for row in db.query(model).filter(
+                        ~model.id.in_(published) if model is site.Part else
+                        model.id != managed_warehouse if model is site.Warehouse and managed_warehouse else True
+                    ).order_by(model.id)] for model in (site.Part, site.PartTemplate, site.Warehouse)}
 
     def test_authentication_and_csrf_for_every_entry_point(self):
-        for url in ("/admin/revision", "/admin/revision/search?q=123", "/admin/revision/export"):
+        for url in ("/admin/revision", "/admin/revision/search?q=123", "/admin/revision/export",
+                    "/admin/revision/export/avtopro"):
             self.assertEqual(self.client.get(url).status_code, 302)
         self.assertEqual(self.save().status_code, 302)
         self.assertEqual(self.client.post("/admin/revision/photos").status_code, 302)

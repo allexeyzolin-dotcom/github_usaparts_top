@@ -1,4 +1,6 @@
 #inventory-revision{min-width:0}
+.revision-export-actions{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:650px){.revision-export-actions{width:100%;justify-content:flex-start}.revision-export-actions .btn{flex:1 1 auto}}
 .revision-current-author{font-size:12px;color:#a8b6c9;margin-top:7px}
 .revision-authorship{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:11px;color:#64748b}
 .revision-author-badge{padding:4px 9px;border-radius:20px;background:#e8eef7;color:#365474;font-weight:700}

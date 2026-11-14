@@ -1,7 +1,7 @@
 {% extends 'base_admin.html' %}
 {% block admin_body_class %}inventory-revision-page{% if is_mobile_revision %} revision-mobile-client{% endif %}{% endblock %}
 {% block admin_content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261114-2">
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261114-3">
 <section id="inventory-revision" data-search-url="{{ url_for('inventory_revision_search') }}"
          data-save-url="{{ url_for('inventory_revision_save') }}" data-upload-url="{{ url_for('inventory_revision_photos') }}" data-token="{{ revision_token }}" data-edit-id="{{ edit_id or '' }}">
   <div class="panel-header">
@@ -12,6 +12,7 @@
     </div>
     <div class="button-row revision-export-actions">
       <a class="btn primary" href="{{ url_for('inventory_revision_export_avtopro') }}">Експорт для Автопро</a>
+      <a class="btn primary" href="{{ url_for('inventory_revision_export_prom') }}">Експорт для Prom</a>
       <a class="btn ghost" href="{{ url_for('inventory_revision_export') }}">Експорт бази CSV</a>
       <a class="btn ghost" href="{{ url_for('admin_avtopro_feeds') }}">Автооновлення Автопро</a>
     </div>

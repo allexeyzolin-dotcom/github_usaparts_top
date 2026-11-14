@@ -45,7 +45,7 @@ class NativeRevisionTests(unittest.TestCase):
 
     def test_native_routes_require_bearer_even_with_website_cookie(self):
         self.login_web()
-        for path in ("", "/1", "/search?q=06G", "/export", "/export/avtopro"):
+        for path in ("", "/1", "/search?q=06G", "/export", "/export/avtopro", "/export/prom"):
             self.assertEqual(self.client.get(PREFIX + path).status_code, 401)
         for path in ("/photos", "/save", "/logout"):
             response = self.client.post(PREFIX + path, json={})

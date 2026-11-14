@@ -413,32 +413,41 @@ def register_inventory_revision(site):
                         headers={"Content-Disposition": 'attachment; filename="verified-inventory.csv"',
                                  "Cache-Control": "no-store"})
 
+    def revision_export_records(db, include_zero=False):
+        query = db.query(RevisionPart)
+        if not include_zero:
+            query = query.filter(RevisionPart.qty > 0)
+        rows = query.order_by(RevisionPart.id).all()
+        # Fill a missing manufacturer only when the original catalog has one unambiguous value.
+        # This is read-only: counted cards and their independent prices are never overwritten.
+        missing = {row.part_key for row in rows if not (row.brand or "").strip()}
+        candidates = {}
+        if missing:
+            sources = list(db.query(site.PartTemplate.part_number, site.PartTemplate.brand))
+            sources += [(code, exported or brand) for code, exported, brand in db.query(
+                site.Part.part_number, site.Part.brand_export, site.Part.brand).filter(
+                site.Part.is_deleted.is_(False), ~site.Part.revision_publication.has())]
+            for code, brand in sources:
+                key, brand = number_key(code or ""), (brand or "").strip()
+                if key in missing and brand:
+                    candidates.setdefault(key, {}).setdefault(brand.casefold(), brand)
+        inferred = {key: next(iter(values.values())) for key, values in candidates.items() if len(values) == 1}
+        publications = {link.revision_id: link.part_id for link in db.query(site.RevisionPublication)}
+        return [{"id": row.id, "brand": (row.brand or "").strip() or inferred.get(row.part_key, ""),
+                    "code": row.part_number, "price": row.price_usd,
+                    "qty": row.qty, "in_stock": row.qty > 0, "deleted": False,
+                    "used": site.part_condition_code(row) == "USED",
+                    "part_id": publications.get(row.id),
+                    "cross_numbers": site.normalize_cross_numbers(row.cross_numbers, row.part_number),
+                    "name": row.name, "photos": [site.absolute_public_url(url) for url in photos(row.photo_urls)]}
+                   for row in rows]
+
     @site.app.route("/api/mobile/inventory-revision/export/avtopro")
     @site.app.route("/admin/revision/export/avtopro")
     @revision_access
     def inventory_revision_export_avtopro():
         with site.SessionLocal() as db:
-            rows = db.query(RevisionPart).filter(RevisionPart.qty > 0).order_by(RevisionPart.id).all()
-            # Fill a missing manufacturer only when the original catalog has one unambiguous value.
-            # This is read-only: counted cards and their independent prices are never overwritten.
-            missing = {row.part_key for row in rows if not (row.brand or "").strip()}
-            candidates = {}
-            if missing:
-                sources = list(db.query(site.PartTemplate.part_number, site.PartTemplate.brand))
-                sources += [(code, exported or brand) for code, exported, brand in db.query(
-                    site.Part.part_number, site.Part.brand_export, site.Part.brand).filter(
-                    site.Part.is_deleted.is_(False), ~site.Part.revision_publication.has())]
-                for code, brand in sources:
-                    key, brand = number_key(code or ""), (brand or "").strip()
-                    if key in missing and brand:
-                        candidates.setdefault(key, {}).setdefault(brand.casefold(), brand)
-            inferred = {key: next(iter(values.values())) for key, values in candidates.items() if len(values) == 1}
-            records = [{"id": row.id, "brand": (row.brand or "").strip() or inferred.get(row.part_key, ""),
-                        "code": row.part_number, "price": row.price_usd,
-                        "qty": row.qty, "in_stock": row.qty > 0, "deleted": False,
-                        "used": site.part_condition_code(row) == "USED",
-                        "name": row.name, "photos": [site.absolute_public_url(url) for url in photos(row.photo_urls)]}
-                       for row in rows]
+            records = revision_export_records(db)
             ready, issues = review_download_records(records)
             if not ready or (issues and request.args.get("ready") != "1"):
                 if getattr(g, "native_revision_authorized", False):
@@ -447,7 +456,7 @@ def register_inventory_revision(site):
                     response.status_code = 422
                 else:
                     response = site.app.make_response(render_template("revision_export_review.html",
-                        issues=issues, ready_count=len(ready), total_count=len(rows)))
+                        issues=issues, ready_count=len(ready), total_count=len(records)))
                 response.headers["Cache-Control"] = "no-store"
                 return response
             payload, count = build_download_csv(ready)
@@ -456,4 +465,6 @@ def register_inventory_revision(site):
                                  "Cache-Control": "no-store", "X-Product-Count": str(count),
                                  "X-Skipped-Card-Count": str(len(issues))})
 
+    from .prom_revision_export import register_prom_revision_export
+    register_prom_revision_export(site, revision_access, valid_token, revision_export_records)
     return RevisionPart, RevisionOperation

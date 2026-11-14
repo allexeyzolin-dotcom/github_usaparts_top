@@ -1,5 +1,11 @@
 #inventory-revision{min-width:0}
 .revision-export-actions{flex-wrap:wrap;justify-content:flex-end}
+.revision-prom-form{display:grid;gap:16px;margin-bottom:20px;line-height:1.5}
+.revision-prom-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.revision-prom-options label,.revision-prom-preview label{display:grid;gap:8px;min-width:0}
+.revision-prom-check{display:flex;gap:10px;align-items:center}.revision-prom-check input{width:auto}
+.revision-prom-preview{display:grid;gap:8px;border-top:1px solid #dce4ee;padding-top:14px;overflow-wrap:anywhere}
+@media(max-width:650px){.revision-prom-options{grid-template-columns:1fr}.revision-prom-form .button-row{flex-wrap:wrap}}
 .revision-export-notice{margin-bottom:20px;line-height:1.6}
 .revision-export-issue{display:flex;gap:20px;justify-content:space-between;align-items:center;overflow-wrap:anywhere}
 .revision-export-issue h3{margin:8px 0}.revision-export-issue p{margin:8px 0}

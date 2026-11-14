@@ -1,0 +1,43 @@
+{% extends 'base_admin.html' %}
+{% block admin_body_class %}inventory-revision-page{% endblock %}
+{% block admin_content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261114-3">
+<section id="inventory-revision">
+  <div class="panel-header"><div><h2>Експорт для Prom</h2><p class="muted">Товари ревізії · XLSX · назви, описи й пошукові запити UA/RU · фото · категорії</p></div><a class="btn ghost" href="{{ url_for('admin_inventory_revision') }}">До ревізії</a></div>
+  {% if error %}<div class="card revision-export-notice" role="alert"><strong class="revision-export-error">{{ error }}</strong></div>{% endif %}
+  <form method="post" class="card revision-prom-form">
+    <input type="hidden" name="revision_token" value="{{ revision_token }}">
+    <div class="revision-prom-options">
+      <label>Курс USD → UAH<input name="rate" value="{{ options.rate }}" inputmode="decimal" required></label>
+      <label>Націнка, %<input name="markup" value="{{ options.markup }}" inputmode="decimal" required></label>
+      <label>Позицій у файлі<input type="number" name="chunk_size" min="1" max="1000" value="{{ options.chunk_size }}" required></label>
+    </div>
+    <p>Ціна Prom = базова USD-ціна ревізії × курс × (1 + націнка / 100). У файлі це числова ціна UAH з форматом <strong>0.00</strong>.</p>
+    <label class="revision-prom-check"><input type="checkbox" name="include_zero" value="1" {% if options.include_zero %}checked{% endif %}>Включити нульові залишки: кількість 0, наявність «−»</label>
+    <p>Готові: <strong>{{ products|length }}</strong> · Зіставлено з ID Prom: <strong>{{ existing_count }}</strong> · Нові: <strong>{{ products|length - existing_count }}</strong> · Помилки: <strong>{{ issues|length }}</strong>.</p>
+    {% if issues %}<label class="revision-prom-check"><input type="checkbox" name="only_ready" value="1">Експортувати лише готові картки; пропустити {{ issues|length }} карток із помилками</label>{% endif %}
+    <div class="button-row"><button class="btn ghost" name="action" value="preview">Перерахувати / перевірити</button><button class="btn ghost" type="button" id="prom-check-photos">Перевірити фото</button><button class="btn primary" name="action" value="download" {% if not products %}disabled{% endif %}>Завантажити для Prom</button></div>
+    <p id="prom-photo-summary" role="status"></p>
+    <p class="helper-note">До 640 позицій за замовчуванням — один XLSX. Якщо більше — ZIP із частинами. ID наявних товарів беруться зі збережених відповідників Prom, нові мають стабільний ID за артикулом. Перед першим імпортом звірте нові позиції, зокрема приховані картки Prom.</p>
+    <details id="prom-product-details"><summary>Категорії, фото та відповідники товарів</summary>
+      <p>Довідник: <strong>{{ reference.source or 'ще не завантажено' }}</strong>. Категорія визначається за артикулом/виробником; для нових номерів — за однозначним збігом назви. Невизначені категорії позначені попередженням. ID можна вказати вручну; підтверджені при вивантаженні ID збережуться для цього артикула.</p>
+      <p>Власні фото ревізії мають пріоритет. Фото з точного відповідника каталогу Prom позначаються як ілюстративні в описі. Без фото товар має попередження; випадкові зображення не підставляються.</p>
+      <datalist id="prom-category-options">{% for identifier, url in categories %}<option value="{{ identifier }}">{{ url }}</option>{% endfor %}</datalist>
+      <div class="revision-cards">
+      {% for item in products %}<div class="revision-prom-preview" data-prom-photos="{{ item.photos|tojson|forceescape }}"><strong>{{ item.code }} · {{ item.name }}</strong><div>{{ item.qty }} шт. · {{ item.price_uah }} грн · {{ 'Наявний ID: ' + item.remote_id if item.remote_id else 'Новий товар' }}</div>
+        <label>ID категорії Prom<input name="category_{{ item.id }}" value="{{ item.category_id }}" list="prom-category-options" inputmode="numeric"></label>
+        {% if item.photos %}<a href="{{ item.photos[0] }}" target="_blank" rel="noopener noreferrer">Відкрити перше фото ↗</a>{% endif %}
+        <p data-photo-status role="status"></p><a href="{{ url_for('admin_inventory_revision', edit=item.id) }}">Редагувати картку / додати фото ↗</a>
+        {% for warning in item.warnings %}<p class="revision-export-error">{{ warning }}</p>{% endfor %}
+      </div>{% endfor %}
+      </div>
+    </details>
+  </form>
+  {% for item in issues %}<article class="card revision-export-issue"><div><strong>#{{ item.id }} · {{ item.code }}</strong><h3>{{ item.name }}</h3><p class="revision-export-error">{{ item.error }}</p></div><a class="btn ghost" href="{{ url_for('admin_inventory_revision', edit=item.id) }}">Виправити картку</a></article>{% endfor %}
+  <details class="card revision-export-notice"><summary>Оновити довідник із поточного експорту Prom</summary><p>Завантажте XLSX із кабінету Prom для актуальних ID, категорій і фото. Файл замінить довідник для наступних експортів. Зберігаються лише поля товарів; особисті нотатки не зберігаються.</p>
+    <form method="post" enctype="multipart/form-data"><input type="hidden" name="revision_token" value="{{ revision_token }}"><input type="hidden" name="action" value="reference"><input type="hidden" name="rate" value="{{ options.rate }}"><input type="hidden" name="markup" value="{{ options.markup }}"><input type="hidden" name="chunk_size" value="{{ options.chunk_size }}"><input type="hidden" name="include_zero" value="{{ '1' if options.include_zero else '' }}"><input type="file" name="reference" accept=".xlsx" required><button class="btn ghost" type="submit">Зберегти довідник Prom</button></form>
+  </details>
+  <div class="card revision-export-notice"><h3>Як завантажити в Prom</h3><p>Prom → Товари та послуги → Імпорт → XLSX з комп’ютера. Файли з ZIP завантажуйте послідовно. Зіставлення — за ID; перевірте ціну UAH, залишки, переклади, фото й категорії.</p><p>Це файл лише ревізії. Не вмикайте приховування або видалення всього асортименту, якого немає в цьому файлі. Саме завантаження XLSX на цьому сайті не змінює магазин Prom.</p><a href="https://support.prom.ua/hc/uk/articles/360004960817" target="_blank" rel="noopener noreferrer">Офіційний формат імпорту Prom ↗</a></div>
+</section>
+<script defer src="{{ url_for('static', filename='prom-export.js') }}?v=20261114-1"></script>
+{% endblock %}

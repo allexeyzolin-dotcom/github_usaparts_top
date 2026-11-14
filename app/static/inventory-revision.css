@@ -1,5 +1,10 @@
 #inventory-revision{min-width:0}
 .revision-export-actions{flex-wrap:wrap;justify-content:flex-end}
+.revision-export-notice{margin-bottom:20px;line-height:1.6}
+.revision-export-issue{display:flex;gap:20px;justify-content:space-between;align-items:center;overflow-wrap:anywhere}
+.revision-export-issue h3{margin:8px 0}.revision-export-issue p{margin:8px 0}
+.revision-export-issue .btn{flex-shrink:0}.revision-export-error{color:#9b2525;font-weight:600}
+@media(max-width:650px){.revision-export-issue{display:block}.revision-export-issue .btn{display:inline-flex;margin-top:10px}}
 @media(max-width:650px){.revision-export-actions{width:100%;justify-content:flex-start}.revision-export-actions .btn{flex:1 1 auto}}
 .revision-current-author{font-size:12px;color:#a8b6c9;margin-top:7px}
 .revision-authorship{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:11px;color:#64748b}

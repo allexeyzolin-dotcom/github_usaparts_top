@@ -1,0 +1,32 @@
+{% extends 'base_admin.html' %}
+{% block admin_body_class %}inventory-revision-page{% endblock %}
+{% block admin_content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261114-2">
+<section id="inventory-revision">
+  <div class="panel-header">
+    <div><h2>Експорт для Автопро</h2><p class="muted">CSV за форматом Автопро: 12 колонок, ціна USD із двома десятковими знаками.</p></div>
+    <a class="btn ghost" href="{{ url_for('admin_inventory_revision') }}">До ревізії</a>
+  </div>
+  {% if total_count %}
+  <div class="card revision-export-notice" role="status">
+    <h3>Потрібно уточнити дані товарів</h3>
+    <p>Перевірено {{ total_count }} карток у наявності. Готові до експорту: <strong>{{ ready_count }}</strong>. Потребують виправлення: <strong>{{ issues|length }}</strong>.</p>
+    <p>Виправте картки нижче та повторіть експорт. Можна також завантажити лише готові картки; товари зі списку помилок не потраплять до такого файлу.</p>
+    {% if ready_count %}<a class="btn primary" href="{{ url_for('inventory_revision_export_avtopro', ready=1) }}">Завантажити лише готові картки ({{ ready_count }})</a>{% endif %}
+  </div>
+  {% else %}
+  <div class="card"><h3>Поки немає товарів для експорту</h3><p>До прайсу входять товари ревізії з кількістю понад 0.</p></div>
+  {% endif %}
+  <div class="revision-cards revision-export-issues">
+    {% for item in issues %}
+    <article class="card revision-export-issue">
+      <div><strong>#{{ item.id }} · {{ item.code }}</strong><h3>{{ item.name }}</h3>
+        <p>Виробник: {{ item.brand or 'не вказано' }} · Ціна: {{ '%.2f'|format(item.price) }} USD · Кількість: {{ item.qty }}</p>
+        <p class="revision-export-error">{{ item.error }}</p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('admin_inventory_revision', edit=item.id) }}">Виправити картку</a>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

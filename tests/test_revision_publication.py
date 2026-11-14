@@ -7,6 +7,10 @@ from unittest.mock import patch
 
 import test_inventory_revision as revision_tests
 
+# Column order and names from the user's Avtopro export, independent of the implementation.
+EXPECTED_DOWNLOAD_HEADER = ['Виробник', 'Код', 'Ціна', 'Кількість', 'Опис', 'Б/В', 'Реставрація',
+                            'Фото', 'Вага, кг', 'Глибина, см', 'Ширина, см', 'Висота, см']
+
 site = revision_tests.site
 
 
@@ -38,7 +42,9 @@ class RevisionPublicationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertTrue(response.data.startswith(b"\xef\xbb\xbf"))
-        return list(csv.reader(io.StringIO(response.data.decode("utf-8-sig")), delimiter=";"))
+        rows = list(csv.reader(io.StringIO(response.data.decode("utf-8-sig")), delimiter=";"))
+        self.assertEqual(rows[0], EXPECTED_DOWNLOAD_HEADER)
+        return rows[1:]
 
     def test_both_exports_keep_two_decimal_prices_and_leading_zero_codes(self):
         for index, (value, expected) in enumerate((("12", "12.00"), ("12,5", "12.50"),
@@ -47,7 +53,7 @@ class RevisionPublicationTests(unittest.TestCase):
         rows = self.export_rows()
         self.assertEqual([row[1] for row in rows], ["000", "001", "002", "003"])
         self.assertEqual([row[2] for row in rows], ["12.00", "12.50", "0.01", "12345678.90"])
-        self.assertTrue(all(len(row) == 8 for row in rows))
+        self.assertTrue(all(len(row) == 12 for row in rows))
         self.assertTrue(all(Decimal(row[2]).is_finite() for row in rows))
         response = self.client.get("/admin/revision/export")
         full = list(csv.DictReader(io.StringIO(response.data.decode("utf-8-sig")), delimiter=";"))
@@ -61,16 +67,20 @@ class RevisionPublicationTests(unittest.TestCase):
         self.save(sold, action="update", target_id=sold["id"], qty="0")
         rows = self.export_rows()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][:7], ["VAG", "000123", "12.50", "2", "1", "", 'Деталь; "ліва"'])
+        self.assertEqual(rows[0][:7], ["VAG", "000123", "12.50", "2", 'Деталь; "ліва"', "+", ""])
         self.assertIn(site.public_site_base_url() + "/uploads/revision_demo.jpg", rows[0][7])
         self.assertNotIn("PRIVATE", str(rows))
 
-    def test_invalid_or_conflicting_avtopro_data_blocks_the_whole_file(self):
+    def test_invalid_cards_show_specific_issues_before_any_partial_download(self):
         first = self.create(part_number="DUP", price_usd="12.50")
         self.create(part_number="DUP", price_usd="12.50", duplicate_action="new_card", qty="3")
         self.assertEqual(self.export_rows()[0][3], "5")
         self.save(first, action="update", target_id=first["id"], price_usd="13")
-        self.assertEqual(self.client.get("/admin/revision/export/avtopro").status_code, 503)
+        response = self.client.get("/admin/revision/export/avtopro")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Потрібно уточнити дані товарів", response.text)
+        self.assertIn("DUP", response.text)
+        self.assertNotIn("attachment", response.headers.get("Content-Disposition", ""))
         for changes in ({"brand": ""}, {"price_usd": "0"}):
             with self.subTest(changes=changes):
                 # Keep the conflicting duplicate sold so this specifically checks invalid fields.
@@ -79,7 +89,7 @@ class RevisionPublicationTests(unittest.TestCase):
                         row.qty = 0
                 self.create(part_number=f"BAD-{len(changes.get('brand', 'x'))}", **changes)
                 response = self.client.get("/admin/revision/export/avtopro")
-                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.status_code, 200)
                 self.assertNotIn("text/csv", response.content_type)
 
     def test_revision_cards_without_photos_are_visible_and_can_be_ordered(self):
@@ -122,7 +132,7 @@ class RevisionPublicationTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200, result.text)
         self.assertFalse(self.publication(counted["id"])["in_stock"])
         self.assertNotIn("Перевірена деталь", self.client.get("/catalog").text)
-        self.assertEqual(self.client.get("/admin/revision/export/avtopro").status_code, 503)
+        self.assertIn("Поки немає товарів для експорту", self.client.get("/admin/revision/export/avtopro").text)
         self.save(result.json["card"], action="increment", target_id=counted["id"], qty="3")
         current = self.publication(counted["id"])
         self.assertEqual(current["id"], original["id"])
@@ -203,8 +213,47 @@ class RevisionPublicationTests(unittest.TestCase):
         self.create(part_number="NEW", name="Нова деталь")
         self.create(part_number="USED", name="Вживана деталь")
         rows = {row[1]: row for row in self.export_rows()}
-        self.assertEqual(rows["NEW"][4], "")
-        self.assertEqual(rows["USED"][4], "1")
+        self.assertEqual(rows["NEW"][5], "")
+        self.assertEqual(rows["USED"][5], "+")
+
+    def test_missing_brand_is_resolved_from_one_catalog_manufacturer_without_inventory_writes(self):
+        counted = self.create(part_number="06G-127-028H", brand="")
+        rows = self.export_rows()
+        self.assertEqual(rows[0][0], "VAG")
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.RevisionPart, counted["id"]).brand, "")
+            self.assertEqual(db.get(site.Part, 1).qty, 40)
+
+    def test_ambiguous_brand_is_not_guessed_and_partial_download_is_explicit(self):
+        bad = self.create(part_number="06G-127-028H", brand="")
+        self.create(part_number="READY", brand="BMW")
+        with self.sessions.begin() as db:
+            db.get(site.Part, 1).brand_export = "OTHER"
+        response = self.client.get("/admin/revision/export/avtopro")
+        self.assertIn("Виправити картку", response.text)
+        self.assertIn(f"edit={bad['id']}", response.text)
+        self.assertNotIn("attachment", response.headers.get("Content-Disposition", ""))
+        response = self.client.get("/admin/revision/export/avtopro?ready=1")
+        self.assertIn("attachment", response.headers["Content-Disposition"])
+        self.assertEqual(response.headers["X-Skipped-Card-Count"], "1")
+        rows = list(csv.reader(io.StringIO(response.data.decode("utf-8-sig")), delimiter=";"))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1][1], "READY")
+
+    def test_photos_use_commas_and_dimension_columns_match_the_sample(self):
+        self.create(photo_urls=["https://example.com/a.jpg", "https://example.com/b.jpg"])
+        row = self.export_rows()[0]
+        self.assertEqual(row[7], "https://example.com/a.jpg,https://example.com/b.jpg")
+        self.assertEqual(row[8:], ["", "", "", ""])
+
+    def test_fix_link_opens_an_older_card_outside_the_first_page(self):
+        first = self.create(brand="")
+        for index in range(51):
+            self.create(part_number=f"LATER-{index}")
+        response = self.client.get(f"/admin/revision?edit={first['id']}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(f'data-edit-id="{first["id"]}"', response.text)
+        self.assertIn('"part_number": "REV-001"', response.text)
 
 
 if __name__ == "__main__":

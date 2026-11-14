@@ -213,10 +213,14 @@
         }
         if (!response.ok || !data.ok) throw new Error(data.error || 'Не вдалося зберегти товар.');
         saveStatus.textContent = 'Збережено. Перевірена наявність.';
-        window.location.assign(window.location.pathname + window.location.search);
+        const destination = new URL(window.location.href);
+        destination.searchParams.delete('edit');
+        window.location.assign(destination.pathname + destination.search);
         return;
       }
     } catch (err) { saveStatus.textContent = err.message || 'Не вдалося зберегти товар. Спробуйте ще раз.'; }
     finally { busy = false; saveButton.disabled = false; }
   });
+  const requestedCard = pageCards.find(item => String(item.id) === root.dataset.editId);
+  if (requestedCard) openEditor(requestedCard, 'update');
 })();

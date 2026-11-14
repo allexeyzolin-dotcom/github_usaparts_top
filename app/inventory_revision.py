@@ -19,7 +19,7 @@ from flask import g, jsonify, render_template, request, session, Response
 from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, desc, func, or_, text, select
 from sqlalchemy.exc import IntegrityError
 
-from .avtopro_feed import build_price_csv, FeedError
+from .avtopro_feed import build_download_csv, review_download_records
 
 
 def number_key(value):
@@ -175,12 +175,19 @@ def register_inventory_revision(site):
             page = max(request.args.get("page", 1, type=int) or 1, 1)
             pages = max((total + 49) // 50, 1)
             page = min(page, pages)
+            edit_id = request.args.get("edit", type=int)
+            editing = db.get(RevisionPart, edit_id) if edit_id else None
+            if editing:
+                preceding = db.query(RevisionPart).filter(or_(RevisionPart.verified_at > editing.verified_at,
+                    (RevisionPart.verified_at == editing.verified_at) & (RevisionPart.id > editing.id))).count()
+                page = preceding // 50 + 1
             rows = db.query(RevisionPart).order_by(desc(RevisionPart.verified_at), desc(RevisionPart.id)).offset((page - 1) * 50).limit(50).all()
             return render_template("admin_inventory_revision.html", cards=[card(row) for row in rows],
                                    total=total, units=units, page=page, pages=pages,
                                    news=db.query(site.NewsFeed).order_by(desc(site.NewsFeed.created_at)).limit(12).all(),
                                    revision_token=session["revision_token"], is_mobile_revision=mobile,
-                                   revision_actor=session.get("revision_mobile_user") or "Сайт")
+                                   revision_actor=session.get("revision_mobile_user") or "Сайт",
+                                   edit_id=edit_id if editing else None)
 
     @site.app.route("/api/mobile/inventory-revision")
     @revision_access
@@ -411,18 +418,42 @@ def register_inventory_revision(site):
     @revision_access
     def inventory_revision_export_avtopro():
         with site.SessionLocal() as db:
-            records = ({"brand": row.brand, "code": row.part_number, "price": row.price_usd,
+            rows = db.query(RevisionPart).filter(RevisionPart.qty > 0).order_by(RevisionPart.id).all()
+            # Fill a missing manufacturer only when the original catalog has one unambiguous value.
+            # This is read-only: counted cards and their independent prices are never overwritten.
+            missing = {row.part_key for row in rows if not (row.brand or "").strip()}
+            candidates = {}
+            if missing:
+                sources = list(db.query(site.PartTemplate.part_number, site.PartTemplate.brand))
+                sources += [(code, exported or brand) for code, exported, brand in db.query(
+                    site.Part.part_number, site.Part.brand_export, site.Part.brand).filter(
+                    site.Part.is_deleted.is_(False), ~site.Part.revision_publication.has())]
+                for code, brand in sources:
+                    key, brand = number_key(code or ""), (brand or "").strip()
+                    if key in missing and brand:
+                        candidates.setdefault(key, {}).setdefault(brand.casefold(), brand)
+            inferred = {key: next(iter(values.values())) for key, values in candidates.items() if len(values) == 1}
+            records = [{"id": row.id, "brand": (row.brand or "").strip() or inferred.get(row.part_key, ""),
+                        "code": row.part_number, "price": row.price_usd,
                         "qty": row.qty, "in_stock": row.qty > 0, "deleted": False,
                         "used": site.part_condition_code(row) == "USED",
                         "name": row.name, "photos": [site.absolute_public_url(url) for url in photos(row.photo_urls)]}
-                       for row in db.query(RevisionPart).order_by(RevisionPart.id).yield_per(500))
-            try:
-                payload, count = build_price_csv(records)
-            except FeedError as exc:
-                return Response(str(exc), status=503, content_type="text/plain; charset=utf-8",
-                                headers={"Cache-Control": "no-store"})
+                       for row in rows]
+            ready, issues = review_download_records(records)
+            if not ready or (issues and request.args.get("ready") != "1"):
+                if getattr(g, "native_revision_authorized", False):
+                    response = jsonify(ok=False, error="export_validation", ready_count=len(ready),
+                        issues=[{"id": row["id"], "part_number": row["code"], "error": row["error"]} for row in issues])
+                    response.status_code = 422
+                else:
+                    response = site.app.make_response(render_template("revision_export_review.html",
+                        issues=issues, ready_count=len(ready), total_count=len(rows)))
+                response.headers["Cache-Control"] = "no-store"
+                return response
+            payload, count = build_download_csv(ready)
         return Response(payload, content_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": 'attachment; filename="revision-avtopro.csv"',
-                                 "Cache-Control": "no-store", "X-Product-Count": str(count)})
+                                 "Cache-Control": "no-store", "X-Product-Count": str(count),
+                                 "X-Skipped-Card-Count": str(len(issues))})
 
     return RevisionPart, RevisionOperation

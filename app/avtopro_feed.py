@@ -12,13 +12,21 @@ def marked(value):
     return str(value or '').strip().casefold() not in {'', '0', 'false', 'no', 'ні', 'нет'}
 
 
-def build_price_csv(records):
+DOWNLOAD_COLUMNS = ('Виробник', 'Код', 'Ціна', 'Кількість', 'Опис', 'Б/В',
+                    'Реставрація', 'Фото', 'Вага, кг', 'Глибина, см', 'Ширина, см', 'Висота, см')
+
+
+def _price_rows(records):
     groups = {}
     for item in records:
         if item['deleted'] or not item['in_stock'] or item['qty'] <= 0:
             continue
-        brand, code = str(item['brand']).strip(), str(item['code']).strip()
-        if not brand or not code or any(c in brand + code for c in '\r\n\t'):
+        brand, code = str(item['brand'] or '').strip(), str(item['code'] or '').strip()
+        if not brand:
+            raise FeedError('Не вказано виробника товару.')
+        if not code:
+            raise FeedError('Не вказано артикул товару.')
+        if any(c in brand + code for c in '\r\n\t'):
             raise FeedError('У наявного товару відсутній або некоректний виробник чи артикул.')
         try:
             price = Decimal(str(item['price']))
@@ -44,9 +52,46 @@ def build_price_csv(records):
                            '1' if used else '', '1' if restored else '', description, photos]
     if not groups:
         raise FeedError('На складі немає товарів для прайсу. Перевірте залишки та зняття товарів на Автопро вручну.')
+    return [groups[key] for key in sorted(groups)]
+
+
+def build_price_csv(records):
+    rows = _price_rows(records)
     output = io.StringIO(newline='')
     writer = csv.writer(output, delimiter=';', lineterminator='\r\n')
-    for key in sorted(groups):
-        row = groups[key]
+    for row in rows:
         writer.writerow(row[:7] + [';'.join(row[7])])
-    return output.getvalue().encode('utf-8-sig'), len(groups)
+    return output.getvalue().encode('utf-8-sig'), len(rows)
+
+
+def review_download_records(records):
+    """Report every invalid card, including both sides of a conflicting price."""
+    groups, issues = {}, []
+    for record in records:
+        try:
+            row = _price_rows([record])[0]
+        except FeedError as exc:
+            issues.append({**record, 'error': str(exc)})
+            continue
+        key = (row[0].casefold(), row[1].casefold(), row[4], row[5])
+        groups.setdefault(key, []).append((record, row[2]))
+    ready = []
+    for entries in groups.values():
+        if len({price for _, price in entries}) > 1:
+            issues.extend({**record, 'error': 'Різні ціни для однакового виробника, артикула та стану.'}
+                          for record, _ in entries)
+        else:
+            ready.extend(record for record, _ in entries)
+    return ready, issues
+
+
+def build_download_csv(records):
+    """The 12-column manual export matches the user's Avtopro export example."""
+    rows = _price_rows(records)
+    output = io.StringIO(newline='')
+    writer = csv.writer(output, delimiter=';', lineterminator='\r\n')
+    writer.writerow(DOWNLOAD_COLUMNS)
+    for row in rows:
+        writer.writerow(row[:4] + [row[6], '+' if row[4] else '', '+' if row[5] else '',
+                                  ','.join(row[7])] + [''] * 4)
+    return output.getvalue().encode('utf-8-sig'), len(rows)

@@ -2514,6 +2514,7 @@ def serialize_transit_order(db, order: TransitOrder):
         "id": order.id,
         "storageLocation": order.storage_location,
         "batchId": normalize_text(order.batch_id or "").strip(),
+        "delivery": transit_delivery.serialize(db, order.batch_id),
         "partNumber": normalize_text(order.part_number or ""),
         "barcode": normalize_text(order.barcode or ""),
         "title": normalize_text(order.title or ""),
@@ -2706,6 +2707,7 @@ def group_transit_batches(items: list[dict]):
                 "items": [],
                 "itemCount": 0,
                 "totalQty": 0,
+                "delivery": item.get("delivery") or {},
             }
             batches_map[batch_id] = batch
             batches.append(batch)
@@ -2796,6 +2798,7 @@ def save_transit_draft(items: list[dict], short_description: str = "", full_desc
 def clear_transit_draft():
     session.pop("admin_transit_draft_items", None)
     session.pop("admin_transit_draft_meta", None)
+    session.pop("transit_delivery_draft", None)
     session.modified = True
 
 
@@ -2810,6 +2813,7 @@ def build_transit_form_state():
         "priceUsd": "0.00",
         "qty": 1,
         "existingPhotoUrl": "",
+        "delivery": session.get("transit_delivery_draft", {}),
     }
 
 
@@ -2966,7 +2970,7 @@ def persist_transit_order(db, item: dict, short_description: str, full_descripti
         part_template_id=template_id,
         linked_part_id=linked_part_id,
         part_number=part_number,
-        storage_location=clean_location(item.get("storageLocation") or request_location()),
+        storage_location=clean_location(item.get("storageLocation") or request_location(), required=False),
         barcode=barcode or "",
         title=title,
         service_info=service_info,
@@ -2999,6 +3003,7 @@ def apply_transit_arrival_to_part(db, order: TransitOrder):
         target_part = find_part_prefill(db, part_number, None)
     order_photo = normalize_text(order.photo_urls or "").strip()
     if target_part:
+        target_part = db.query(Part).filter_by(id=target_part.id).populate_existing().with_for_update().one()
         base_qty = 0 if target_part.is_deleted else max(int(target_part.qty or 0), 0)
         target_part.is_deleted = False
         target_part.deleted_at = None
@@ -3050,6 +3055,7 @@ def apply_transit_arrival_to_part(db, order: TransitOrder):
     if not target_template:
         return None, 0
 
+    target_template = db.query(PartTemplate).filter_by(id=target_template.id).populate_existing().with_for_update().one()
     before_template_qty = template_unassigned_qty(target_template)
     target_template.unassigned_qty = before_template_qty + accepted_qty
     if not normalize_text(target_template.name or "").strip():
@@ -11227,6 +11233,7 @@ def admin_transit():
             transit_archive_count=sum(len(group["items"]) for group in archive_groups),
             transit_form=transit_form,
             transit_draft_items=transit_draft_items,
+            transit_delivery_csrf=session.setdefault("transit_delivery_csrf", secrets.token_urlsafe(32)),
             news=news,
         )
     finally:
@@ -11237,6 +11244,7 @@ def admin_transit():
 @admin_required
 def admin_transit_draft_add():
     db = SessionLocal()
+    transit_delivery.read_form(remember=True)
     short_description = normalize_text(request.form.get("short_description") or "").strip()
     full_description = normalize_text(request.form.get("full_description") or "").strip()
     try:
@@ -11293,6 +11301,8 @@ def admin_transit_create():
         short_description = normalize_text(request.form.get("short_description") or meta["shortDescription"]).strip()
         full_description = normalize_text(request.form.get("full_description") or meta["fullDescription"]).strip()
         draft_items = get_transit_draft_items()
+        delivery_values = transit_delivery.read_form(remember=True)
+        transit_delivery.validate(delivery_values)
         items_to_create = list(draft_items)
 
         current_part_number = normalize_text(request.form.get("part_number") or "").strip().upper()
@@ -11350,12 +11360,18 @@ def admin_transit_create():
                 f"Замовлення {order.part_number} додано у вкладку товарів в дорозі.",
                 "success",
             )
+        transit_delivery.save_shipment(db, batch_id, delivery_values, created=True)
         db.commit()
         clear_transit_draft()
         flash(
             f"Збережено {len(created_numbers)} позицій у вкладку товарів в дорозі",
             "success",
         )
+        return redirect(url_for("admin_transit"))
+    except transit_delivery.DeliveryError as error:
+        db.rollback()
+        save_transit_draft(draft_items, short_description, full_description)
+        flash(str(error), "error")
         return redirect(url_for("admin_transit"))
     except ValueError:
         db.rollback()
@@ -11497,9 +11513,12 @@ def admin_transit_delete(order_id):
 def admin_transit_arrive(order_id):
     db = SessionLocal()
     try:
-        order = db.get(TransitOrder, order_id)
+        order = db.query(TransitOrder).filter_by(id=order_id).with_for_update().one_or_none()
         if not order:
             flash("Замовлення в дорозі не знайдено", "error")
+            return redirect(url_for("admin_transit"))
+        if order.archived_at is not None:
+            flash("Цю прийняту кількість уже перенесено на склад.", "info")
             return redirect(url_for("admin_transit"))
 
         normalize_transit_order_progress(db, order)
@@ -11515,7 +11534,23 @@ def admin_transit_arrive(order_id):
             flash("Вкажіть коректну кількість етикеток", "error")
             return redirect(url_for("admin_transit"))
         qty = qty_override if qty_override is not None else max(int(order.qty or 0), 0)
+        ordered_qty = int(order.qty or 0)
         target_part, added_qty = apply_transit_arrival_to_part(db, order)
+        if not target_part or added_qty <= 0:
+            db.rollback()
+            flash("Не вдалося перенести прийнятий товар на склад. Позицію залишено в дорозі.", "error")
+            return redirect(url_for("admin_transit"))
+        pending_order = None
+        if accepted_qty < ordered_qty:
+            excluded = {"id", "qty", "accepted_qty", "arrival_notified_qty", "archived_at", "updated_at", "status"}
+            pending_order = TransitOrder(**{column.name: getattr(order, column.name)
+                                          for column in TransitOrder.__table__.columns if column.name not in excluded},
+                                         qty=ordered_qty - accepted_qty, accepted_qty=0,
+                                         arrival_notified_qty=0, archived_at=None,
+                                         updated_at=now(), status="in_transit")
+            db.add(pending_order)
+            order.qty = accepted_qty
+            order.status = "in_stock"
         order.archived_at = now()
         order.updated_at = now()
         arrival_note = ""
@@ -11525,6 +11560,8 @@ def admin_transit_arrive(order_id):
         if should_print and qty > 0:
             barcode = ensure_transit_order_barcode(db, order)
             order.labels_printed_at = now()
+            if pending_order is not None and qty >= ordered_qty:
+                pending_order.labels_printed_at = order.labels_printed_at
             flash_news(
                 db,
                 "transit",
@@ -15760,6 +15797,9 @@ StorageLocation = register_storage_locations(sys.modules[__name__])
 from . import telegram_stock
 telegram_stock_models = telegram_stock.install(sys.modules[__name__])
 
+from . import transit_delivery
+transit_delivery_models = transit_delivery.install(sys.modules[__name__])
+
 
 if __name__ == "__main__":
     from waitress import serve
@@ -15768,6 +15808,7 @@ if __name__ == "__main__":
     start_backup_scheduler()
     marketplaces.start_scheduler()
     telegram_stock.start_worker()
+    transit_delivery.start_worker()
     # Keep one process for background jobs and in-memory invalidation. Proxy
     # headers are handled by the existing external_request_* helpers above.
     serve(app, host="0.0.0.0", port=8080, threads=8,

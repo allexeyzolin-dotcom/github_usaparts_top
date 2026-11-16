@@ -46,8 +46,8 @@ def register_storage_locations(site):
         name_key = Column(String(1024), nullable=False, unique=True, index=True)
 
     models = (site.Part, site.PartTemplate, site.ReceivingDraftItem, site.TransitOrder, site.RevisionPart)
-    singles = {"create_part", "update_part", "admin_part_autosave", "admin_transit_draft_add",
-               "admin_transit_update", "admin_receiving_update", "admin_receiving_legacy",
+    singles = {"create_part", "update_part", "admin_part_autosave",
+               "admin_receiving_update", "admin_receiving_legacy",
                "api_mobile_receiving_add_item", "api_mobile_receiving_add_item_legacy",
                "revision", "api_mobile_revision_submit", "api_mobile_verification_check"}
 
@@ -71,7 +71,13 @@ def register_storage_locations(site):
         if not hasattr(values, "get"):
             return None
         try:
-            if request.endpoint in singles:
+            if request.endpoint in {"admin_transit_draft_add", "admin_transit_update"}:
+                # A shipment has a carrier, not a required physical shelf.
+                # Keep optional locations submitted by an older form/client.
+                g.stock_location = clean_location(values.get("storage_location", ""), required=False)
+                g.stock_location_number = str(values.get("part_number") or "").strip().upper()
+                g.stock_location_order_id = (request.view_args or {}).get("order_id")
+            elif request.endpoint in singles:
                 g.stock_location = clean_location(values.get("storage_location", values.get("storageLocation", "")))
                 g.stock_location_number = str(values.get("part_number") or values.get("partNumber") or "").strip().upper()
                 g.stock_location_warehouse = values.get("warehouse_id", values.get("warehouseId"))
@@ -107,12 +113,12 @@ def register_storage_locations(site):
                 g.stock_location_number = str(values.get("part_number") or "").strip().upper()
                 drafts = site.get_transit_draft_items()
                 if drafts:
-                    g.stock_location_map = {row["partNumber"].upper(): clean_location(row.get("storageLocation", "")) for row in drafts}
+                    g.stock_location_map = {row["partNumber"].upper(): clean_location(row.get("storageLocation", ""), required=False) for row in drafts}
                     if values.get("part_number"):
-                        g.stock_location = clean_location(values.get("storage_location", ""))
+                        g.stock_location = clean_location(values.get("storage_location", ""), required=False)
                         g.stock_location_map[values["part_number"].strip().upper()] = g.stock_location
                 else:
-                    g.stock_location = clean_location(values.get("storage_location", ""))
+                    g.stock_location = clean_location(values.get("storage_location", ""), required=False)
             elif request.endpoint == "admin_transit_arrive":
                 with site.SessionLocal() as db:
                     order = db.get(site.TransitOrder, request.view_args["order_id"])

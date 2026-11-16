@@ -140,7 +140,8 @@ class StorageLocationTests(unittest.TestCase):
         self.login()
         for number, location in (("TRANSIT-1", "T-101"), ("TRANSIT-2", "T-102")):
             response = self.client.post("/admin/transit/draft-item", data={"part_number": number, "title": number,
-                "qty": "1", "price_usd": "10", "storage_location": location})
+                "qty": "1", "price_usd": "10", "storage_location": location,
+                "carrier": "other", "carrier_name": "Тестовий перевізник", "expected_date": "2026-11-20"})
             self.assertEqual(response.status_code, 302)
         self.client.post("/admin/transit/create", data={})
         with self.sessions() as db:
@@ -150,7 +151,8 @@ class StorageLocationTests(unittest.TestCase):
     def test_single_transit_records_position_on_order_and_master(self):
         self.login()
         self.client.post("/admin/transit/create", data={"part_number": "SOLO-1", "title": "Один", "qty": "1",
-            "price_usd": "10", "storage_location": "T-100"})
+            "price_usd": "10", "storage_location": "T-100", "carrier": "other",
+            "carrier_name": "Тестовий перевізник", "expected_date": "2026-11-20"})
         with self.sessions() as db:
             self.assertEqual(db.query(site.TransitOrder).one().storage_location, "T-100")
             self.assertEqual(db.query(site.PartTemplate).filter_by(part_number="SOLO-1").one().storage_location, "T-100")

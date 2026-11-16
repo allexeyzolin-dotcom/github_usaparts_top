@@ -1,0 +1,22 @@
+{% macro delivery_fields(value, prefix='new') %}
+{% set carrier = value.get('carrier', '') %}
+<div class="stack" data-delivery-fields>
+  <label class="field-label" for="carrier-{{ prefix }}">Перевізник *</label>
+  <select name="carrier" id="carrier-{{ prefix }}" data-carrier-select required>
+    <option value="">Оберіть перевізника</option>
+    <option value="nova_poshta" {% if carrier == 'nova_poshta' %}selected{% endif %}>Нова Пошта</option>
+    <option value="other" {% if carrier == 'other' %}selected{% endif %}>Інші</option>
+  </select>
+  <div class="stack {% if carrier != 'nova_poshta' %}hidden{% endif %}" data-carrier-np>
+    <label class="field-label" for="ttn-{{ prefix }}">ТТН Нової пошти</label>
+    <input name="ttn" id="ttn-{{ prefix }}" inputmode="numeric" maxlength="14" pattern="[0-9]{14}" value="{{ value.get('ttn', '') }}" placeholder="14 цифр; можна додати після відправлення">
+  </div>
+  <div class="stack {% if carrier != 'other' %}hidden{% endif %}" data-carrier-other>
+    <label class="field-label" for="carrier-name-{{ prefix }}">Хто привезе *</label>
+    <input name="carrier_name" id="carrier-name-{{ prefix }}" maxlength="255" value="{{ value.get('carrier_name', value.get('carrierName', '')) }}" placeholder="Ім’я водія або назва перевізника">
+  </div>
+  <label class="field-label" for="expected-date-{{ prefix }}">Орієнтовна дата прибуття <span data-date-required>{% if carrier == 'other' %}*{% endif %}</span></label>
+  <input type="date" name="expected_date" id="expected-date-{{ prefix }}" value="{{ value.get('expected_date', value.get('expectedDate', '')) }}">
+  <div class="helper-note">Для Нової пошти дата підтягнеться з ТТН, якщо не вказати її вручну. Для «Інші» дата обов’язкова. Неприйняті позиції нагадуватимуться о 08:00 за Києвом.</div>
+</div>
+{% endmacro %}

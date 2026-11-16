@@ -1,5 +1,6 @@
 {% extends 'base_admin.html' %}
 {% from '_storage_location_field.html' import location_field %}
+{% from '_transit_delivery_fields.html' import delivery_fields %}
 {% block admin_content %}
 <div class="panel-header">
   <div>
@@ -31,6 +32,7 @@
           formaction="{{ url_for('admin_transit_draft_add') }}"
           formmethod="post"
           title="Додати позицію до списку"
+          formnovalidate
         >+</button>
       </div>
 
@@ -46,7 +48,7 @@
 
       <label class="field-label">Опис товару</label>
       <input name="title" data-role="title" value="{{ transit_form['title'] }}" placeholder="Короткий опис запчастини">
-      {{ location_field() }}
+      {{ delivery_fields(transit_form['delivery']) }}
 
       <label class="field-label">Службова інформація</label>
       <textarea name="service_info" data-role="service-info" placeholder="Внутрішні нотатки або розширений опис">{{ transit_form['serviceInfo'] }}</textarea>
@@ -174,6 +176,22 @@
               </div>
 
               <div class="card inner-card transit-batch-meta-card">
+                <div class="stack">
+                  <strong>{{ batch['delivery'].get('label', 'Перевізник не вказаний') }}</strong>
+                  <div>Орієнтовна дата: {{ batch['delivery'].get('expectedLabel', 'Не визначена') }}</div>
+                  {% if batch['delivery'].get('ttn') %}<div>ТТН: <strong>{{ batch['delivery']['ttn'] }}</strong></div>{% endif %}
+                  {% if batch['delivery'].get('npStatus') %}<div>{{ batch['delivery']['npStatus'] }}</div>{% endif %}
+                  {% if batch['delivery'].get('pickedAt') %}<div>Отримано з НП: {{ batch['delivery']['pickedAt'] }} (Київ)</div>{% endif %}
+                  {% if batch['delivery'].get('error') %}<div class="helper-note warn">{{ batch['delivery']['error'] }}</div>{% endif %}
+                  <details>
+                    <summary>Перевізник, дата та ТТН</summary>
+                    <form method="post" action="{{ url_for('admin_transit_delivery', batch_id=batch['batchId']) }}" class="stack">
+                      <input type="hidden" name="csrf_token" value="{{ transit_delivery_csrf }}">
+                      {{ delivery_fields(batch['delivery'], batch['batchId']) }}
+                      <button class="btn primary small">Зберегти доставку</button>
+                    </form>
+                  </details>
+                </div>
                 <div class="transit-batch-meta-row">
                   <div>
                     <strong>Дата створення</strong>
@@ -288,8 +306,6 @@
 
                       <label class="field-label">Опис товару</label>
                       <input name="title" data-role="title" value="{{ order.title }}" required>
-      {{ location_field(order.storageLocation) }}
-
                       <label class="field-label">Службова інформація</label>
                       <textarea name="service_info" data-role="service-info">{{ order.serviceInfo }}</textarea>
 
@@ -356,6 +372,7 @@
               <div class="card inner-card">
                 <strong>Повний опис замовлення</strong>
                 <div class="muted" style="margin-top:8px">{{ batch["fullDescription"] or 'Не вказано' }}</div>
+                <div class="muted">{{ batch['delivery'].get('label', 'Перевізник не вказаний') }} • {{ batch['delivery'].get('expectedLabel', 'Дата не визначена') }}{% if batch['delivery'].get('ttn') %} • ТТН {{ batch['delivery']['ttn'] }}{% endif %}</div>
               </div>
 
               <div class="stack transit-position-list">
@@ -418,6 +435,22 @@
 </div>
 
 <script>
+document.querySelectorAll('[data-delivery-fields]').forEach((block) => {
+  const carrier = block.querySelector('[data-carrier-select]');
+  const update = () => {
+    const other = carrier.value === 'other';
+    block.querySelector('[data-carrier-np]').classList.toggle('hidden', carrier.value !== 'nova_poshta');
+    block.querySelector('[data-carrier-other]').classList.toggle('hidden', !other);
+    block.querySelector('[name="ttn"]').disabled = carrier.value !== 'nova_poshta';
+    block.querySelector('[name="carrier_name"]').disabled = !other;
+    block.querySelector('[name="carrier_name"]').required = other;
+    block.querySelector('[name="expected_date"]').required = other;
+    block.querySelector('[data-date-required]').textContent = other ? '*' : '';
+  };
+  carrier.addEventListener('change', update);
+  update();
+});
+
 function togglePanel(id) {
   const node = document.getElementById(id);
   if (node) node.classList.toggle('hidden');

@@ -76,6 +76,16 @@ class TransitDeliveryTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(site.get_api_settings_map(db)["transit_delivery_last_run"], self.winter_8.isoformat())
 
+    def test_public_tracking_is_not_blocked_by_an_empty_api_key(self):
+        self.create(carrier="nova_poshta", ttn="20450000000001")
+        self.np.return_value = ([self.snapshot(7)], {"success": True})
+        with self.sessions.begin() as db:
+            site.set_setting(db, "nova_poshta_api_key", "")
+        with self.sessions.begin() as db:
+            shipping.process_due(db, self.winter_8)
+        self.np.assert_called_once()
+        self.assertEqual(len(self.codes("arrived")), 1)
+
     def test_np_ttn_can_be_added_after_creation_but_must_be_valid(self):
         self.assertEqual(shipping.validate({"carrier": "nova_poshta"})["ttn"], "")
         with self.assertRaises(shipping.DeliveryError):

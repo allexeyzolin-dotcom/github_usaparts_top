@@ -268,12 +268,8 @@ def update_tracking(db, shipments, now):
            (row.checked_at is None or row.checked_at <= now - timedelta(minutes=5))]
     if not due:
         return
-    settings = SITE.get_api_settings_map(db)
-    if not settings.get("nova_poshta_api_key"):
-        for row in due:
-            row.last_error = "Не налаштовано API Нової пошти. Додайте ключ у вкладці API."
-            row.checked_at = now
-        return
+    # Public TrackingDocument requests also work with an empty API key.
+    # Let Nova Poshta validate the request, as the existing outbound tracker does.
     by_number = {}
     for row in due:
         by_number.setdefault(row.ttn, []).append(row)

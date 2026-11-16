@@ -958,6 +958,9 @@ def clear_queued_telegram_messages(session):
 
 
 def telegram_recent_chats(db):
+    if get_api_settings_map(db).get("telegram_stock_enabled") == "1":
+        # The worker owns getUpdates/offset; a cabinet page must not compete for it.
+        return telegram_stock.recent_chats(db)
     try:
         updates = telegram_api_request(
             db,
@@ -13665,6 +13668,21 @@ def admin_api():
                 db.commit()
                 flash("Telegram chat ID збережено.", "success")
                 return redirect(url_for("admin_api"))
+            if action == "telegram_stock_settings":
+                expected = session.get("telegram_stock_csrf", "")
+                if not expected or not secrets.compare_digest(expected, request.form.get("csrf_token", "")):
+                    abort(403)
+                enabled = request.form.get("telegram_stock_enabled") == "1"
+                current = get_api_settings_map(db)
+                if enabled and not (current.get("telegram_bot_token") and current.get("telegram_chat_id")):
+                    flash("Спочатку налаштуйте Telegram bot token і chat ID.", "error")
+                    return redirect(url_for("admin_api"))
+                if enabled and current.get("telegram_stock_enabled") != "1":
+                    set_setting(db, "telegram_stock_started_at", str(int(time.time())))
+                set_setting(db, "telegram_stock_enabled", "1" if enabled else "0")
+                db.commit()
+                flash("Складські команди Telegram " + ("увімкнені." if enabled else "вимкнені."), "success")
+                return redirect(url_for("admin_api"))
             if action == "google_merchant_test":
                 try:
                     result = google_merchant_test_connection(db)
@@ -13745,6 +13763,7 @@ def admin_api():
             warehouses=warehouses,
             telegram_status=telegram_status,
             recent_telegram_chats=recent_telegram_chats,
+            telegram_stock_csrf=session.setdefault("telegram_stock_csrf", secrets.token_urlsafe(32)),
         )
     finally:
         db.close()
@@ -15738,6 +15757,9 @@ register_revision_publication(sys.modules[__name__])
 from .storage_locations import register_storage_locations, migrate_storage_locations, request_location, request_location_for, clean_location
 StorageLocation = register_storage_locations(sys.modules[__name__])
 
+from . import telegram_stock
+telegram_stock_models = telegram_stock.install(sys.modules[__name__])
+
 
 if __name__ == "__main__":
     from waitress import serve
@@ -15745,6 +15767,7 @@ if __name__ == "__main__":
     seed_if_empty()
     start_backup_scheduler()
     marketplaces.start_scheduler()
+    telegram_stock.start_worker()
     # Keep one process for background jobs and in-memory invalidation. Proxy
     # headers are handled by the existing external_request_* helpers above.
     serve(app, host="0.0.0.0", port=8080, threads=8,

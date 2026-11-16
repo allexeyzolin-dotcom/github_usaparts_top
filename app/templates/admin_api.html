@@ -179,6 +179,28 @@
     {% endif %}
   </div>
 
+  <div class="card inner-card stack">
+    <h3>Складські команди Telegram</h3>
+    <p><code>+5Q0121407F 2</code> — додати 2 шт.; <code>-5Q0121407F</code> — списати 1 шт.</p>
+    <p>Пошук за точним артикулом. Якщо товар є на кількох складах, бот запропонує вибір складу. У відповіді — новий залишок і підтвердження Prom.</p>
+    <form method="post" class="stack">
+      <input type="hidden" name="api_action" value="telegram_stock_settings">
+      <input type="hidden" name="csrf_token" value="{{ telegram_stock_csrf }}">
+      <label class="choice">
+        <input type="checkbox" name="telegram_stock_enabled" value="1" {% if settings.get('telegram_stock_enabled') == '1' %}checked{% endif %}>
+        <span>Приймати складські команди тільки з налаштованого Telegram-чату</span>
+      </label>
+      <button class="btn primary">Зберегти складські команди</button>
+    </form>
+    <div class="helper-note">Для звичайних повідомлень зі знаком + або - бот має бути адміністратором групи або мати вимкнений Privacy Mode у BotFather. Якщо Privacy Mode увімкнений, можна надіслати команду відповіддю на повідомлення бота. Старі повідомлення до ввімкнення команд не змінюють склад.</div>
+    {% if settings.get('telegram_stock_last_poll') %}
+      <div class="helper-note">Останнє отримання повідомлень: {{ settings.get('telegram_stock_last_poll') }} UTC.</div>
+    {% endif %}
+    {% if settings.get('telegram_stock_error') %}
+      <div class="helper-note error">{{ settings.get('telegram_stock_error') }}</div>
+    {% endif %}
+  </div>
+
   <div class="muted">
     Android-додаток використовує <code>API_BASE_URL</code> або локально змінений URL у налаштуваннях самого додатка.
     Для зеленої позначки <code>API</code> має відповідати endpoint <code>/api/mobile/status</code>.

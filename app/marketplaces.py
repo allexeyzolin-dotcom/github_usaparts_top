@@ -372,9 +372,12 @@ def sync_orders(db, client, end):
     return dict(counts)
 
 
-def sync_stock(db, client):
+def sync_stock(db, client, *, part_id=None):
     sent = 0
-    for link in db.query(MODELS.Link).filter_by(stock_ready=True).order_by(MODELS.Link.id).all():
+    query = db.query(MODELS.Link).filter_by(stock_ready=True)
+    if part_id is not None:
+        query = query.filter_by(part_id=part_id)
+    for link in query.order_by(MODELS.Link.id).all():
         part = db.get(SITE.Part, link.part_id) if link.part_id else None
         if not part:
             link.issue = "Товар складу видалено або не зіставлено"
@@ -418,6 +421,69 @@ def sync_stock(db, client):
                 raise
     db.commit()
     return sent
+
+
+def sync_part_stock(part_id, *, expected_before=None):
+    """A stock command uses the same exclusion and conflict rules as scheduled sync."""
+    pending = lambda message: {"status": "pending", "message": message}
+    if not LOCK.acquire(blocking=False):
+        return pending("у черзі передачі; виконується інший обмін")
+    connection = client = None
+    try:
+        if SITE.engine.dialect.name == "postgresql":
+            connection = SITE.engine.connect()
+            if not connection.execute(text("SELECT pg_try_advisory_lock(77303271)")).scalar():
+                return pending("у черзі передачі; виконується інший обмін")
+        with SITE.SessionLocal() as db:
+            if setting(db, "prom_connected") != "1" or setting(db, "prom_stock", "1") != "1":
+                return pending("очікує увімкнення обміну залишками з Prom")
+            links = db.query(MODELS.Link).filter_by(part_id=part_id).all()
+            if len(links) != 1:
+                return pending("потрібне однозначне зіставлення товару у розділі Маркетплейси")
+            part = db.query(SITE.Part).filter_by(id=part_id, is_deleted=False).with_for_update().one_or_none()
+            if not part:
+                return pending("товар видалено зі складу; перевірте відповідник")
+            client = PromClient(token(db))
+            link = links[0]
+            if not link.stock_ready:
+                remote = client.product(link.remote_id)
+                remote_qty = quantity(remote["quantity_in_stock"]) if remote.get("quantity_in_stock") is not None else None
+                key = sku_key(remote.get("sku"))
+                matches = key and key in {sku_key(part.part_number), sku_key(part.part_number_export)}
+                if (not matches or remote_qty not in {expected_before, available(part)} or
+                        remote_qty is None or remote.get("status") != "on_display"):
+                    return pending("початкові залишки або артикул не збігаються; звірте товар у Маркетплейсах")
+                link.stock_ready, link.synced_qty, link.remote_qty = True, remote_qty, remote_qty
+                link.presence, link.issue = str(remote.get("presence") or ""), ""
+                db.commit()
+            sync_stock(db, client, part_id=part_id)
+            db.refresh(part)
+            db.refresh(link)
+            if link.issue:
+                return pending(link.issue)
+            confirmed = client.product(link.remote_id)
+            target = available(part)
+            if (confirmed.get("quantity_in_stock") is None or
+                    quantity(confirmed["quantity_in_stock"]) != target or
+                    confirmed.get("presence") != ("available" if target else "not_available")):
+                link.remote_qty = quantity(confirmed["quantity_in_stock"]) if confirmed.get("quantity_in_stock") is not None else None
+                link.presence = str(confirmed.get("presence") or "")
+                link.issue = "Prom ще не підтвердив поточний залишок"
+                db.commit()
+                return pending(link.issue)
+            return {"status": "confirmed", "message": f"підтверджено {target} шт."}
+    except PromError as error:
+        return pending(str(error))
+    except Exception:
+        SITE.app.logger.warning("Targeted Prom stock sync failed")
+        return pending("тимчасова помилка передачі; бот повторить спробу автоматично")
+    finally:
+        if client:
+            client.close()
+        if connection:
+            connection.execute(text("SELECT pg_advisory_unlock(77303271)"))
+            connection.close()
+        LOCK.release()
 
 
 def verify_stock_access(db, client):

@@ -380,6 +380,7 @@ def run_once(now=None):
         now = now or utc_now()
         with SITE.SessionLocal() as db:
             process_due(db, now)
+            SITE.set_setting(db, "transit_delivery_last_run", now.isoformat())
             db.commit()
             return deliver_one(db, now)
     finally:

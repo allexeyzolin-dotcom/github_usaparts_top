@@ -70,6 +70,12 @@ class TransitDeliveryTests(unittest.TestCase):
             with self.subTest(fields=fields), self.assertRaises(shipping.DeliveryError):
                 shipping.validate(fields)
 
+    def test_worker_records_successful_checks_even_without_shipments(self):
+        with patch.object(site, "engine", self.engine):
+            self.assertFalse(shipping.run_once(self.winter_8))
+        with self.sessions() as db:
+            self.assertEqual(site.get_api_settings_map(db)["transit_delivery_last_run"], self.winter_8.isoformat())
+
     def test_np_ttn_can_be_added_after_creation_but_must_be_valid(self):
         self.assertEqual(shipping.validate({"carrier": "nova_poshta"})["ttn"], "")
         with self.assertRaises(shipping.DeliveryError):

@@ -2495,6 +2495,7 @@ def serialize_admin_order(db, order: Order):
         "prepaymentUsd": float(order.prepayment_usd or 0),
         "ttn": normalize_text(order.ttn or ""),
         "ttnStatus": normalize_text(order.ttn_status or ""),
+        "tracking": order_tracking.serialize(db, order),
         "cancelReason": normalize_text(order.cancel_reason or ""),
         "externalSource": normalize_text(order.external_source or ""),
         "externalStatus": normalize_text(order.external_status or ""),
@@ -5582,21 +5583,9 @@ def np_request(db, model: str, called_method: str, method_properties: dict):
 def refresh_order_ttn_status_from_np(db, order: Order) -> str:
     if not order or not (order.ttn or "").strip():
         return ""
-    items, _raw = np_request(db, "TrackingDocument", "getStatusDocuments", {"Documents": [{"DocumentNumber": order.ttn}]})
-    if not items:
-        return ""
-    status = normalize_text(items[0].get("Status", "")).strip()
-    order.ttn_status = status
-    if "отриман" in status.lower():
-        if not order.stock_reserved:
-            reserve_order_inventory(db, order)
-        order.status = "done"
-        order.is_processing = False
-    elif order.ttn:
-        order.status = "shipped"
-        order.is_processing = True
-    order.updated_at = now()
-    return status
+    order_tracking.refresh(db, [order], force=True)
+    tracking = order_tracking.serialize(db, order)
+    return tracking["status"] if not tracking["error"] else ""
 
 
 def autopro_token_info(db):
@@ -12829,31 +12818,55 @@ def admin_orders():
     try:
         selected_group = request.args.get("group", "new").strip() or "new"
         orders = db.query(Order).order_by(desc(Order.created_at)).all()
+        order_tracking.prime_cache(db, orders)
         order_cards = [serialize_admin_order(db, order) for order in orders]
         counts = {
             "new": sum(1 for order in order_cards if order["group"] == "new"),
             "active": sum(1 for order in order_cards if order["group"] == "active"),
             "history": sum(1 for order in order_cards if order["group"] == "history"),
         }
-        if selected_group not in counts:
-            selected_group = "new"
         packing_requests = (
             db.query(PackingRequest)
             .filter(PackingRequest.status != "deleted", PackingRequest.source_type == "manual")
             .order_by(desc(PackingRequest.created_at))
             .all()
         )
+        packing_cards = [serialize_packing_request(db, item) for item in packing_requests]
+        counts["manual"] = len(packing_cards)
+        if selected_group not in counts:
+            selected_group = "new"
+        query = normalize_text(request.args.get("q", "")).strip()[:200]
+        def matches(card):
+            if not query:
+                return True
+            values = [str(card.get(key) or "") for key in ("id", "customerName", "phone", "city", "ttn", "comment", "title")]
+            values.extend(str(item.get(key) or "") for item in card.get("items", []) for key in ("partNumber", "name", "title"))
+            return query.casefold() in " ".join(values).casefold()
         news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
         return render_template(
             "admin_orders.html",
-            orders=[item for item in order_cards if item["group"] == selected_group],
+            orders=[item for item in order_cards if item["group"] == selected_group and matches(item)],
             order_counts=counts,
             selected_group=selected_group,
-            packing_requests=[serialize_packing_request(db, item) for item in packing_requests],
+            packing_requests=[item for item in packing_cards if matches(item)],
+            orders_query=query,
             news=news,
         )
     finally:
         db.close()
+
+
+@app.route("/admin/orders/tracking-status")
+@admin_required
+def admin_orders_tracking_status():
+    ids = list(dict.fromkeys(value for value in request.args.getlist("id")
+                            if value.isascii() and value.isdigit() and len(value) <= 10 and int(value) <= 2147483647))[:100]
+    with SessionLocal() as db:
+        orders = db.query(Order).filter(Order.id.in_([int(value) for value in ids])).all() if ids else []
+        order_tracking.prime_cache(db, orders)
+        response = jsonify({"orders": [{"id": order.id, **order_tracking.serialize(db, order)} for order in orders]})
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 @app.route("/admin/packing/create", methods=["POST"])
@@ -12899,7 +12912,7 @@ def admin_packing_create():
         )
         db.commit()
         flash("Заявку відправлено в додаток", "success")
-        return redirect(url_for("admin_orders"))
+        return redirect(url_for("admin_orders", group="manual"))
     finally:
         db.close()
 
@@ -13022,7 +13035,7 @@ def admin_packing_apply_stock(request_id):
         flash_news(db, "packing", "Склад скориговано", f"По заявці #{request_obj.id} скориговано {changed} позицій.", "success")
         db.commit()
         flash("Залишки на складі оновлено", "success")
-        return redirect(url_for("admin_orders"))
+        return redirect(url_for("admin_orders", group=order_group_for_status(order.status) if order else "manual"))
     finally:
         db.close()
 
@@ -13065,7 +13078,7 @@ def admin_packing_edit(request_id):
         flash_news(db, "packing", "Змінено заявку на пакування", f"Заявку #{request_obj.id} оновлено і знову відправлено в додаток.", "info")
         db.commit()
         flash("Заявку оновлено", "success")
-        return redirect(url_for("admin_orders"))
+        return redirect(url_for("admin_orders", group="manual" if request_obj.source_type == "manual" else "active"))
     finally:
         db.close()
 
@@ -13084,7 +13097,7 @@ def admin_packing_delete(request_id):
         flash_news(db, "packing", "Заявку видалено", f"Заявку #{request_obj.id} видалено.", "info")
         db.commit()
         flash("Заявку видалено", "success")
-        return redirect(url_for("admin_orders"))
+        return redirect(url_for("admin_orders", group="manual" if request_obj.source_type == "manual" else "active"))
     finally:
         db.close()
 
@@ -13542,12 +13555,13 @@ def admin_order_refresh_ttn(order_id):
             db.rollback()
             flash(inventory_reserve_error_message(str(exc)), "error")
             return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
+        db.commit()
         if status:
             flash_news(db, "nova_poshta", "Оновлено статус ТТН", f"Замовлення #{order.id}: {status}", "info")
             db.commit()
             flash("Статус ТТН оновлено", "success")
         else:
-            flash("Статус ТТН не знайдено", "error")
+            flash(order_tracking.serialize(db, order)["error"] or "Статус ТТН не знайдено", "error")
         return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
     except Exception as e:
         flash(f"Помилка оновлення ТТН: {e}", "error")
@@ -15875,6 +15889,9 @@ telegram_stock_models = telegram_stock.install(sys.modules[__name__])
 from . import transit_delivery
 transit_delivery_models = transit_delivery.install(sys.modules[__name__])
 
+from . import order_tracking
+order_tracking_models = order_tracking.install(sys.modules[__name__])
+
 
 if __name__ == "__main__":
     from waitress import serve
@@ -15884,6 +15901,7 @@ if __name__ == "__main__":
     marketplaces.start_scheduler()
     telegram_stock.start_worker()
     transit_delivery.start_worker()
+    order_tracking.start_worker()
     # Keep one process for background jobs and in-memory invalidation. Proxy
     # headers are handled by the existing external_request_* helpers above.
     serve(app, host="0.0.0.0", port=8080, threads=8,

@@ -16,14 +16,20 @@
   <script defer src="{{ url_for('static', filename='product-search.js') }}?v=20261018-1"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='storage-locations.css') }}?v=20261117-1">
   <script defer src="{{ url_for('static', filename='storage-locations.js') }}?v=20261107-1"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='cabinet.css') }}?v=20261117-2">
+  <script defer src="{{ url_for('static', filename='cabinet.js') }}?v=20261117-1"></script>
 </head>
 <body class="admin-theme {% block admin_body_class %}{% endblock %}">
   <header class="topbar">
     <a href="{{ url_for('home') }}" class="logo site-logo" aria-label="USAparts.top">
       <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
     </a>
-    <div></div>
-    <div class="header-right admin-header-links">
+    <span class="cabinet-title">Кабінет</span>
+    <div class="header-right cabinet-header-actions">
+      <button class="btn ghost" type="button" data-cabinet-open="cabinet-news">Події</button>
+      <details class="cabinet-tools">
+        <summary class="nav-link">Керування</summary>
+        <nav class="admin-header-links" aria-label="Керування магазином">
       <a class="nav-link {% if request.endpoint in ['admin_marketplaces', 'admin_avtopro_feeds'] %}is-active{% endif %}" href="{{ url_for('admin_marketplaces') }}">Маркетплейси</a>
       <a class="nav-link {% if request.endpoint == 'admin_cars' %}is-active{% endif %}" href="{{ url_for('admin_cars') }}">Авто</a>
       <a class="nav-link {% if request.endpoint == 'admin_statistics' %}is-active{% endif %}" href="{{ url_for('admin_statistics') }}">Статистика</a>
@@ -36,6 +42,8 @@
       <a class="nav-link {% if request.endpoint in ['admin_backup', 'admin_backup_settings', 'admin_backup_create', 'admin_backup_download'] %}is-active{% endif %}" href="{{ url_for('admin_backup') }}">Бекап</a>
       <a class="nav-link {% if request.endpoint == 'admin_account' %}is-active{% endif %}" href="{{ url_for('admin_account') }}">Змінити пароль</a>
       <a class="nav-link {% if request.endpoint == 'admin_api' %}is-active{% endif %}" href="{{ url_for('admin_api') }}">API</a>
+        </nav>
+      </details>
       <a class="cabinet" href="{{ url_for('admin_logout') }}">Вийти</a>
     </div>
   </header>
@@ -52,10 +60,11 @@
     {% endwith %}
 
     <div class="container admin-shell">
-      <aside class="admin-news">
-        <div class="card sticky">
+      <dialog class="cabinet-dialog admin-news" id="cabinet-news" aria-labelledby="cabinet-news-title">
+        <div class="stack">
           <div class="news-card-head">
-            <h3>Стрічка новин</h3>
+            <h3 id="cabinet-news-title">Події магазину</h3>
+            <button class="btn ghost small" type="button" data-cabinet-close>Закрити</button>
             <form method="post" action="{{ url_for('admin_news_clear') }}" onsubmit="return confirm('Очистити стрічку новин?');">
               <button class="btn ghost small" type="submit">Очистити</button>
             </form>
@@ -72,10 +81,10 @@
             {% endfor %}
           </div>
         </div>
-      </aside>
+      </dialog>
 
       <section class="admin-main">
-        <nav class="admin-nav admin-nav-main">
+        <nav class="admin-nav admin-nav-main" aria-label="Основні розділи кабінету">
           <a class="nav-link {% if request.endpoint == 'admin_parts' %}is-active{% endif %}" href="{{ url_for('admin_parts') }}">Запчастини</a>
           <a class="nav-link {% if request.endpoint == 'admin_products' %}is-active{% endif %}" href="{{ url_for('admin_products') }}">Склади</a>
           <a class="nav-link {% if request.endpoint == 'admin_inventory_revision' %}is-active{% endif %}" href="{{ url_for('admin_inventory_revision') }}">Ревізія</a>

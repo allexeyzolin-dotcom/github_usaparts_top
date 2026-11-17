@@ -1,5 +1,6 @@
 {% extends 'base_admin.html' %}
 {% from '_location_badge.html' import location_badge %}
+{% block admin_body_class %}admin-orders-page{% endblock %}
 {% block admin_content %}
 <style>
   .payment-modal{
@@ -41,31 +42,30 @@
     box-shadow:0 0 0 3px rgba(220,38,38,.12)!important;
   }
 </style>
+<div class="orders-page-head">
+  <div><h2>Замовлення / Видача</h2><p>Від нового замовлення до видачі клієнту. Деталі й дії — у картці замовлення.</p></div>
+  <button class="btn primary" type="button" data-cabinet-open="manual-packing-create">+ Створити видачу</button>
+</div>
+<div class="orders-toolbar">
+  <nav class="order-group-tabs" aria-label="Етапи замовлень">
+    {% for key, label in [('new', 'Нові'), ('active', 'В роботі'), ('manual', 'Ручна видача'), ('history', 'Історія')] %}
+    <a class="order-group-tab {% if selected_group == key %}active{% endif %}" {% if selected_group == key %}aria-current="page"{% endif %} href="{{ url_for('admin_orders', group=key, q=orders_query) }}">{{ label }} <span class="cart-badge">{{ order_counts[key] }}</span></a>
+    {% endfor %}
+  </nav>
+  <form class="orders-search" method="get" role="search">
+    <input type="hidden" name="group" value="{{ selected_group }}">
+    <input type="search" name="q" value="{{ orders_query }}" placeholder="Номер, клієнт, OEM або ТТН" aria-label="Пошук замовлень" maxlength="200">
+    <button class="btn ghost" type="submit">Знайти</button>
+  </form>
+</div>
+<div class="orders-monitor" data-tracking-feed="{{ url_for('admin_orders_tracking_status') }}"><span class="orders-monitor-dot" aria-hidden="true"></span><span data-tracking-feed-label>Статуси НП перевіряються автоматично кожні 5 хвилин, навіть коли кабінет закритий.</span></div>
 <div class="orders-workspace">
   <section class="orders-sidebar-stack">
-    <div class="panel-header orders-column-head">
-      <div>
-        <h2>Замовлення / Видача</h2>
-        <div class="muted">Ліва колонка для ручної видачі й заявок, які вже стоять на видачі в додатку.</div>
-      </div>
-    </div>
-
-    <div class="import-summary-grid orders-summary-grid">
-      <div class="summary-chip">
-        <div class="muted">Ручних заявок</div>
-        <strong>{{ packing_requests|length }}</strong>
-      </div>
-      <div class="summary-chip">
-        <div class="muted">Проблемних</div>
-        <strong>{{ packing_requests | selectattr('status', 'equalto', 'issue') | list | length }}</strong>
-      </div>
-    </div>
-
-    <section id="manual-packing-create" class="card stack orders-manual-card">
-      <div>
-        <h3>Поставити на видачу вручну</h3>
+    <dialog id="manual-packing-create" class="cabinet-dialog orders-manual-card" aria-labelledby="manual-packing-title">
+      <div class="cabinet-dialog-head"><div>
+        <h3 id="manual-packing-title">Нова ручна видача</h3>
         <div class="muted">Пошук починає працювати з 3 символів. Додайте товари в кошик і сформуйте список на видачу.</div>
-      </div>
+      </div><button class="btn ghost" type="button" data-cabinet-close>Закрити</button></div>
       <form method="post" action="{{ url_for('admin_packing_create') }}" class="stack" data-picker="parts" data-search-url="{{ url_for('admin_parts_search') }}" data-initial-items="[]" data-delivery-form>
         <div class="grid-2">
           <label class="choice"><input type="radio" name="delivery_type" value="pickup" checked> Самовивіз</label>
@@ -135,20 +135,18 @@
         <input type="hidden" name="items_json" data-role="items-json">
         <button class="btn primary" type="submit" data-control-payment-submit>Поставити на видачу</button>
       </form>
-    </section>
+    </dialog>
 
+    {% if selected_group == 'manual' %}
     {% if packing_requests %}
     <section class="card stack orders-manual-list">
-      <div class="panel-header">
-        <div>
-          <h3>Стоїть на видачі</h3>
-          <div class="muted">Ручні позиції на видачу, які ще не перетворені у звичайне замовлення.</div>
-        </div>
-      </div>
+      <div class="muted">Заявки, створені вручну та передані працівнику в додаток.</div>
 
       <div class="orders-list">
         {% for req in packing_requests %}
         <article class="order-card {% if req.status == 'issue' %}status-alert{% elif req.status in ['ready', 'packed', 'awaiting_shipment'] %}status-packed{% endif %}">
+          <details class="order-disclosure">
+          <summary><div class="order-overview-copy"><div class="order-overview-title"><strong>#{{ req.id }} · {{ clean_text(req.title) }}</strong><span class="badge {% if req.status == 'issue' %}danger{% else %}neutral{% endif %}">{{ req.statusLabel }}</span></div><div class="order-overview-meta"><span>{{ req.customerName or 'Ручна видача' }}</span><span>{{ req.deliveryLabel }}</span><span>{{ req.totalQty }} шт.</span></div></div><div class="order-overview-end"><small>Деталі ⌄</small></div></summary>
           <div class="order-body" style="padding-top:18px">
             <div class="order-line">
               <strong>#{{ req.id }}</strong>
@@ -255,7 +253,6 @@
                     </div>
                     <input name="house" data-role="house-input" placeholder="Будинок" value="{{ req.npHouse or '' }}">
                   </div>
-                  <input name="control_payment_uah" type="number" step="0.01" min="0" value="{{ req.controlPaymentUah or 0 }}" placeholder="РљРѕРЅС‚СЂРѕР»СЊ РѕРїР»Р°С‚Рё, РіСЂРЅ">
                   <div class="control-payment-block" data-control-payment-block>
                     <span class="field-label">&#1050;&#1086;&#1085;&#1090;&#1088;&#1086;&#1083;&#1100; &#1086;&#1087;&#1083;&#1072;&#1090;&#1080;, &#1075;&#1088;&#1085;</span>
                     <input
@@ -288,6 +285,7 @@
             </div>
             {% endif %}
           </div>
+          </details>
         </article>
         {% endfor %}
       </div>
@@ -298,68 +296,28 @@
       <div class="muted">Ручних заявок поки немає. Нова заявка з'явиться тут одразу після створення.</div>
     </section>
     {% endif %}
+    {% endif %}
   </section>
 
+  {% if selected_group != 'manual' %}
   <section class="orders-main-stack">
-    <section class="panel-header orders-column-head orders-main-head">
-      <div>
-        <h3>Список замовлень</h3>
-        <div class="muted">Права колонка для контролю замовлень, фільтрів, відправки на видачу та фінального завершення.</div>
-      </div>
-    </section>
-
-    <div class="import-summary-grid orders-summary-grid orders-main-summary">
-      <div class="summary-chip">
-        <div class="muted">Нові</div>
-        <strong>{{ order_counts.new }}</strong>
-      </div>
-      <div class="summary-chip">
-        <div class="muted">Активні</div>
-        <strong>{{ order_counts.active }}</strong>
-      </div>
-      <div class="summary-chip">
-        <div class="muted">У поточній вкладці</div>
-        <strong>{{ orders|length }}</strong>
-      </div>
-    </div>
-
-    <div class="order-group-tabs">
-      <a class="order-group-tab green {% if selected_group == 'new' %}active{% endif %}" href="{{ url_for('admin_orders', group='new') }}">Нові <span class="cart-badge">{{ order_counts.new }}</span></a>
-      <a class="order-group-tab yellow {% if selected_group == 'active' %}active{% endif %}" href="{{ url_for('admin_orders', group='active') }}">Активні <span class="cart-badge">{{ order_counts.active }}</span></a>
-      <a class="order-group-tab red {% if selected_group == 'history' %}active{% endif %}" href="{{ url_for('admin_orders', group='history') }}">Виконані / скасовані</a>
-    </div>
-
+    {% if selected_group == 'active' %}
+    <label class="order-active-filter">Етап<select data-order-stage><option value="all">Усі активні</option><option value="processing">Комплектування</option><option value="awaiting_shipment">Готові до відправки</option><option value="shipped">Відправлені</option><option value="issue">Потребують уваги</option></select><span data-stage-count></span></label>
+    {% endif %}
     <div class="orders-list orders-main-list">
       {% for order in orders %}
-      <article class="order-card status-{{ order.status }}{% if selected_group == 'history' %} history-order-card{% endif %}"{% if selected_group == 'history' %} data-history-order-card{% endif %}>
+      <article class="order-card status-{{ order.status }}" data-tracking-order="{{ order.id }}" data-order-status="{{ order.status }}" data-packing-issue="{{ '1' if order.hasIssue else '0' }}" data-order-issue="{{ '1' if order.hasIssue or order.tracking.attention else '0' }}">
+        <details class="order-disclosure" id="order-{{ order.id }}">
+          <summary>
+            <div class="order-overview-copy">
+              <div class="order-overview-title"><strong>#{{ order.id }} · {{ order.customerName or 'Без імені клієнта' }}</strong><span class="badge {% if order.status == 'done' %}success{% elif order.status == 'cancelled' %}cancelled{% elif order.status == 'new' %}neutral{% else %}warn{% endif %}">{{ order.statusLabel }}</span>{% if order.packingStatusLabel %}<span class="badge neutral">{{ order.packingStatusLabel }}</span>{% endif %}{% if order.externalSource %}<span class="badge neutral">{{ order.externalSource|upper }}</span>{% endif %}</div>
+              <div class="order-overview-meta"><span>{{ order.phone or 'Телефон не вказано' }}</span><span>{{ order["items"]|length }} поз.</span><span>{{ order.createdAt }}</span>{% if order.city %}<span>{{ order.city }}</span>{% endif %}</div>
+              {% if order.ttn %}<div class="order-ttn-summary"><span>НП · {{ order.ttn }}</span><span data-ttn-status class="{{ 'is-received' if order.tracking.received else ('needs-attention' if order.tracking.attention else '') }}">{{ order.tracking.status or 'Очікує перевірки' }}</span></div>{% endif %}
+            </div>
+            <div class="order-overview-end"><strong>${{ '%.2f'|format(order.totalUsd) }}</strong><small>Деталі ⌄</small></div>
+          </summary>
         <div class="order-body" style="padding-top:18px">
-          <div class="order-line">
-            <strong>#{{ order.id }}</strong>
-            <span>{{ order.customerName or 'Без імені клієнта' }}</span>
-            {% if order.city %}<span>{{ order.city }}</span>{% endif %}
-            <span>${{ '%.2f'|format(order.totalUsd) }}</span>
-            <span class="badge {% if order.status == 'done' %}success{% elif order.status == 'cancelled' %}cancelled{% elif order.status == 'new' %}neutral{% else %}warn{% endif %}">{{ order.statusLabel }}</span>
-            {% if order.packingStatusLabel %}
-            <span class="badge {% if order.packingStatus in ['packed', 'shipped'] %}success{% elif order.packingStatus == 'awaiting_shipment' %}warn{% else %}neutral{% endif %}">{{ order.packingStatusLabel }}</span>
-            {% endif %}
-            {% if order.externalSource %}
-            <span class="badge neutral">{{ order.externalSource|upper }}</span>
-            {% endif %}
-            {% if selected_group == 'history' %}
-            <button class="btn ghost history-order-toggle" type="button" data-history-order-toggle aria-expanded="false">Показати опис і позиції</button>
-            {% endif %}
-          </div>
-
-          <div class="muted" style="margin-top:8px">
-            {{ order.phone or 'Телефон не вказано' }}
-            {% if selected_group != 'history' and order.comment %} • {{ order.comment }}{% endif %}
-            • Створено: {{ order.createdAt }}
-          </div>
-          {% if selected_group == 'history' %}
-          <div class="history-order-hint">
-            {{ order["items"]|length }} позицій. Натисніть на картку, щоб переглянути деталі.
-          </div>
-          {% endif %}
+          {% if order.comment %}<div class="muted">{{ order.comment }}</div>{% endif %}
 
           {% if (order.packingControlPaymentUah or 0) > 0 and (order.prepaymentUsd or 0) <= 0 %}
           <div class="choice" style="margin-top:12px"><strong>Контроль оплати:</strong> {{ '%.2f'|format(order.packingControlPaymentUah or 0) }} грн</div>
@@ -371,7 +329,7 @@
           <div class="choice" style="margin-top:12px"><strong>Причина скасування:</strong> {{ order.cancelReason }}</div>
           {% endif %}
 
-          <div{% if selected_group == 'history' %} class="history-order-details" data-history-order-details hidden{% endif %}>
+          <div>
             {% if selected_group == 'history' %}
             <div class="history-order-description">
               <div class="history-order-description-item">
@@ -439,17 +397,15 @@
           {% endif %}
 
           {% if order.canDirectTtnEdit or order.ttn %}
-          <form method="post" action="{{ url_for('admin_order_update', order_id=order.id) }}" class="stack" style="margin-top:14px">
+          <form method="post" action="{{ url_for('admin_order_update', order_id=order.id) }}" class="stack order-ttn-form" style="margin-top:14px">
             <input type="hidden" name="prepayment_usd" value="{{ order.prepaymentUsd or 0 }}">
-            <div>
-              <input name="ttn" value="{{ order.ttn or '' }}" placeholder="ТТН Нової пошти">
-            </div>
-            {% if order.ttnStatus %}
-            <div class="muted">Статус ТТН: {{ order.ttnStatus }}</div>
-            {% endif %}
+            <label class="stack field-label">ТТН Нової пошти<input name="ttn" value="{{ order.ttn or '' }}" placeholder="14 цифр" inputmode="numeric" pattern="[0-9 ]{14,20}" {% if not order.canDirectTtnEdit %}readonly{% endif %}></label>
+            <div class="muted" data-ttn-status>{{ order.tracking.status or 'Очікує перевірки' }}</div>
+            <div class="muted" data-ttn-checked>{{ ('Перевірено: ' ~ order.tracking.checkedAt ~ ' · Київ') if order.tracking.checkedAt else 'Перша перевірка — автоматично протягом 5 хвилин.' }}</div>
+            <div class="ttn-error" data-ttn-error {% if not order.tracking.error %}hidden{% endif %}>{{ order.tracking.error }}</div>
             <div class="button-row">
-              <button class="btn ghost" type="submit">Зберегти ТТН</button>
-              {% if order.ttn %}
+              {% if order.canDirectTtnEdit %}<button class="btn ghost" type="submit">Зберегти ТТН</button>{% endif %}
+              {% if order.ttn and order.status != 'cancelled' %}
               <button class="btn ghost" type="submit" formaction="{{ url_for('admin_order_refresh_ttn', order_id=order.id) }}" formmethod="post">Оновити статус ТТН</button>
               {% endif %}
             </div>
@@ -463,7 +419,7 @@
               <input type="hidden" name="confirm_text">
               <button class="btn primary" type="submit">Виконано</button>
             </form>{% endif %}
-            <button class="btn ghost" type="button" onclick="togglePanel('order-edit-{{ order.id }}')">Редагувати замовлення</button>
+            {% if order.canEditItems %}<button class="btn ghost" type="button" onclick="togglePanel('order-edit-{{ order.id }}')">Редагувати замовлення</button>{% endif %}
             <form id="cancel-order-form-{{ order.id }}" method="post" action="{{ url_for('admin_order_cancel', order_id=order.id) }}">
               <input type="hidden" name="cancel_reason">
               <button class="btn danger" type="button" onclick="cancelOrder({{ order.id }})">Скасувати замовлення</button>
@@ -488,6 +444,7 @@
           </div>
           {% endif %}
         </div>
+        </details>
       </article>
       {% else %}
       <div class="card orders-empty-card">
@@ -497,7 +454,9 @@
       {% endfor %}
     </div>
   </section>
+  {% endif %}
 </div>
+<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261117-1"></script>
 
 <div class="payment-modal hidden" id="control-payment-modal" aria-hidden="true">
   <div class="payment-modal__backdrop" data-control-payment-close></div>
@@ -566,46 +525,6 @@ function cancelOrder(orderId) {
   form.querySelector('input[name="cancel_reason"]').value = reason.trim();
   form.submit();
 }
-
-(() => {
-  document.querySelectorAll('[data-history-order-card]').forEach((card) => {
-    const details = card.querySelector('[data-history-order-details]');
-    const toggle = card.querySelector('[data-history-order-toggle]');
-    if (!details) return;
-
-    function setExpanded(expanded) {
-      details.hidden = !expanded;
-      card.classList.toggle('is-expanded', expanded);
-      if (toggle) {
-        toggle.setAttribute('aria-expanded', String(expanded));
-        toggle.textContent = expanded ? 'Сховати опис і позиції' : 'Показати опис і позиції';
-      }
-    }
-
-    function shouldIgnoreClick(target) {
-      return Boolean(target.closest('a, button, input, select, textarea, label, form, [data-history-order-details]'));
-    }
-
-    card.addEventListener('click', (event) => {
-      if (shouldIgnoreClick(event.target)) return;
-      setExpanded(details.hidden);
-    });
-
-    card.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      if (shouldIgnoreClick(event.target)) return;
-      event.preventDefault();
-      setExpanded(details.hidden);
-    });
-
-    if (toggle) {
-      toggle.addEventListener('click', (event) => {
-        event.stopPropagation();
-        setExpanded(details.hidden);
-      });
-    }
-  });
-})();
 
 (() => {
   function normalizeControlPaymentValue(rawValue) {

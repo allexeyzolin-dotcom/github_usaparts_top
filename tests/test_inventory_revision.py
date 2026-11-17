@@ -87,6 +87,25 @@ class InventoryRevisionTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(db.query(site.RevisionPart).count(), 0)
 
+    def test_revision_summary_values_available_stock_at_selling_prices(self):
+        self.login()
+        self.assertEqual(self.save().status_code, 200)  # 2 units at $12.50, also published to the site.
+        with self.sessions.begin() as db:
+            db.get(site.Warehouse, 1).markup_percent = 10
+            db.add(site.Warehouse(id=3, name="Другий склад"))
+            db.add_all([
+                site.Part(warehouse_id=3, part_number="06G-127-028H", qty=1, in_stock=True, price_usd=10),
+                site.Part(warehouse_id=3, part_number="NOT-AVAILABLE", qty=4, in_stock=False, price_usd=100),
+                site.Part(warehouse_id=3, part_number="REMOVED", qty=3, in_stock=True, is_deleted=True, price_usd=100),
+                site.Part(warehouse_id=3, part_number="ZERO-STOCK", qty=0, in_stock=True, price_usd=100),
+            ])
+        response = self.client.get("/admin/revision")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("<dd>$25.00</dd>", response.text)
+        # $880 from the main warehouse, $10 from the other warehouse and $25 from revision stock.
+        self.assertIn("<dd>$915.00</dd>", response.text)
+        self.assertIn("37\u202f972.50 ₴", response.text)
+
     def test_new_barcodes_are_unique_searchable_and_stable_on_retry_and_edit(self):
         self.login()
         before = self.snapshot_main()

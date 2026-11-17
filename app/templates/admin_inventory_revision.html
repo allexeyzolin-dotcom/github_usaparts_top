@@ -1,7 +1,7 @@
 {% extends 'base_admin.html' %}
 {% block admin_body_class %}inventory-revision-page{% if is_mobile_revision %} revision-mobile-client{% endif %}{% endblock %}
 {% block admin_content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261114-3">
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261117-4">
 <section id="inventory-revision" data-search-url="{{ url_for('inventory_revision_search') }}"
          data-save-url="{{ url_for('inventory_revision_save') }}" data-upload-url="{{ url_for('inventory_revision_photos') }}" data-token="{{ revision_token }}" data-edit-id="{{ edit_id or '' }}">
   <div class="panel-header">
@@ -29,11 +29,20 @@
     <div id="revision-results" class="revision-results" hidden></div>
   </div>
 
-  <div class="revision-summary">
-    <span><strong>{{ total }}</strong> карток</span>
-    <span><strong>{{ units }}</strong> перевірених одиниць</span>
-    <span class="badge success">Перевірена наявність</span>
-  </div>
+  <dl class="revision-summary" aria-label="Підсумки ревізії та залишків">
+    <div><dt>Карток ревізії</dt><dd>{{ total }}</dd></div>
+    <div><dt>Перевірених одиниць</dt><dd>{{ units }}</dd></div>
+    <div>
+      <dt>Загальна вартість перевіреного товару</dt>
+      <dd>${{ '{:,.2f}'.format(verified_value).replace(',', '\u202f') }}</dd>
+      <dd class="revision-summary-note">За цінами в картках ревізії</dd>
+    </div>
+    <div>
+      <dt>Вартість товарів на сайті</dt>
+      <dd>${{ '{:,.2f}'.format(site_value_usd).replace(',', '\u202f') }}</dd>
+      <dd class="revision-summary-note">{{ '{:,.2f}'.format(site_value_uah).replace(',', '\u202f') }} ₴ · у наявності, за цінами продажу</dd>
+    </div>
+  </dl>
   <div class="helper-note revision-independence">Дані основної бази можна скопіювати в нову картку. Збережена картка ревізії має власні дані та кількість.</div>
   <div class="helper-note revision-independence">Товари з кількістю понад 0 відображаються на сайті. Для Автопро: CSV у USD, ціна з двома десятковими знаками; виробник та ціна понад 0 обов’язкові.</div>
 

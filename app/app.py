@@ -7576,11 +7576,15 @@ def seo_is_service_warehouse_name(value: str) -> bool:
     return service_hits == len(tokens)
 
 
+def public_stock_conditions():
+    return Part.is_deleted.is_(False), Part.in_stock.is_(True), Part.qty > 0
+
+
 def public_active_parts(db):
     return (
         db.query(Part)
         .options(joinedload(Part.warehouse))
-        .filter(Part.is_deleted == False, Part.in_stock == True, Part.qty > 0)
+        .filter(*public_stock_conditions())
         .order_by(desc(Part.updated_at), desc(Part.id))
         .all()
     )

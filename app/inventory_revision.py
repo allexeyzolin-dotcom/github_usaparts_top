@@ -171,7 +171,24 @@ def register_inventory_revision(site):
             session.pop("revision_mobile_user", None)
         session.setdefault("revision_token", secrets.token_urlsafe(32))
         with site.SessionLocal() as db:
-            total, units = db.query(func.count(RevisionPart.id), func.coalesce(func.sum(RevisionPart.qty), 0)).one()
+            total, units, verified_value = db.query(
+                func.count(RevisionPart.id),
+                func.coalesce(func.sum(RevisionPart.qty), 0),
+                func.coalesce(func.sum(RevisionPart.price_usd * RevisionPart.qty), 0),
+            ).one()
+            stock = (
+                db.query(site.Part.price_usd, site.Warehouse.markup_percent, func.sum(site.Part.qty))
+                .select_from(site.Part)
+                .join(site.Warehouse, site.Part.warehouse_id == site.Warehouse.id)
+                .filter(*site.public_stock_conditions())
+                .group_by(site.Part.price_usd, site.Warehouse.markup_percent)
+            )
+            # Published revision stock is already in Part; each warehouse balance is counted once.
+            site_value_usd = Decimal("0.00")
+            site_value_uah = Decimal("0.00")
+            for price, markup, qty in stock:
+                site_value_usd += site.retail_price_usd(price, markup) * qty
+                site_value_uah += Decimal(site.display_uah(price, markup)) * qty
             page = max(request.args.get("page", 1, type=int) or 1, 1)
             pages = max((total + 49) // 50, 1)
             page = min(page, pages)
@@ -183,7 +200,9 @@ def register_inventory_revision(site):
                 page = preceding // 50 + 1
             rows = db.query(RevisionPart).order_by(desc(RevisionPart.verified_at), desc(RevisionPart.id)).offset((page - 1) * 50).limit(50).all()
             return render_template("admin_inventory_revision.html", cards=[card(row) for row in rows],
-                                   total=total, units=units, page=page, pages=pages,
+                                   total=total, units=units, verified_value=verified_value,
+                                   site_value_usd=site_value_usd, site_value_uah=site_value_uah,
+                                   page=page, pages=pages,
                                    news=db.query(site.NewsFeed).order_by(desc(site.NewsFeed.created_at)).limit(12).all(),
                                    revision_token=session["revision_token"], is_mobile_revision=mobile,
                                    revision_actor=session.get("revision_mobile_user") or "Сайт",

@@ -76,6 +76,14 @@ class PartsWorkflowTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(db.query(site.PartTemplate).count(), 2)
 
+    def test_exact_oem_wins_over_another_cards_cross_number_or_barcode(self):
+        with self.sessions.begin() as db:
+            db.add(site.PartTemplate(part_number='CROSS-OWNER', name='Інший товар', cross_numbers_json='["ONLY-456"]'))
+            db.add(site.Part(warehouse_id=1, part_number='BARCODE-OWNER', name='Інший товар', qty=1, barcode='ONLY-456'))
+            db.flush()
+            scope, focus, numbers = parts_tools.locate(site, db, 'ONLY-456')
+            self.assertEqual((scope, focus, numbers), ('all', 'ONLY-456', {'ONLY-456'}))
+
     def test_master_photo_selection_changes_cover_and_export_without_stock_changes(self):
         self.client.get('/admin/parts?warehouse_id=all')
         with self.client.session_transaction() as state:
@@ -95,6 +103,24 @@ class PartsWorkflowTests(unittest.TestCase):
 
     def test_photo_route_requires_csrf_and_existing_card(self):
         self.assertEqual(self.client.post('/admin/parts/photos', data={'part_number': '5Q0-123'}).status_code, 403)
+
+    def test_cover_choice_also_updates_verified_stock_and_preserves_its_other_photos(self):
+        with self.sessions.begin() as db:
+            revision = site.RevisionPart(part_number='5Q0-123', part_key='5Q0123', name='Перевірена деталь',
+                                         qty=2, location='REV-129', photo_urls='["/uploads/verified.jpg"]')
+            db.add(revision)
+            db.flush()
+            verified = site.publish_revision_part(db, revision, warehouse=db.get(site.Warehouse, 1))
+            template = site.find_part_template(db, '5Q0-123')
+            template.showcase_photo_urls = '["/uploads/b.jpg", "/uploads/a.jpg"]'
+            parts_tools.sync_photos(site, db, template)
+            self.assertEqual(site.public_part_photo(verified), '/uploads/b.jpg')
+            self.assertIn('/uploads/verified.jpg', site.part_gallery_urls(verified))
+            self.assertEqual((verified.qty, verified.storage_location, revision.qty), (2, 'REV-129', 2))
+            self.assertEqual(json.loads(revision.photo_urls)[0], '/uploads/b.jpg')
+            # The next publication/server restart must retain the selected cover.
+            site.publish_revision_part(db, revision)
+            self.assertEqual(site.public_part_photo(verified), '/uploads/b.jpg')
 
     def test_selected_upload_becomes_cover_when_existing_choice_is_not_submitted(self):
         with self.sessions() as db, patch.object(site, 'save_uploads', return_value=['/uploads/new1.jpg', '/uploads/new2.jpg']), patch.object(site, 'save_resized_export_photo', return_value='/uploads/out.jpg'):

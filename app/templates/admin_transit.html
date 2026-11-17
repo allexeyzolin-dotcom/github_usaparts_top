@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_location_badge.html' import location_badge %}
 {% from '_storage_location_field.html' import location_field %}
 {% from '_transit_delivery_fields.html' import delivery_fields %}
 {% block admin_content %}
@@ -219,6 +220,7 @@
                     <div>
                       <div class="news-title">{{ order.partNumber }}</div>
                       <div class="muted">{{ order.title }} • {{ order.qty }} шт.</div>
+                      {{ location_badge(order.storageLocation) }}
                     </div>
                     <span class="badge {% if order.status == 'in_stock' %}success{% else %}warn{% endif %}">{{ order.statusLabel }}</span>
                   </div>
@@ -382,6 +384,7 @@
                     <div>
                       <div class="news-title">{{ order.partNumber }}</div>
                       <div class="muted">{{ order.title }}, {{ order.qty }} шт.</div>
+                      {{ location_badge(order.storageLocation) }}
                     </div>
                     <span class="badge {% if order.status == 'in_stock' %}success{% else %}warn{% endif %}">{{ order.statusLabel }}</span>
                   </div>

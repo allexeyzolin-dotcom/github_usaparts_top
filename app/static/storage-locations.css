@@ -1,3 +1,5 @@
 .storage-location-field{display:grid;gap:7px;min-width:0;text-align:left}
 .storage-location-field small{font-size:11px;line-height:1.5;color:#64748b;font-weight:400}
 .storage-location-field input{width:100%;min-width:0}
+.storage-location-badge{display:flex;align-items:center;flex-wrap:wrap;gap:5px;width:fit-content;max-width:100%;padding:8px 11px;margin:7px 0;border:1px solid #d97706;border-radius:9px;background:#fef3c7;color:#78350f!important;font-size:13px;line-height:1.5;font-weight:600;overflow-wrap:anywhere;text-align:left}
+.storage-location-badge strong{color:#78350f!important;font-weight:800}

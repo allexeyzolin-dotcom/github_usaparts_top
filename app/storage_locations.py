@@ -253,3 +253,24 @@ def register_storage_locations(site):
             db.commit()
     site.index_existing_storage_locations = index_existing
     return StorageLocation
+
+
+def location_payload(record):
+    value = str(getattr(record, "storage_location", "") or "").strip() if record else ""
+    return {"storageLocation": value, "storageLocationLabel": "Місце на складі: " + value if value else "",
+            "storageLocationHighlight": bool(value)}
+
+
+def location_line(record):
+    value = location_payload(record)["storageLocation"]
+    return "📍 Місце на складі: " + value if value else ""
+
+
+def location_entities(message):
+    result, offset = [], 0
+    for line in message.splitlines(keepends=True):
+        length = len(line.rstrip("\r\n").encode("utf-16-le")) // 2
+        if line.startswith("📍 Місце на складі:"):
+            result.append({"type": "bold", "offset": offset, "length": length})
+        offset += len(line.encode("utf-16-le")) // 2
+    return result

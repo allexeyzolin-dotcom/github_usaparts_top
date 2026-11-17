@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_location_badge.html' import location_badge %}
 {% block admin_content %}
 <style>
   .payment-modal{
@@ -169,6 +170,7 @@
               {% for item in req['items'] %}
               <div class="top-item {% if item.status in ['partial', 'missing'] %}row-problem{% endif %}">
                 <div class="news-title">{{ item.partNumber }} — {{ clean_text(item.title) }}</div>
+                {{ location_badge(item.storageLocation) }}
                 <div class="muted">Потрібно: {{ item.expectedQty }} • Знайдено: {{ item.foundQty }}</div>
               </div>
               {% endfor %}
@@ -399,6 +401,7 @@
               {% for item in order["items"] %}
               <div class="top-item {% if item.issue %}row-problem{% endif %}">
                 <div class="news-title">{{ item.partNumber }} — {{ item.name }}</div>
+                {{ location_badge(item.storageLocation) }}
                 <div class="muted">
                   {{ item.qty }} шт. • ${{ '%.2f'|format(item.priceUsd) }}
                   {% if item.hasPackingState %}

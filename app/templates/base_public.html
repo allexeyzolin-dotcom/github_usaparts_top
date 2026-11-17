@@ -58,6 +58,7 @@
   <link rel="manifest" href="{{ url_for('site_webmanifest') }}">
   {% if request.endpoint not in ['home', 'catalog', 'seo_brand_page', 'seo_category_page', 'seo_vehicle_page', 'seo_brand_category_page', 'seo_vehicle_category_page'] %}
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=20260906">
+  <link rel="stylesheet" href="{{ url_for('static', filename='storage-locations.css') }}?v=20261117-1">
   {% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='storefront.css') }}?v={{ storefront_asset_version }}">
   <script defer src="{{ url_for('static', filename='image-fallback.js') }}?v=20261013" data-fallback="{{ url_for('static', filename='photo-unavailable.svg') }}"></script>

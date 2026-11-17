@@ -1,0 +1,3 @@
+{% macro location_badge(value) -%}
+{% if value and value.strip() %}<div class="storage-location-badge" aria-label="Місце на складі"><span aria-hidden="true">📍</span> Місце на складі: <strong>{{ value }}</strong></div>{% endif %}
+{%- endmacro %}

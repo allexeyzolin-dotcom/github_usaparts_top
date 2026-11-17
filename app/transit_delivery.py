@@ -167,7 +167,12 @@ def position_lines(positions):
     for row, qty in positions:
         key = (row.part_number, row.title[:160])
         grouped[key] = grouped.get(key, 0) + qty
-    return [f"• {number} — {title} — {qty} шт." for (number, title), qty in grouped.items()]
+    lines = []
+    for (number, title), qty in grouped.items():
+        lines.append(f"• {number} — {title} — {qty} шт.")
+        locations = dict.fromkeys(SITE.location_line(row) for row, _ in positions if row.part_number == number and SITE.location_line(row))
+        lines.extend(locations)
+    return lines
 
 
 def split_messages(lines, limit=3500):
@@ -349,7 +354,8 @@ def deliver_one(db, now):
             notice.chunks = json.dumps(chunks, ensure_ascii=False)
         if notice.sent_chunks < len(chunks):
             telegram_api(config["bot_token"], "sendMessage", {"chat_id": config["chat_id"],
-                         "text": chunks[notice.sent_chunks], "disable_web_page_preview": True})
+                         "text": chunks[notice.sent_chunks], "entities": SITE.location_entities(chunks[notice.sent_chunks]),
+                         "disable_web_page_preview": True})
             notice.sent_chunks += 1
         notice.last_error = ""
         if notice.sent_chunks >= len(chunks):

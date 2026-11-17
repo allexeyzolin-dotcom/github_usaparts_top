@@ -649,6 +649,7 @@ def send_telegram_message_raw(bot_token: str, chat_id: str, text: str):
         json={
             "chat_id": chat_id,
             "text": text,
+            "entities": location_entities(text),
             "disable_web_page_preview": True,
         },
         timeout=20,
@@ -700,6 +701,7 @@ def build_inventory_telegram_message(
     after_qty: int,
     context_label: str = "",
     reason: str = "",
+    storage_location: str = "",
 ):
     delta_qty = int(after_qty or 0) - int(before_qty or 0)
     if delta_qty == 0:
@@ -720,6 +722,8 @@ def build_inventory_telegram_message(
     ]
     if context_label:
         lines.append(f"Контекст: {normalize_text(context_label).strip()}")
+    if storage_location:
+        lines.append("📍 Місце на складі: " + storage_location)
     if reason:
         lines.append(f"Причина: {normalize_text(reason).strip()}")
     return "\n".join(lines)
@@ -734,6 +738,7 @@ def queue_inventory_change(
     after_qty: int,
     context_label: str = "",
     reason: str = "",
+    storage_location: str = "",
 ):
     text = build_inventory_telegram_message(
         part_number=part_number,
@@ -742,6 +747,7 @@ def queue_inventory_change(
         after_qty=after_qty,
         context_label=context_label,
         reason=reason,
+        storage_location=storage_location,
     )
     if text:
         queue_telegram_message(db, text)
@@ -755,6 +761,7 @@ def queue_part_inventory_change(db, part: "Part", before_qty: int, context_label
         part_number=part.part_number,
         title=part.name or part.description or "",
         before_qty=before_qty,
+        storage_location=part.storage_location or request_location(),
         after_qty=int(part.qty or 0),
         context_label=context_label,
         reason=reason,
@@ -769,6 +776,7 @@ def queue_template_inventory_change(db, template: "PartTemplate", before_qty: in
         part_number=template.part_number,
         title=template.name or template.description or "",
         before_qty=before_qty,
+        storage_location=template.storage_location or request_location(),
         after_qty=template_unassigned_qty(template),
         context_label=context_label,
         reason=reason,
@@ -838,6 +846,9 @@ def queue_inventory_assignment_change(
         reason=reason,
     )
     if text:
+        location = request_location() or template.storage_location
+        if location:
+            text += "\n📍 Місце на складі: " + location
         queue_telegram_message(db, text)
 
 
@@ -860,6 +871,8 @@ def build_order_telegram_message(order: Order, items: list[dict], city_name: str
             continue
         name = normalize_text(part.name or "").strip() or "Без опису"
         lines.append(f"- {part.part_number} • {name} • {int(item.get('qty') or 0)} шт.")
+        if location_line(part):
+            lines.append(location_line(part))
     lines.extend(
         [
             "",
@@ -1467,6 +1480,7 @@ def build_all_goods_cards(db, query_text: str = ""):
             assigned_warehouses.append(
                 {
                     "partId": part.id,
+                    **location_payload(part),
                     "warehouseId": part.warehouse_id,
                     "warehouseName": warehouse.name if warehouse else "",
                     "qty": int(part.qty or 0),
@@ -1483,6 +1497,8 @@ def build_all_goods_cards(db, query_text: str = ""):
                 barcode,
                 " ".join(cross_numbers),
                 " ".join(warehouse_names),
+                template.storage_location if template else "",
+                " ".join(part.storage_location or "" for part in related_parts),
             ]
         ).casefold()
         if needle and needle not in haystack:
@@ -1521,6 +1537,7 @@ def build_all_goods_cards(db, query_text: str = ""):
                 "crossNumbers": cross_numbers,
                 "photoUrl": photo_url,
                 "galleryCount": len(gallery),
+                "gallery": gallery,
                 "youtubeUrl": youtube_url,
                 "priceUsd": price_usd,
                 "producerTypeLabel": producer_type_label(
@@ -1963,6 +1980,7 @@ def public_part_matches_query(part: Part, needle: str, cross_map: dict[str, list
 def serialize_part_card(db, part: Part):
     warehouse = db.get(Warehouse, part.warehouse_id)
     return {
+        **location_payload(part),
         "partId": part.id,
         "warehouseId": part.warehouse_id,
         "warehouseName": warehouse.name if warehouse else "",
@@ -2009,6 +2027,7 @@ def serialize_part_picker_card(db, part: Part):
     warehouse = db.get(Warehouse, part.warehouse_id)
     ensure_part_barcode(db, part)
     return {
+        **location_payload(part),
         "partId": part.id,
         "partNumber": part.part_number or "",
         "title": part.name or "",
@@ -2086,6 +2105,7 @@ def serialize_availability_item(db, item: AvailabilityRequestItem):
     photo_url = primary_part_photo(part) if part else ""
     barcode = part.barcode if part else ""
     return {
+        **location_payload(part),
         "id": item.id,
         "partId": item.part_id,
         "partNumber": item.part_number or "",
@@ -2207,6 +2227,7 @@ def serialize_packing_item(db, item: PackingRequestItem):
     if available_qty <= 0 and part:
         available_qty = max(int(part.qty or 0), 0)
     return {
+        **location_payload(part or template),
         "id": item.id,
         "partId": item.part_id,
         "partNumber": item.part_number or "",
@@ -2416,6 +2437,7 @@ def serialize_admin_order(db, order: Order):
         if issue:
             has_issue = True
         items.append({
+            **location_payload(db.get(Part, item.part_id) if item.part_id else find_part_template(db, item.part_number)),
             "id": item.id,
             "partId": item.part_id,
             "partNumber": item.part_number or "",
@@ -2601,6 +2623,8 @@ def build_transit_arrival_telegram_message(orders: list[TransitOrder]) -> str:
     for order in accepted_orders[:8]:
         delta = max(int(order.accepted_qty or 0) - int(order.arrival_notified_qty or 0), 0)
         lines.append(f"- {normalize_text(order.part_number or '').strip() or '-'} • {delta} шт.")
+        if location_line(order):
+            lines.append(location_line(order))
     if len(accepted_orders) > 8:
         lines.append(f"... ще {len(accepted_orders) - 8} поз.")
     lines.append(f"Час: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
@@ -3538,6 +3562,7 @@ def serialize_manual_issue_item(db, template: PartTemplate):
     ensure_template_barcode(db, template)
     title = manual_issue_title(template)
     return {
+        **location_payload(manual_issue_primary_part(db, template) or template),
         "partNumber": normalize_text(template.part_number or "").strip(),
         "barcode": normalize_text(template.barcode or "").strip(),
         "title": title,
@@ -5495,6 +5520,7 @@ def mobile_lookup_part_stock(db, part_number: str):
         ensure_part_barcode(db, p)
         warehouse = db.get(Warehouse, p.warehouse_id)
         stocks.append({
+            **location_payload(p),
             "warehouseName": warehouse.name if warehouse else "вЂ”",
             "qty": int(p.qty or 0),
         })
@@ -5527,6 +5553,7 @@ def mobile_revision_payload(db, warehouse_id: int, ask_resume: bool = False):
         "currentIndex": current_index,
         "total": total,
         "currentItem": {
+            **location_payload(current),
             "partId": current.id,
             "barcode": current.barcode or "",
             "partNumber": current.part_number,
@@ -6630,10 +6657,12 @@ def build_mobile_lookup_payload(db, part_number: str):
         ensure_part_barcode(db, p)
         warehouse = db.get(Warehouse, p.warehouse_id)
         stocks.append({
+            **location_payload(p),
             "warehouseName": warehouse.name if warehouse else "вЂ”",
             "qty": int(p.qty or 0),
         })
         matches.append({
+            **location_payload(p),
             "partId": p.id,
             "warehouseId": p.warehouse_id,
             "warehouseName": warehouse.name if warehouse else "",
@@ -6648,6 +6677,7 @@ def build_mobile_lookup_payload(db, part_number: str):
         ensure_template_barcode(db, template)
     return {
         "partNumber": lookup_number,
+        **location_payload(parts[0] if len(parts) == 1 else template if not parts else None),
         "requestedPartNumber": normalized,
         "matchedByCross": matched_by_cross,
         "exactExists": any(int(p.qty or 0) > 0 for p in parts),
@@ -10954,6 +10984,11 @@ def admin_parts():
         selected_scope = normalize_text(request.args.get("warehouse_id") or "").strip()
         requested_page = request.args.get("page")
         requested_per_page = request.args.get("per_page")
+        focus_number = request.args.get("edit", "")
+        if query_text and request.args.get("locate") == "1":
+            scope, focus_number, _ = parts_tools.locate(sys.modules[__name__], db, query_text)
+            return redirect(url_for("admin_parts", warehouse_id=scope, q=focus_number or query_text,
+                                    per_page=requested_per_page or 20, locate="0", edit=focus_number))
         if not selected_scope:
             selected_scope = str(warehouses[0].id) if warehouses else "all"
         show_all_goods = selected_scope == "all"
@@ -10967,6 +11002,9 @@ def admin_parts():
             all_goods_full = build_all_goods_cards(db, query_text)
             pagination = admin_parts_pagination(requested_page, requested_per_page, len(all_goods_full))
             all_goods = all_goods_full[pagination["offset"]:pagination["end_offset"]]
+            for card in all_goods:
+                if card["partNumber"] == focus_number and not any(int(item["qty"]) > 0 for item in card["assignedWarehouses"]):
+                    card["primaryWarehouseId"], card["primaryQty"] = "all", card["templateQty"]
             db.commit()
         else:
             selected_warehouse_id = int(selected_scope or 0)
@@ -10976,12 +11014,14 @@ def admin_parts():
             parts_query = db.query(Part).filter(Part.warehouse_id == selected_warehouse.id)
             parts_query = parts_query.filter(Part.is_deleted == False)
             if query_text:
-                like = f"%{query_text}%"
+                like = '%' + query_text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
                 parts_query = parts_query.filter(
-                    (Part.part_number.ilike(like))
-                    | (Part.name.ilike(like))
-                    | (Part.description.ilike(like))
-                    | (Part.barcode.ilike(like))
+                    (Part.part_number.ilike(like, escape='\\'))
+                    | (Part.name.ilike(like, escape='\\'))
+                    | (Part.description.ilike(like, escape='\\'))
+                    | (Part.barcode.ilike(like, escape='\\'))
+                    | (Part.brand.ilike(like, escape='\\'))
+                    | (Part.storage_location.ilike(like, escape='\\'))
                 )
             total_parts = parts_query.count()
             pagination = admin_parts_pagination(requested_page, requested_per_page, total_parts)
@@ -11009,6 +11049,8 @@ def admin_parts():
             stats=warehouse_stats,
             news=news,
             pagination=pagination,
+            focus_number=focus_number,
+            parts_photo_csrf=session.setdefault("parts_photo_csrf", secrets.token_urlsafe(32)),
         )
     finally:
         db.close()
@@ -12482,6 +12524,7 @@ def update_part(part_id):
             "cross_numbers": cross_numbers,
         }
         template, _ = upsert_part_template(db, new_part_number, template_payload)
+        parts_tools.sync_photos(sys.modules[__name__], db, template, request.form.getlist("remove_photo_urls"))
         if before_part_number == new_part_number:
             rebalance_template_assignment_qty(template, before_qty, requested_qty)
         after_template_qty = template_unassigned_qty(template)
@@ -12543,6 +12586,33 @@ def update_part(part_id):
         return redirect(url_for("admin_parts", warehouse_id=part.warehouse_id))
     finally:
         db.close()
+
+
+@app.post("/admin/parts/photos")
+@admin_required
+def admin_parts_photos():
+    if not secrets.compare_digest(session.get("parts_photo_csrf", "!"), request.form.get("csrf_token", "")):
+        abort(403)
+    number = normalize_text(request.form.get("part_number", "")).strip().upper()
+    with SessionLocal() as db:
+        template = find_part_template(db, number)
+        exemplar = find_part_prefill(db, number, None)
+        if not template and not exemplar:
+            abort(404)
+        if not template:
+            template = sync_template_from_part(db, exemplar, prefer_part_values=True)
+        owner = template if template_gallery_urls(template) else exemplar or template
+        template.photo_urls, template.showcase_photo_urls, has_photo = build_updated_part_media(
+            owner, request.files.getlist("photos"), f"master_{template.id}",
+            request.form.get("export_photo_upload_index", ""), request.form.get("export_photo_existing", ""),
+            request.form.getlist("remove_photo_urls"))
+        template.has_photo = has_photo
+        template.updated_at = now()
+        parts_tools.sync_photos(sys.modules[__name__], db, template, request.form.getlist("remove_photo_urls"))
+        db.commit()
+        public_cache_clear()
+        flash("Головне фото сайту та фото для імпорту / експорту збережено.", "success")
+    return redirect(url_for("admin_parts", warehouse_id="all", q=number, edit=number, locate="0"))
 
 
 @app.route("/admin/part/<int:part_id>/delete", methods=["POST"])
@@ -15791,7 +15861,8 @@ RevisionPart, RevisionOperation = register_inventory_revision(sys.modules[__name
 from .revision_publication import register_revision_publication
 register_revision_publication(sys.modules[__name__])
 
-from .storage_locations import register_storage_locations, migrate_storage_locations, request_location, request_location_for, clean_location
+from .storage_locations import register_storage_locations, migrate_storage_locations, request_location, request_location_for, clean_location, location_payload, location_line, location_entities
+from . import parts_tools
 StorageLocation = register_storage_locations(sys.modules[__name__])
 
 from . import telegram_stock

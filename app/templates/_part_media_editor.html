@@ -1,0 +1,18 @@
+{% macro media_editor(gallery) %}
+<div class="helper-note">Обране фото для імпорту / експорту також буде головним фото товару на сайті.</div>
+<div class="existing-photo-grid">
+  {% for photo in gallery %}
+  <label class="existing-photo-card">
+    <img src="{{ photo }}" alt="Фото товару">
+    <span class="choice"><input type="radio" name="export_photo_existing" value="{{ photo }}" {% if loop.first %}checked{% endif %}>Фото для імпорту / експорту</span>
+    <span class="choice"><input type="checkbox" name="remove_photo_urls" value="{{ photo }}">Прибрати фото</span>
+  </label>
+  {% endfor %}
+</div>
+<div class="photo-picker" data-photo-picker>
+  <input type="file" name="photos" accept="image/*" multiple data-photo-input>
+  <input type="hidden" name="export_photo_upload_index" value="0" data-export-upload-index>
+  <div class="photo-picker-note muted" data-photo-note>Додайте нові фото за потреби.</div>
+  <div class="photo-preview-grid" data-photo-preview></div>
+</div>
+{% endmacro %}

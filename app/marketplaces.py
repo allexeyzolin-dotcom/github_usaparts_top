@@ -312,6 +312,10 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
         title = f"Prom №{identifier}: {raw.get('status_name') or remote_status}"
         details = f"Сума {total:.2f} грн. " + "; ".join(
             f"{p.get('sku') or p.get('name')}: {p.get('quantity')} шт." for p in raw.get("products", []))
+        for item in order.items:
+            part = db.get(SITE.Part, item.part_id) if item.part_id else SITE.find_part_template(db, item.part_number)
+            if SITE.location_line(part):
+                details += "\n" + item.part_number + "\n" + SITE.location_line(part)
         if state.issue:
             details += " · " + state.issue
         log(db, title, details, level="warning" if state.issue else "success", order_id=order.id,

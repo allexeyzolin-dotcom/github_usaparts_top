@@ -99,6 +99,8 @@ def current_text(command, db):
         lines.append("Товар: " + str(part.name or "Без назви")[:400])
     if warehouse:
         lines.append("Склад: " + warehouse.name)
+    if SITE.location_line(part):
+        lines.append(SITE.location_line(part))
     lines.extend([f"Було: {command.before_qty} шт.", f"Зміна: {command.delta:+d} шт.",
                   f"Після команди: {command.after_qty} шт."])
     if part:
@@ -236,6 +238,7 @@ def finish_command(identifier, config):
             return
         message = current_text(command, db) if command.status == "applied" else command.reply_text
         payload = {"chat_id": command.chat_id, "text": message, "disable_web_page_preview": True,
+                   "entities": SITE.location_entities(message),
                    "reply_parameters": {"message_id": command.message_id, "allow_sending_without_reply": True}}
         if command.reply_markup:
             payload["reply_markup"] = json.loads(command.reply_markup)

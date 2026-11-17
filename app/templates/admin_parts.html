@@ -847,6 +847,10 @@ function promptPrintLabels(partId, defaultQty) {
     if (card.querySelector('[data-auto-open="1"]')) {
       card.classList.add('is-open');
       activeCard = card;
+      if (form) {
+        renderAssignmentNote(form);
+        syncQtyToWarehouse(form);
+      }
     }
     toggle?.addEventListener('click', async () => { await openCard(card); });
     if (!form) return;

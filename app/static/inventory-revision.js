@@ -82,7 +82,7 @@
     document.getElementById('revision-editor-title').textContent = increment ? 'Додати кількість' : action === 'update' ? 'Редагувати картку ревізії' : 'Нова картка ревізії';
     document.getElementById('revision-editor-help').textContent = increment
       ? `Картка #${data.id}: зараз ${data.qty} шт. Введіть, скільки додатково знайшли.`
-      : action === 'update' ? 'Вкажіть актуальну загальну кількість товару в цій картці.'
+      : action === 'update' ? data.issues?.join(' ') || 'Вкажіть актуальну загальну кількість товару в цій картці.'
       : 'Вкажіть кількість, яку фактично знайшли. Картку буде збережено в окремій базі ревізії.';
     saveButton.textContent = increment ? 'Додати кількість' : 'Зберегти перевірений товар';
     saveStatus.textContent = ''; previewPhotos(); editor.showModal();

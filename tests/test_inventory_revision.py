@@ -106,6 +106,35 @@ class InventoryRevisionTests(unittest.TestCase):
         self.assertIn("<dd>$915.00</dd>", response.text)
         self.assertIn("37\u202f972.50 ₴", response.text)
 
+    def test_quality_tab_lists_incomplete_cards_and_both_prices_that_block_feed(self):
+        self.login()
+        complete = {"brand": "VAG", "description": "Стан перевірено", "photo_urls": ["https://example.test/test.jpg"]}
+        self.assertEqual(self.save(complete, part_number="COMPLETE-1").status_code, 200)
+        self.assertEqual(self.save(part_number="MISSING-1", brand="", price_usd="0").status_code, 200)
+        self.assertEqual(self.save(complete, part_number="PHOTO-1", photo_urls=[]).status_code, 200)
+        self.assertEqual(self.save(complete, part_number="CONFLICT-1").status_code, 200)
+        duplicate = self.save(complete, part_number="CONFLICT-1", price_usd="20.00",
+                              duplicate_action="new_card").json["card"]
+
+        all_issues = self.client.get("/admin/revision?tab=issues").text
+        self.assertIn("Товари з помилками", all_issues)
+        self.assertIn("Не вказано виробника товару.", all_issues)
+        self.assertIn("Ціна має бути більшою за 0 USD.", all_issues)
+        self.assertIn("Немає фото.", all_issues)
+        self.assertIn("Не заповнено опис.", all_issues)
+        self.assertIn("PHOTO-1", all_issues)
+        self.assertNotIn("COMPLETE-1", all_issues)
+
+        blockers = "/admin/revision?tab=issues&filter=avtopro"
+        page = self.client.get(blockers).text
+        self.assertNotIn("PHOTO-1", page)
+        self.assertEqual(page.count('class="badge danger">Блокує прайс Автопро'), 3)
+        self.assertIn("$12.50", page)
+        self.assertIn("$20.00", page)
+        self.assertEqual(self.save(complete, action="update", target_id=duplicate["id"], version=duplicate["version"],
+                                   part_number="CONFLICT-1").status_code, 200)
+        self.assertNotIn("CONFLICT-1", self.client.get(blockers).text)
+
     def test_new_barcodes_are_unique_searchable_and_stable_on_retry_and_edit(self):
         self.login()
         before = self.snapshot_main()

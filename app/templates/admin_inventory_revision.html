@@ -1,7 +1,8 @@
 {% extends 'base_admin.html' %}
 {% block admin_body_class %}inventory-revision-page{% if is_mobile_revision %} revision-mobile-client{% endif %}{% endblock %}
 {% block admin_content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261117-4">
+<link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261117-5">
+{% set mobile_client = 'android' if is_mobile_revision else none %}
 <section id="inventory-revision" data-search-url="{{ url_for('inventory_revision_search') }}"
          data-save-url="{{ url_for('inventory_revision_save') }}" data-upload-url="{{ url_for('inventory_revision_photos') }}" data-token="{{ revision_token }}" data-edit-id="{{ edit_id or '' }}">
   <div class="panel-header">
@@ -18,7 +19,12 @@
     </div>
   </div>
 
-  <div class="card revision-entry">
+  <nav class="order-group-tabs revision-tabs" aria-label="Розділи ревізії">
+    <a class="order-group-tab{% if not issues_tab %} active{% endif %}" {% if not issues_tab %}aria-current="page"{% endif %} href="{{ url_for('admin_inventory_revision', client=mobile_client) }}">Усі картки</a>
+    <a class="order-group-tab{% if issues_tab %} active{% endif %}" {% if issues_tab %}aria-current="page"{% endif %} href="{{ url_for('admin_inventory_revision', tab='issues', client=mobile_client) }}">Товари з помилками</a>
+  </nav>
+
+  <div class="card revision-entry"{% if issues_tab %} hidden{% endif %}>
     <label class="field-label" for="revision-number">Номер товару / штрихкод</label>
     <form id="revision-search-form" class="revision-input-row" autocomplete="off">
       <input id="revision-number" placeholder="Введіть щонайменше 3 символи" maxlength="255"
@@ -29,6 +35,15 @@
     <div id="revision-results" class="revision-results" hidden></div>
   </div>
 
+  {% if issues_tab %}
+  <div class="revision-issues-toolbar">
+    <p>Відкрийте картку, щоб виправити дані. Збережені зміни одразу враховуються у прайсі Автопро.</p>
+    <nav class="order-group-tabs" aria-label="Фільтр помилок">
+      <a class="order-group-tab{% if not export_filter %} active{% endif %}" {% if not export_filter %}aria-current="page"{% endif %} href="{{ url_for('admin_inventory_revision', tab='issues', client=mobile_client) }}">Усі помилки <span class="cart-badge">{{ issues_count }}</span></a>
+      <a class="order-group-tab{% if export_filter %} active{% endif %}" {% if export_filter %}aria-current="page"{% endif %} href="{{ url_for('admin_inventory_revision', tab='issues', filter='avtopro', client=mobile_client) }}">Блокують прайс Автопро <span class="cart-badge">{{ blocked_count }}</span></a>
+    </nav>
+  </div>
+  {% else %}
   <dl class="revision-summary" aria-label="Підсумки ревізії та залишків">
     <div><dt>Карток ревізії</dt><dd>{{ total }}</dd></div>
     <div><dt>Перевірених одиниць</dt><dd>{{ units }}</dd></div>
@@ -45,6 +60,7 @@
   </dl>
   <div class="helper-note revision-independence">Дані основної бази можна скопіювати в нову картку. Збережена картка ревізії має власні дані та кількість.</div>
   <div class="helper-note revision-independence">Товари з кількістю понад 0 відображаються на сайті. Для Автопро: CSV у USD, ціна з двома десятковими знаками; виробник та ціна понад 0 обов’язкові.</div>
+  {% endif %}
 
   <div class="revision-cards">
     {% for item in cards %}
@@ -55,16 +71,28 @@
         {% else %}<span>Без фото</span>{% endif %}
       </div>
       <div class="revision-card-details">
-        <div class="revision-card-top"><strong class="revision-code">{{ item.part_number }}</strong><span class="badge success">Перевірена наявність</span></div>
+        <div class="revision-card-top">
+          <strong class="revision-code">{{ item.part_number or ('Картка #' ~ item.id) }}</strong>
+          {% if item.blocks_avtopro %}<span class="badge danger">Блокує прайс Автопро</span>
+          {% elif not issues_tab %}<span class="badge success">Перевірена наявність</span>{% endif %}
+        </div>
         <div class="revision-authorship"><span class="revision-author-badge">Додав: {{ item.created_by }}</span>{% if item.updated_by != item.created_by %}<span>Остання перевірка: {{ item.updated_by }}</span>{% endif %}</div>
         <h3>{{ item.name }}</h3>
         <div class="muted">{{ item.brand }}{% if item.brand %} · {% endif %}{{ item.producer_type }} · ${{ item.price_usd }}</div>
         {% if item.warehouse_name or item.location %}<div class="muted">{{ item.warehouse_name }}{% if item.warehouse_name and item.location %} / {% endif %}{{ item.location }}</div>{% endif %}
         <div class="helper-note">Картка #{{ item.id }} · Перевірено {{ item.verified_label }}</div>
         {% if item.barcode %}<div class="helper-note">Штрихкод: {{ item.barcode }}</div>{% endif %}
+        {% if item.issues %}
+        <ul class="revision-card-issues">
+          {% for issue in item.issues %}<li>{{ issue }}</li>{% endfor %}
+        </ul>
+        {% endif %}
       </div>
-      <div class="revision-card-actions">
+      <div class="revision-card-actions{% if issues_tab %} revision-issue-actions{% endif %}">
         <strong class="revision-qty">{{ item.qty }} <small>шт.</small></strong>
+        {% if issues_tab %}
+        <button type="button" class="btn primary small" data-revision-edit="{{ loop.index0 }}">Виправити картку</button>
+        {% else %}
         <button type="button" class="btn primary small" data-revision-add="{{ loop.index0 }}">Додати кількість</button>
         <button type="button" class="btn ghost small" data-revision-edit="{{ loop.index0 }}">Редагувати</button>
         <form class="revision-print-form" method="post" action="{{ url_for('inventory_revision_print_labels', card_id=item.id) }}" target="_blank" rel="noopener" data-default-qty="{{ item.qty }}">
@@ -72,17 +100,22 @@
           <input type="hidden" name="label_qty" value="1">
           <button type="submit" class="btn ghost small">Друк етикетки</button>
         </form>
+        {% endif %}
       </div>
     </article>
     {% else %}
+    {% if issues_tab %}
+    <div class="card revision-empty" role="status"><h3>{{ 'Немає карток, які блокують прайс Автопро' if export_filter else 'Немає карток із помилками' }}</h3></div>
+    {% else %}
     <div class="card revision-empty"><h3>База ревізії поки порожня</h3><p class="muted">Введіть номер знайденого товару та збережіть його фактичну кількість.</p></div>
+    {% endif %}
     {% endfor %}
   </div>
   {% if pages > 1 %}
   <nav class="revision-pagination" aria-label="Сторінки ревізії">
-    {% if page > 1 %}<a class="btn ghost small" href="{{ url_for('admin_inventory_revision', page=page-1, client='android' if is_mobile_revision else none) }}">← Назад</a>{% endif %}
+    {% if page > 1 %}<a class="btn ghost small" href="{{ url_for('admin_inventory_revision', page=page-1, tab='issues' if issues_tab else none, filter='avtopro' if export_filter else none, client=mobile_client) }}">← Назад</a>{% endif %}
     <span>{{ page }} / {{ pages }}</span>
-    {% if page < pages %}<a class="btn ghost small" href="{{ url_for('admin_inventory_revision', page=page+1, client='android' if is_mobile_revision else none) }}">Далі →</a>{% endif %}
+    {% if page < pages %}<a class="btn ghost small" href="{{ url_for('admin_inventory_revision', page=page+1, tab='issues' if issues_tab else none, filter='avtopro' if export_filter else none, client=mobile_client) }}">Далі →</a>{% endif %}
   </nav>
   {% endif %}
   <script type="application/json" id="revision-page-cards">{{ cards|tojson }}</script>
@@ -119,5 +152,5 @@
   <h2 id="revision-choice-title"></h2><p id="revision-choice-text"></p>
   <div id="revision-choice-items"></div><div id="revision-choice-actions" class="revision-dialog-actions"></div>
 </dialog>
-<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261114-2"></script>
+<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261117-5"></script>
 {% endblock %}

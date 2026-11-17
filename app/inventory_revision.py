@@ -154,6 +154,37 @@ def register_inventory_revision(site):
             compact = func.replace(compact, symbol, "")
         return or_(raw, compact.like(f"%{key}%"))
 
+    def revision_price_fields(row):
+        return {"id": row.id, "brand": (row.brand or "").strip(), "code": row.part_number,
+                "price": row.price_usd, "qty": row.qty, "in_stock": row.qty > 0, "deleted": False,
+                "used": site.part_condition_code(row) == "USED", "name": row.name}
+
+    def revision_quality_issues(db):
+        rows = db.query(RevisionPart).order_by(desc(RevisionPart.verified_at), desc(RevisionPart.id)).all()
+        _, blocked = review_download_records(revision_price_fields(row) for row in rows if row.qty > 0)
+        export_errors = {item["id"]: item["error"] for item in blocked}
+        missing_fields = {
+            "part_number": "Не вказано артикул товару.",
+            "brand": "Не вказано виробника товару.",
+            "name": "Не вказано назву товару.",
+            "description": "Не заповнено опис.",
+            "location": "Не вказано місце на складі.",
+        }
+        result = []
+        for row in rows:
+            notes = [message for field, message in missing_fields.items() if not (getattr(row, field) or "").strip()]
+            invalid_price = not row.price_usd.is_finite() or row.price_usd <= 0
+            if invalid_price:
+                notes.append("Ціна має бути більшою за 0 USD.")
+            if not photos(row.photo_urls):
+                notes.append("Немає фото.")
+            export_error = export_errors.get(row.id, "")
+            if export_error and export_error not in notes and not (invalid_price and export_error.startswith("Некоректна ціна")):
+                notes.insert(0, export_error)
+            if notes:
+                result.append((row, notes, bool(export_error)))
+        return sorted(result, key=lambda item: not item[2])
+
     @site.app.route("/admin/revision")
     @site.admin_required
     def admin_inventory_revision():
@@ -171,6 +202,22 @@ def register_inventory_revision(site):
             session.pop("revision_mobile_user", None)
         session.setdefault("revision_token", secrets.token_urlsafe(32))
         with site.SessionLocal() as db:
+            issues_tab = request.args.get("tab") == "issues"
+            export_filter = request.args.get("filter") == "avtopro"
+            page = max(request.args.get("page", 1, type=int) or 1, 1)
+            if issues_tab:
+                issues = revision_quality_issues(db)
+                blocked_count = sum(blocked for _, _, blocked in issues)
+                filtered = [item for item in issues if item[2]] if export_filter else issues
+                pages = max((len(filtered) + 49) // 50, 1)
+                page = min(page, pages)
+                cards = [{**card(row), "issues": notes, "blocks_avtopro": blocked}
+                         for row, notes, blocked in filtered[(page - 1) * 50:page * 50]]
+                return render_template("admin_inventory_revision.html", cards=cards, page=page, pages=pages,
+                                       issues_tab=True, issues_count=len(issues), blocked_count=blocked_count,
+                                       export_filter=export_filter, is_mobile_revision=mobile,
+                                       revision_token=session["revision_token"],
+                                       revision_actor=session.get("revision_mobile_user") or "Сайт")
             total, units, verified_value = db.query(
                 func.count(RevisionPart.id),
                 func.coalesce(func.sum(RevisionPart.qty), 0),
@@ -189,7 +236,6 @@ def register_inventory_revision(site):
             for price, markup, qty in stock:
                 site_value_usd += site.retail_price_usd(price, markup) * qty
                 site_value_uah += Decimal(site.display_uah(price, markup)) * qty
-            page = max(request.args.get("page", 1, type=int) or 1, 1)
             pages = max((total + 49) // 50, 1)
             page = min(page, pages)
             edit_id = request.args.get("edit", type=int)
@@ -452,13 +498,11 @@ def register_inventory_revision(site):
                     candidates.setdefault(key, {}).setdefault(brand.casefold(), brand)
         inferred = {key: next(iter(values.values())) for key, values in candidates.items() if len(values) == 1}
         publications = {link.revision_id: link.part_id for link in db.query(site.RevisionPublication)}
-        return [{"id": row.id, "brand": (row.brand or "").strip() or inferred.get(row.part_key, ""),
-                    "code": row.part_number, "price": row.price_usd,
-                    "qty": row.qty, "in_stock": row.qty > 0, "deleted": False,
-                    "used": site.part_condition_code(row) == "USED",
-                    "part_id": publications.get(row.id),
-                    "cross_numbers": site.normalize_cross_numbers(row.cross_numbers, row.part_number),
-                    "name": row.name, "photos": [site.absolute_public_url(url) for url in photos(row.photo_urls)]}
+        return [{**revision_price_fields(row),
+                 "brand": (row.brand or "").strip() or inferred.get(row.part_key, ""),
+                 "part_id": publications.get(row.id),
+                 "cross_numbers": site.normalize_cross_numbers(row.cross_numbers, row.part_number),
+                 "photos": [site.absolute_public_url(url) for url in photos(row.photo_urls)]}
                    for row in rows]
 
     @site.app.route("/api/mobile/inventory-revision/export/avtopro")

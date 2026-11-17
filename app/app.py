@@ -34,7 +34,7 @@ from .sitemap_support import sitemap_documents
 from .product_search import generate_product_search, query_list, clean_text as clean_search_text
 from .catalog_photos import CATALOG_PHOTOS
 from .server_secrets import session_secret
-from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event
+from sqlalchemy import create_engine, Column, Integer, String, Numeric, Boolean, DateTime, ForeignKey, Text, desc, func, event, false
 from sqlalchemy.orm import declarative_base, joinedload, relationship, sessionmaker
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -334,6 +334,7 @@ class Order(Base):
     stock_reserved = Column(Boolean, nullable=False, default=False)
     external_source = Column(String(64), nullable=False, default="")
     external_order_id = Column(String(255), nullable=False, default="")
+    prom_completed_by_tracking = Column(Boolean, nullable=False, default=False, server_default=false())
     external_status = Column(String(255), nullable=False, default="")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -2436,11 +2437,13 @@ def serialize_admin_order(db, order: Order):
         issue = item_status in {"missing", "partial"}
         if issue:
             has_issue = True
+        linked_part = db.get(Part, item.part_id) if item.part_id else None
         items.append({
-            **location_payload(db.get(Part, item.part_id) if item.part_id else find_part_template(db, item.part_number)),
+            **location_payload(linked_part if item.part_id else find_part_template(db, item.part_number)),
             "id": item.id,
             "partId": item.part_id,
             "partNumber": item.part_number or "",
+            "warehousePartNumber": linked_part.part_number if linked_part and not linked_part.is_deleted else "",
             "name": item.name or "",
             "qty": int(item.qty or 0),
             "priceUsd": float(item.price_usd or 0),
@@ -2471,6 +2474,13 @@ def serialize_admin_order(db, order: Order):
         issue_destination = order_comment
     elif order_comment == manual_issue_marker and customer_name != manual_issue_marker:
         issue_destination = customer_name
+    external_source = normalize_text(order.external_source or "")
+    if external_source:
+        source_label = {"prom": "Prom", "autopro": "Автопро"}.get(external_source, external_source)
+    elif manual_issue_marker in {customer_name, order_comment} or (packing_request and packing_request.source_type == "manual"):
+        source_label = "Ручна видача"
+    else:
+        source_label = "Сайт"
     return {
         "id": order.id,
         "customerName": customer_name,
@@ -2497,7 +2507,8 @@ def serialize_admin_order(db, order: Order):
         "ttnStatus": normalize_text(order.ttn_status or ""),
         "tracking": order_tracking.serialize(db, order),
         "cancelReason": normalize_text(order.cancel_reason or ""),
-        "externalSource": normalize_text(order.external_source or ""),
+        "externalSource": external_source,
+        "sourceLabel": source_label,
         "externalStatus": normalize_text(order.external_status or ""),
         "isProcessing": bool(order.is_processing),
         "packingRequestId": packing_request.id if packing_request else None,
@@ -8788,6 +8799,7 @@ def seed_if_empty():
             conn.exec_driver_sql("ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_source VARCHAR(64) NOT NULL DEFAULT ''")
             conn.exec_driver_sql("ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_order_id VARCHAR(255) NOT NULL DEFAULT ''")
             conn.exec_driver_sql("ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_status VARCHAR(255) NOT NULL DEFAULT ''")
+            conn.exec_driver_sql("ALTER TABLE orders ADD COLUMN IF NOT EXISTS prom_completed_by_tracking BOOLEAN NOT NULL DEFAULT false")
             conn.exec_driver_sql("ALTER TABLE order_items ALTER COLUMN part_id DROP NOT NULL")
             conn.exec_driver_sql("ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS revision_current_index INTEGER NOT NULL DEFAULT 0")
             conn.exec_driver_sql("ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS revision_started_at TIMESTAMP NULL")
@@ -12826,7 +12838,13 @@ def admin_orders():
         selected_group = request.args.get("group", "new").strip() or "new"
         orders = db.query(Order).order_by(desc(Order.created_at)).all()
         order_tracking.prime_cache(db, orders)
+        prom_stock = marketplaces.prom_order_stock_details(db, orders)
         order_cards = [serialize_admin_order(db, order) for order in orders]
+        for order_card in order_cards:
+            detail = prom_stock.get(order_card["id"])
+            if detail:
+                order_card["promStock"] = detail
+                order_card["hasIssue"] = bool(order_card["hasIssue"] or detail["issue"] or detail["unmapped"])
         counts = {
             "new": sum(1 for order in order_cards if order["group"] == "new"),
             "active": sum(1 for order in order_cards if order["group"] == "active"),
@@ -12846,8 +12864,8 @@ def admin_orders():
         def matches(card):
             if not query:
                 return True
-            values = [str(card.get(key) or "") for key in ("id", "customerName", "phone", "city", "ttn", "comment", "title")]
-            values.extend(str(item.get(key) or "") for item in card.get("items", []) for key in ("partNumber", "name", "title"))
+            values = [str(card.get(key) or "") for key in ("id", "customerName", "phone", "city", "ttn", "comment", "title", "sourceLabel")]
+            values.extend(str(item.get(key) or "") for item in card.get("items", []) for key in ("partNumber", "warehousePartNumber", "name", "title"))
             return query.casefold() in " ".join(values).casefold()
         news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
         return render_template(
@@ -12855,6 +12873,8 @@ def admin_orders():
             orders=[item for item in order_cards if item["group"] == selected_group and matches(item)],
             order_counts=counts,
             selected_group=selected_group,
+            selected_order=request.args.get("selected", type=int),
+            marketplace_csrf=session.setdefault("marketplace_csrf", secrets.token_urlsafe(32)),
             packing_requests=[item for item in packing_cards if matches(item)],
             orders_query=query,
             news=news,
@@ -12871,7 +12891,8 @@ def admin_orders_tracking_status():
     with SessionLocal() as db:
         orders = db.query(Order).filter(Order.id.in_([int(value) for value in ids])).all() if ids else []
         order_tracking.prime_cache(db, orders)
-        response = jsonify({"orders": [{"id": order.id, **order_tracking.serialize(db, order)} for order in orders]})
+        response = jsonify({"orders": [{"id": order.id, "group": order_group_for_status(order.status),
+                                      **order_tracking.serialize(db, order)} for order in orders]})
         response.headers["Cache-Control"] = "no-store"
         return response
 

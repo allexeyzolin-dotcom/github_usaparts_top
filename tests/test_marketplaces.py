@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 import app.app as site
 from app import marketplaces as mp
+from app import order_tracking as tracking
 from app.prom_api import PromClient, PromError, money, quantity
 from app.server_secrets import session_secret
 
@@ -200,6 +201,53 @@ class MarketplaceTests(unittest.TestCase):
         row = self.raw(id=437000002)
         self.assertEqual(self.process(row), "issue")
         self.assertEqual(self.part_qty(), 3)
+
+    def test_link_from_delivered_order_is_reused_in_new_prom_orders(self):
+        remote_id = 3244000002
+        remote = dict(self.remote, id=remote_id, external_id="", sku="PROM-OEM", quantity_in_stock=1)
+        self.fake.products[str(remote_id)] = remote
+        with self.sessions() as db:
+            mp.catalog(db, self.fake, datetime.utcnow(), full=True)
+        row = self.raw(delivery_provider_data={"provider": "nova_poshta", "declaration_number": "20450000000001"})
+        row["products"][0].update(id=remote_id, sku="PROM-OEM")
+        self.assertEqual(self.process(row), "issue")
+        self.login()
+        page = self.client.get("/admin/orders?group=new")
+        self.assertIn("Потрібен складський номер", page.text)
+        self.assertIn("PROM-OEM", page.text)
+        options = self.client.get("/admin/marketplaces/parts?exact=1&q=D-U-P").json["results"]
+        self.assertEqual([option["id"] for option in options], [2, 3])
+        self.assertIn("Інший", options[1]["label"])
+        with self.client.session_transaction() as state:
+            csrf = state["marketplace_csrf"]
+        snapshot = {"Number": "20450000000001", "StatusCode": "9", "Status": "Відправлення отримано"}
+        with self.sessions.begin() as db, patch.object(site, "np_request", return_value=([snapshot], {"success": True})):
+            tracking.refresh(db, db.query(site.Order).all())
+        route = "/admin/orders/1/match-prom-product"
+        response = self.client.post(route, data={"csrf_token": csrf, "remote_id": remote_id + 1, "part_id": 3})
+        self.assertEqual(response.status_code, 302)
+        with self.sessions() as db:
+            self.assertIsNone(db.query(mp.MODELS.Link).filter_by(remote_id=str(remote_id)).one().part_id)
+        response = self.client.post(route, data={"csrf_token": csrf, "remote_id": remote_id, "part_id": 3})
+        self.assertIn("group=history", response.location)
+        self.assertIn("selected=1", response.location)
+        with self.sessions() as db:
+            order = db.get(site.Order, 1)
+            self.assertEqual(order.status, "done")
+            self.assertFalse(order.stock_reserved)
+            self.assertEqual(order.items[0].part_id, 3)
+            self.assertEqual(db.get(site.Part, 3).qty, 1)
+        page = self.client.get(response.location)
+        self.assertIn("Складський номер DUP", page.text)
+        self.assertNotIn("Потрібен складський номер", page.text)
+        row["id"] += 1
+        row["products"][0]["sku"] = "PROM-OEM-NEW"
+        row["delivery_provider_data"].pop("declaration_number")
+        self.assertEqual(self.process(row), "created")
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.Order, 2).items[0].part_id, 3)
+            self.assertEqual(db.get(site.Part, 2).qty, 1)
+            self.assertEqual(db.get(site.Part, 3).qty, 0)
 
     def test_unknown_status_and_fractional_units_are_quarantined(self):
         self.assertEqual(self.process(self.raw(status="custom-status")), "issue")

@@ -18,6 +18,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from flask import abort, flash, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, func, or_, text
 
+from . import order_tracking
 from .prom_api import PromClient, PromError, money, quantity, sku_key, utc_date
 
 SITE = None
@@ -157,14 +158,45 @@ def normalized_lines(db, raw):
     for product in products:
         identifier = str(product.get("id") or "")
         link = db.query(MODELS.Link).filter_by(remote_id=identifier).one_or_none()
+        part = db.get(SITE.Part, link.part_id) if link and link.part_id else None
+        valid_part = part is not None and not part.is_deleted
         count = quantity(product.get("quantity"))
         if count <= 0:
             raise PromError("У замовленні є позиція з нульовою кількістю")
-        lines.append({"remote_id": identifier, "part_id": link.part_id if link else None,
-                      "ready": bool(link and link.stock_ready),
+        lines.append({"remote_id": identifier, "part_id": part.id if valid_part else None,
+                      "ready": bool(valid_part and link.stock_ready),
                       "sku": str(product.get("sku") or ""), "name": str(product.get("name") or ""),
                       "qty": count, "amount": money(product.get("price"))})
     return lines
+
+
+def prom_order_stock_details(db, orders):
+    ids = [order.id for order in orders if order.external_source == "prom"]
+    if not ids:
+        return {}
+    details = {}
+    remote_ids = set()
+    for state in db.query(MODELS.OrderState).filter(MODELS.OrderState.order_id.in_(ids)):
+        raw = SITE.json_loads_safe(state.payload_json, {})
+        products = {}
+        lines = raw.get("products") if isinstance(raw, dict) else None
+        if state.status not in {"canceled", "cancelled"} and isinstance(lines, list):
+            for product in lines:
+                identifier = str(product.get("id") or "") if isinstance(product, dict) else ""
+                if identifier.isascii() and identifier.isdigit() and len(identifier) <= 64:
+                    products[identifier] = {
+                        "id": identifier, "sku": product.get("sku") or "", "name": product.get("name") or "",
+                    }
+        details[state.order_id] = {"issue": state.issue, "products": products}
+        remote_ids.update(products)
+    mapped = {
+        remote_id for (remote_id,) in db.query(MODELS.Link.remote_id)
+        .join(SITE.Part, SITE.Part.id == MODELS.Link.part_id)
+        .filter(MODELS.Link.remote_id.in_(remote_ids), SITE.Part.is_deleted.is_(False))
+    } if remote_ids else set()
+    for detail in details.values():
+        detail["unmapped"] = [product for key, product in detail.pop("products").items() if key not in mapped]
+    return details
 
 
 def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
@@ -222,6 +254,7 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
     order.delivery_type = "nova_poshta" if provider.get("provider") == "nova_poshta" else "pickup"
     order.np_warehouse_ref = str(provider.get("recipient_warehouse_id") or "")
     order.np_warehouse_label = str(address or "")[:255]
+    already_delivered = order.status == "done" and order_tracking.serialize(db, order)["promProcessed"]
     if provider.get("declaration_number"):
         order.ttn = str(provider["declaration_number"])
     order.external_status = remote_status
@@ -233,9 +266,11 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
         lines = normalized_lines(db, raw)
         if remote_status not in ACTIVE and remote_status != "canceled":
             raise PromError("Невідомий статус Prom. Потрібна перевірка")
-        if not state.historical and remote_status != "canceled" and any(not item["part_id"] for item in lines):
+        should_reserve = (not state.historical and remote_status != "canceled"
+                          and (not already_delivered or order.stock_reserved or adopt))
+        if should_reserve and any(not item["part_id"] for item in lines):
             raise PromError("Зіставте всі товари замовлення зі складом")
-        if not state.historical and remote_status != "canceled" and any(not item["ready"] for item in lines):
+        if should_reserve and any(not item["ready"] for item in lines):
             raise PromError("Звірте початкові залишки товарів цього замовлення")
         # Part rows use the same locks as website checkout. A nested transaction
         # keeps previous reservations intact when an edited order cannot fit.
@@ -246,7 +281,6 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
         old_lines = sorted((item.part_id or 0, item.part_number, item.qty) for item in order.items)
         new_lines = sorted((item["part_id"] or 0, item["sku"], item["qty"]) for item in lines)
         line_change = old_lines != new_lines
-        should_reserve = not state.historical and remote_status != "canceled"
         if order.stock_reserved and remote_status == "canceled":
             if order.status in {"done", "shipped"}:
                 state.return_pending = True
@@ -308,7 +342,7 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
         if remote_status == "canceled" and not state.return_pending:
             order.status = "cancelled"
     if not state.historical and (created or previous_status != remote_status or
-                                previous_payment != state.payment_status or line_change):
+                                previous_payment != state.payment_status or (line_change and not already_delivered)):
         title = f"Prom №{identifier}: {raw.get('status_name') or remote_status}"
         details = f"Сума {total:.2f} грн. " + "; ".join(
             f"{p.get('sku') or p.get('name')}: {p.get('quantity')} шт." for p in raw.get("products", []))
@@ -909,17 +943,86 @@ def install(app, site):
     @site.admin_required
     def marketplace_parts_search():
         q = request.args.get("q", "").strip()[:100]
-        if len(q) < 2:
+        exact = request.args.get("exact") == "1"
+        if not q or (not exact and len(q) < 2):
             return jsonify(results=[])
         with site.SessionLocal() as db:
-            parts = db.query(site.Part).filter(site.Part.is_deleted == False, or_(
-                site.Part.part_number.ilike(f"%{q}%"), site.Part.name.ilike(f"%{q}%"))).limit(20).all()
+            if exact:
+                key = sku_key(q)
+                if not key:
+                    return jsonify(results=[])
+                codes = (site.Part.part_number, site.Part.part_number_export, site.Part.barcode)
+                matches = or_(*(func.lower(func.replace(func.replace(code, " ", ""), "-", "")) == key for code in codes))
+            else:
+                matches = or_(site.Part.part_number.ilike(f"%{q}%"), site.Part.name.ilike(f"%{q}%"))
+            parts = db.query(site.Part).filter(site.Part.is_deleted.is_(False), matches).order_by(site.Part.id).limit(20).all()
             results = []
             for part in parts:
                 warehouse = db.get(site.Warehouse, part.warehouse_id)
                 results.append({"id": part.id, "label": f"{part.part_number} · {part.name[:60]} · "
                                 f"{warehouse.name if warehouse else ''} · {available(part)} шт."})
             return jsonify(results=results)
+
+    @app.post("/admin/orders/<int:order_id>/match-prom-product")
+    @site.admin_required
+    def admin_order_match_prom_product(order_id):
+        csrf()
+        with site.SessionLocal() as db:
+            order = db.get(site.Order, order_id)
+            if not order or order.external_source != "prom":
+                abort(404)
+            if not LOCK.acquire(blocking=False):
+                flash("Триває обмін із Prom. Спробуйте зберегти відповідність ще раз за кілька секунд.", "error")
+                return redirect(url_for("admin_orders", group=site.order_group_for_status(order.status), selected=order_id))
+            try:
+                if db.get_bind().dialect.name == "postgresql" and not db.execute(
+                        text("SELECT pg_try_advisory_xact_lock(77303271)")).scalar():
+                    raise PromError("Триває обмін із Prom. Спробуйте ще раз за кілька секунд.")
+                state = db.query(OrderState).filter_by(order_id=order_id).with_for_update().one_or_none()
+                if not state or state.status in {"canceled", "cancelled"}:
+                    raise PromError("Замовлення Prom недоступне для зіставлення.")
+                remote_id = request.form.get("remote_id", "")
+                raw = SITE.json_loads_safe(state.payload_json, {})
+                products = raw.get("products") if isinstance(raw, dict) else None
+                if not isinstance(products, list) or not remote_id.isascii() or not remote_id.isdigit() or len(remote_id) > 64:
+                    raise PromError("Цієї позиції немає в замовленні Prom.")
+                product = next((item for item in products if isinstance(item, dict) and str(item.get("id")) == remote_id), None)
+                if not product:
+                    raise PromError("Цієї позиції немає в замовленні Prom.")
+                part_id = request.form.get("part_id", type=int)
+                if not part_id or not 0 < part_id <= 2147483647:
+                    raise PromError("Оберіть складську позицію зі списку.")
+                part = db.query(site.Part).filter_by(id=part_id, is_deleted=False).with_for_update(key_share=True).one_or_none()
+                if not part:
+                    raise PromError("Оберіть складську позицію зі списку.")
+                link = db.query(Link).filter_by(remote_id=remote_id).with_for_update().one_or_none()
+                if link and link.part_id and link.part_id != part.id:
+                    previous = db.get(site.Part, link.part_id)
+                    if (previous and not previous.is_deleted) or db.query(site.OrderItem.id).join(site.Order).filter(
+                            site.OrderItem.part_id == link.part_id, site.Order.stock_reserved.is_(True)).first():
+                        raise PromError("Для цього товару Prom уже збережено складську відповідність.")
+                if db.query(Link.id).filter(Link.part_id == part.id, Link.remote_id != remote_id).first():
+                    raise PromError("Ця складська позиція вже зіставлена з іншою карткою Prom.")
+                if link is None:
+                    link = Link(remote_id=remote_id, sku=str(product.get("sku") or "")[:255],
+                                name=str(product.get("name") or "")[:500])
+                    db.add(link)
+                if link.part_id != part.id:
+                    link.part_id = part.id
+                    link.stock_ready = link.remote_qty is not None and link.remote_qty == available(part)
+                    link.synced_qty = link.remote_qty if link.stock_ready else None
+                    link.issue = "" if link.stock_ready else "Звірте початковий залишок"
+                    link.updated_at = datetime.utcnow()
+                db.commit()
+                state = db.query(OrderState).filter_by(order_id=order_id).populate_existing().with_for_update().one()
+                import_safely(db, json.loads(state.payload_json), retry=True)
+                flash(f"Збережено відповідність зі складським номером {part.part_number}.", "success")
+            except (PromError, ValueError) as error:
+                db.rollback()
+                flash(str(error), "error")
+            finally:
+                LOCK.release()
+            return redirect(url_for("admin_orders", group=site.order_group_for_status(order.status), selected=order_id))
 
     @app.before_request
     def protect_prom_inventory_actions():

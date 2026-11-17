@@ -43,8 +43,23 @@ def serialize(db, order):
             "lastSuccessAt": local_label(row.succeeded_at) if current else "",
             "error": row.last_error if current else "",
             "received": code in COLLECTED,
+            "promProcessed": order.external_source == "prom" and order.status == "done"
+                             and (order.prom_completed_by_tracking or code in COLLECTED),
             "attention": code in {"2", "102", "103", "106", "108"},
             "enabled": bool(order.ttn) and order.status not in {"done", "cancelled"}}
+
+
+def can_complete_prom_order(order):
+    return (order.external_source == "prom" and order.status not in {"done", "cancelled"}
+            and order.external_status not in {"canceled", "cancelled"})
+
+
+def complete_prom_order(order, row, now):
+    if row.status_code in COLLECTED and can_complete_prom_order(order):
+        order.status = "done"
+        order.prom_completed_by_tracking = True
+        order.is_processing = False
+        order.updated_at = now
 
 
 def refresh(db, orders, *, now=None, force=False):
@@ -58,8 +73,14 @@ def refresh(db, orders, *, now=None, force=False):
         ttn = number(order.ttn)
         row = db.get(MODELS.Tracking, order.id)
         changed = row is None or row.ttn != ttn
-        if not force and not changed and (row.status_code in COLLECTED or
-                (row.checked_at and row.checked_at > now - INTERVAL)):
+        if not changed and row.status_code in COLLECTED:
+            if can_complete_prom_order(order):
+                locked_order, locked_row = locked_current(db, order.id, ttn, now)
+                if locked_row is not None:
+                    complete_prom_order(locked_order, locked_row, now)
+            if not force or order.external_source == "prom":
+                continue
+        if not force and not changed and row.checked_at and row.checked_at > now - INTERVAL:
             continue
         if not re.fullmatch(r"\d{14}", ttn):
             invalid.append((order.id, ttn))
@@ -99,6 +120,7 @@ def refresh(db, orders, *, now=None, force=False):
                 row.status_code = str(snapshot.get("StatusCode") or "")[:16]
                 row.succeeded_at, row.last_error = now, ""
                 order.ttn_status = status[:255]
+                complete_prom_order(order, row, now)
     db.info.pop("order_tracking_cache", None)
     return len(numbers)
 

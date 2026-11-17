@@ -49,7 +49,7 @@
 <div class="orders-toolbar">
   <nav class="order-group-tabs" aria-label="Етапи замовлень">
     {% for key, label in [('new', 'Нові'), ('active', 'В роботі'), ('manual', 'Ручна видача'), ('history', 'Історія')] %}
-    <a class="order-group-tab {% if selected_group == key %}active{% endif %}" {% if selected_group == key %}aria-current="page"{% endif %} href="{{ url_for('admin_orders', group=key, q=orders_query) }}">{{ label }} <span class="cart-badge">{{ order_counts[key] }}</span></a>
+    <a class="order-group-tab {% if selected_group == key %}active{% endif %}" {% if selected_group == key %}aria-current="page"{% endif %} href="{{ url_for('admin_orders', group=key, q=orders_query) }}">{{ label }} <span class="cart-badge" data-order-count="{{ key }}">{{ order_counts[key] }}</span></a>
     {% endfor %}
   </nav>
   <form class="orders-search" method="get" role="search">
@@ -58,7 +58,8 @@
     <button class="btn ghost" type="submit">Знайти</button>
   </form>
 </div>
-<div class="orders-monitor" data-tracking-feed="{{ url_for('admin_orders_tracking_status') }}"><span class="orders-monitor-dot" aria-hidden="true"></span><span data-tracking-feed-label>Статуси НП перевіряються автоматично кожні 5 хвилин, навіть коли кабінет закритий.</span></div>
+<div class="orders-monitor" data-tracking-feed="{{ url_for('admin_orders_tracking_status') }}" data-order-group="{{ selected_group }}" data-selected-order="{{ selected_order or '' }}"><span class="orders-monitor-dot" aria-hidden="true"></span><span data-tracking-feed-label>Статуси НП перевіряються автоматично кожні 5 хвилин, навіть коли кабінет закритий.</span></div>
+<p class="orders-prom-moved" data-prom-moved role="status" hidden><span></span> <a href="{{ url_for('admin_orders', group='history') }}">Перейти до історії</a></p>
 <div class="orders-workspace">
   <section class="orders-sidebar-stack">
     <dialog id="manual-packing-create" class="cabinet-dialog orders-manual-card" aria-labelledby="manual-packing-title">
@@ -310,7 +311,14 @@
         <details class="order-disclosure" id="order-{{ order.id }}">
           <summary>
             <div class="order-overview-copy">
-              <div class="order-overview-title"><strong>#{{ order.id }} · {{ order.customerName or 'Без імені клієнта' }}</strong><span class="badge {% if order.status == 'done' %}success{% elif order.status == 'cancelled' %}cancelled{% elif order.status == 'new' %}neutral{% else %}warn{% endif %}">{{ order.statusLabel }}</span>{% if order.packingStatusLabel %}<span class="badge neutral">{{ order.packingStatusLabel }}</span>{% endif %}{% if order.externalSource %}<span class="badge neutral">{{ order.externalSource|upper }}</span>{% endif %}</div>
+              <div class="order-overview-title">
+                <strong>#{{ order.id }} · {{ order.customerName or 'Без імені клієнта' }}</strong>
+                <span class="badge {% if order.status == 'done' %}success{% elif order.status == 'cancelled' %}cancelled{% elif order.status == 'new' %}neutral{% else %}warn{% endif %}">{{ order.statusLabel }}</span>
+                <span class="order-source-tag{% if order.externalSource == 'prom' %} is-prom{% endif %}" data-order-tag>{{ order.sourceLabel }}</span>
+                {% if order.tracking.promProcessed %}<span class="order-note-tag is-processed" data-order-tag>Опрацьовано на Prom</span>{% endif %}
+                {% if order.promStock and (order.promStock.unmapped or order.promStock.issue) %}<span class="order-note-tag" data-order-tag>{{ 'Потрібен складський номер' if order.promStock.unmapped else 'Потрібна звірка складу' }}</span>{% endif %}
+                {% if order.packingStatusLabel %}<span class="badge neutral">{{ order.packingStatusLabel }}</span>{% endif %}
+              </div>
               <div class="order-overview-meta"><span>{{ order.phone or 'Телефон не вказано' }}</span><span>{{ order["items"]|length }} поз.</span><span>{{ order.createdAt }}</span>{% if order.city %}<span>{{ order.city }}</span>{% endif %}</div>
               {% if order.ttn %}<div class="order-ttn-summary"><span>НП · {{ order.ttn }}</span><span data-ttn-status class="{{ 'is-received' if order.tracking.received else ('needs-attention' if order.tracking.attention else '') }}">{{ order.tracking.status or 'Очікує перевірки' }}</span></div>{% endif %}
             </div>
@@ -353,12 +361,40 @@
             </div>
             {% endif %}
 
+          {% if order.promStock and (order.promStock.unmapped or order.promStock.issue) %}
+          <section class="prom-stock-panel" aria-labelledby="prom-stock-{{ order.id }}">
+            <h4 id="prom-stock-{{ order.id }}">Зіставлення зі складом</h4>
+            {% if order.promStock.unmapped %}
+            <p>Введіть номер позиції зі складу. Кабінет запам’ятає відповідність для наступних замовлень Prom.</p>
+            {% for product in order.promStock.unmapped %}
+            <form method="post" action="{{ url_for('admin_order_match_prom_product', order_id=order.id) }}" data-prom-match data-search-url="{{ url_for('marketplace_parts_search') }}">
+              <input type="hidden" name="csrf_token" value="{{ marketplace_csrf }}">
+              <input type="hidden" name="remote_id" value="{{ product.id }}">
+              <strong>{{ product.name or 'Товар Prom' }} · {{ product.sku or ('№ ' ~ product.id) }}</strong>
+              <div class="prom-stock-search">
+                <label class="stack field-label">Складський номер<input type="search" maxlength="100" autocomplete="off" data-prom-number></label>
+                <button type="button" class="btn ghost" data-prom-search>Знайти</button>
+              </div>
+              <label class="stack field-label" data-prom-choices hidden>Позиція на складі<select name="part_id" required disabled></select></label>
+              <p role="status" data-prom-match-status></p>
+              <button class="btn primary" type="submit" data-prom-save disabled>Зберегти відповідність</button>
+            </form>
+            {% endfor %}
+            {% else %}
+            <p>{{ order.promStock.issue }}</p>
+            <a href="{{ url_for('admin_marketplaces', tab='products', issues=1) }}">Відкрити зіставлення товарів Prom</a>
+            {% endif %}
+          </section>
+          {% endif %}
           <div class="card inner-card" style="margin-top:14px">
             <strong>Позиції замовлення</strong>
             <div class="top-list" style="margin-top:10px">
               {% for item in order["items"] %}
               <div class="top-item {% if item.issue %}row-problem{% endif %}">
                 <div class="news-title">{{ item.partNumber }} — {{ item.name }}</div>
+                {% if item.warehousePartNumber and item.warehousePartNumber != item.partNumber %}
+                <div class="muted">Складський номер {{ item.warehousePartNumber }}</div>
+                {% endif %}
                 {{ location_badge(item.storageLocation) }}
                 <div class="muted">
                   {{ item.qty }} шт. • ${{ '%.2f'|format(item.priceUsd) }}
@@ -456,7 +492,7 @@
   </section>
   {% endif %}
 </div>
-<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261117-3"></script>
+<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261117-4"></script>
 
 <div class="payment-modal hidden" id="control-payment-modal" aria-hidden="true">
   <div class="payment-modal__backdrop" data-control-payment-close></div>

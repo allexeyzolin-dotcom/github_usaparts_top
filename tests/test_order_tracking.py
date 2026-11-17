@@ -30,9 +30,10 @@ class OrderTrackingTests(unittest.TestCase):
             db.flush()
             db.add(site.Part(id=1, warehouse_id=1, part_number='OEM-1', name='Радіатор', qty=7, in_stock=True))
 
-    def create(self, id=1, ttn='20450000000001', status='shipped'):
+    def create(self, id=1, ttn='20450000000001', status='shipped', **fields):
         with self.sessions.begin() as db:
-            order = site.Order(id=id, customer_name=f'Клієнт {id}', ttn=ttn, status=status, delivery_type='nova_poshta')
+            order = site.Order(id=id, customer_name=f'Клієнт {id}', ttn=ttn, status=status,
+                               delivery_type='nova_poshta', **fields)
             order.items.append(site.OrderItem(part_id=1, part_number='OEM-1', name='Радіатор', qty=1, price_usd=20))
             db.add(order)
 
@@ -54,6 +55,41 @@ class OrderTrackingTests(unittest.TestCase):
             self.assertFalse(order.stock_reserved)
             self.assertEqual(db.get(site.Part, 1).qty, 7)
             self.assertTrue(tracking.serialize(db, order)['received'])
+
+    def test_received_prom_order_moves_to_history_without_writing_off_inventory(self):
+        self.create(status='processing', external_source='prom', stock_reserved=True, is_processing=True)
+        self.create(id=2, status='new', ttn='')
+        start = self.client.get('/admin/orders?group=active')
+        self.assertIn('data-order-tag>Prom</span>', start.text)
+        self.assertIn('data-order-tag>Сайт</span>', self.client.get('/admin/orders?group=new').text)
+        self.run_check([self.snapshot(code='9', status='Відправлення отримано')])
+        status = self.client.get('/admin/orders/tracking-status?id=1').json['orders'][0]
+        self.assertEqual(status['group'], 'history')
+        self.assertTrue(status['promProcessed'])
+        self.assertNotIn('data-tracking-order="1"', self.client.get('/admin/orders?group=active').text)
+        history = self.client.get('/admin/orders?group=history')
+        self.assertIn('data-tracking-order="1"', history.text)
+        self.assertIn('Опрацьовано на Prom', history.text)
+        with self.sessions() as db:
+            order = db.get(site.Order, 1)
+            self.assertTrue(order.stock_reserved)
+            self.assertFalse(order.is_processing)
+            self.assertEqual(db.get(site.Part, 1).qty, 7)
+
+    def test_cached_received_prom_waybill_is_completed_and_cancelled_is_skipped(self):
+        self.create(external_source='prom')
+        self.create(id=2, external_source='prom', external_status='canceled')
+        with self.sessions.begin() as db:
+            db.add_all(tracking.MODELS.Tracking(order_id=id, ttn='20450000000001',
+                           status_code='9', checked_at=self.clock - timedelta(days=1)) for id in (1, 2))
+        self.run_check()
+        self.np.assert_not_called()
+        with self.sessions.begin() as db:
+            order = db.get(site.Order, 1)
+            self.assertEqual(order.status, 'done')
+            self.assertEqual(db.get(site.Order, 2).status, 'shipped')
+            order.ttn = '20450000000002'
+            self.assertTrue(tracking.serialize(db, order)['promProcessed'])
 
     def test_batches_at_100_and_matches_response_numbers_instead_of_positions(self):
         for id in range(1, 103):

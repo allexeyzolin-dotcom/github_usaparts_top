@@ -138,6 +138,25 @@ body.admin-theme .board-selection.order-card .order-overview-meta{display:grid;g
 body.admin-theme .orders-page-head.workspace-heading{margin-bottom:18px}
 body.admin-theme .orders-toolbar{margin-bottom:12px}
 body.admin-theme .order-active-filter{margin-bottom:12px}
+body.admin-theme .order-board-tags{display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-width:0}
+body.admin-theme .order-source-tag,body.admin-theme .order-note-tag{display:inline-flex;align-items:center;width:fit-content;max-width:100%;padding:4px 7px;border-radius:6px;font-size:11px;font-weight:650;line-height:1.3;text-align:left}
+body.admin-theme .order-source-tag{background:#edf1f5;color:#334155}
+body.admin-theme .order-source-tag.is-prom{background:#f1e9ff;color:#5e3491}
+body.admin-theme .order-note-tag{background:#fff0cb;color:#755108}
+body.admin-theme .order-note-tag.is-processed{background:#e2f4e9;color:#166443}
+body.admin-theme .board-detail-heading .order-board-tags{margin-top:8px}
+body.admin-theme .orders-prom-moved{padding:9px 12px;border-radius:8px;background:#eaf6ef;color:#18593d}
+body.admin-theme .orders-prom-moved a,body.admin-theme .prom-stock-panel a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+body.admin-theme .prom-stock-panel{background:#fffbef;border:1px solid #ecd9a2;border-radius:9px;margin-top:14px;padding:12px;display:grid;gap:8px}
+body.admin-theme .prom-stock-panel h4,body.admin-theme .prom-stock-panel p{margin:0}
+body.admin-theme .prom-stock-panel p,body.admin-theme .prom-stock-panel a{color:#664f23;font-size:13px}
+body.admin-theme .prom-stock-panel p:empty{display:none}
+body.admin-theme .prom-stock-panel form{display:grid;gap:8px;padding-top:10px;border-top:1px solid #ecd9a2}
+body.admin-theme .prom-stock-panel form>strong{overflow-wrap:anywhere}
+body.admin-theme .prom-stock-panel .btn{width:fit-content;max-width:100%;white-space:normal}
+body.admin-theme .prom-stock-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
+body.admin-theme .prom-stock-search input{min-width:0;width:100%}
+body.admin-theme .prom-stock-panel [hidden],body.admin-theme .orders-prom-moved[hidden]{display:none}
 @media(max-width:900px){body.admin-theme .cabinet-header-actions>details>summary>span{display:none}}
 @media(max-width:760px){body.admin-theme .delivery-board{gap:8px}body.admin-theme .board-lane{padding:8px}body.admin-theme .board-selection{padding:13px;gap:15px}body.admin-theme .board-position-head,body.admin-theme .board-position{grid-template-columns:minmax(0,1fr) 34px 38px 34px;gap:5px}body.admin-theme .board-product-photo{display:none}body.admin-theme .transit-position-entry{grid-template-columns:minmax(100px,1fr) minmax(0,1.3fr) 80px 64px}body.admin-theme .transit-position-entry [data-entry=title]{grid-column:2/-1}body.admin-theme .transit-position-entry>.btn{grid-column:3/-1}}
 @media(max-width:610px){body.admin-theme .container{width:calc(100% - 28px)}body.admin-theme .topbar{padding:12px 14px;gap:12px;flex-wrap:wrap}body.admin-theme .cabinet-primary{gap:12px;order:3;flex-basis:100%;flex-wrap:wrap}body.admin-theme .cabinet-header-actions{margin-left:auto}body.admin-theme .cabinet-primary .nav-link{font-size:11px}body.admin-theme .workspace-heading{align-items:flex-start}body.admin-theme .workspace-heading h2{font-size:22px}body.admin-theme .workspace-heading .btn{padding:8px 10px;font-size:11px}body.admin-theme .board-search{flex-basis:100%;max-width:none;min-width:0}body.admin-theme .delivery-board,body.admin-theme .board-lane[data-board-lane=done] .board-lane-cards,body.admin-theme .board-selection{grid-template-columns:minmax(0,1fr)}body.admin-theme .board-selection{padding:14px}body.admin-theme .board-receipt-actions>.btn,body.admin-theme .board-receipt-actions>form{flex-basis:100%}body.admin-theme .transit-position-entry{grid-template-columns:repeat(2,minmax(0,1fr))}body.admin-theme .transit-position-entry [data-entry=oem],body.admin-theme .transit-position-entry [data-entry=title],body.admin-theme .transit-position-entry>.btn{grid-column:1/-1}body.admin-theme .delivery-subfields{grid-template-columns:minmax(0,1fr)}}

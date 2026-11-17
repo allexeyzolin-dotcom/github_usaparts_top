@@ -198,7 +198,7 @@
         </div>
 
         <div class="{% if item.partNumber != focus_number %}hidden {% endif %}part-editor-block goods-editor-block" data-goods-editor data-auto-open="{{ '1' if item.partNumber == focus_number else '0' }}">
-          <form class="stack part-form-vertical goods-autosave-form" data-autosave-form data-autosave-url="{{ url_for('admin_part_autosave') }}" data-assigned='{{ item.assignedWarehouses|tojson }}' data-template-qty="{{ item.templateQty|default(0) }}">
+          <form class="stack part-form-vertical goods-autosave-form" data-autosave-form data-autosave-url="{{ url_for('admin_part_autosave') }}" data-assigned='{{ item.assignedWarehouses|tojson }}' data-template-qty="{{ item.templateQty|default(0) }}" data-template-location="{{ item.storageLocation }}">
             <input type="hidden" name="part_number" value="{{ item.partNumber }}">
 
             <label class="field-label">Склад</label>
@@ -703,14 +703,17 @@ function promptPrintLabels(partId, defaultQty) {
   function syncQtyToWarehouse(form) {
     const select = form.querySelector('[data-warehouse-select]');
     const qtyInput = form.querySelector('input[name="qty"]');
+    const locationInput = form.querySelector('[name="storage_location"]');
     if (!select || !qtyInput) return;
     const assigned = assignedFromForm(form);
     if (select.value === 'all') {
       qtyInput.value = String(form.dataset.templateQty || '0');
+      if (locationInput) locationInput.value = form.dataset.templateLocation || '';
       return;
     }
     const match = assigned.find((item) => String(item.warehouseId) === String(select.value));
-    if (match) qtyInput.value = String(match.qty || 0);
+    qtyInput.value = String(match?.qty || 0);
+    if (locationInput) locationInput.value = match?.storageLocation || '';
   }
 
   function updateCardSummary(card, payload) {
@@ -753,6 +756,7 @@ function promptPrintLabels(partId, defaultQty) {
     if (form) {
       form.dataset.assigned = JSON.stringify(payload.assignedWarehouses || []);
       form.dataset.templateQty = String(payload.templateQty || 0);
+      form.dataset.templateLocation = payload.storageLocation || '';
       const select = form.querySelector('[data-warehouse-select]');
       const qtyInput = form.querySelector('input[name="qty"]');
       if (select) select.value = payload.primaryWarehouseId || 'all';

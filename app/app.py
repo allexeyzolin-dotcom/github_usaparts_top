@@ -12165,6 +12165,10 @@ def admin_part_autosave():
                 card["primaryWarehouseId"] = warehouse_value
                 card["primaryQty"] = int(selected_assignment.get("qty") or 0)
                 card["primaryPartId"] = selected_assignment.get("partId")
+        elif card:
+            card["primaryWarehouseId"] = "all"
+            card["primaryQty"] = card["templateQty"]
+            card["primaryPartId"] = None
         return jsonify(
             {
                 "ok": True,

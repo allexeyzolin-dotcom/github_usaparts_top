@@ -61,6 +61,15 @@ class PartsWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('У цьому складі поки немає', response.text)
 
+    def test_master_autosave_keeps_master_scope_and_each_warehouse_location(self):
+        response = self.client.post('/admin/api/parts/autosave', data={'part_number': '5Q0-123',
+                    'warehouse_id': 'all', 'qty': '0', 'storage_location': 'MASTER-1'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['card']['primaryWarehouseId'], 'all')
+        self.assertEqual(response.json['card']['assignedWarehouses'][0]['storageLocation'], 'A-12')
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.Part, 1).storage_location, 'A-12')
+
     def test_no_match_does_not_create_a_card(self):
         response = self.client.get('/admin/parts?q=NOT-FOUND&locate=1', follow_redirects=True)
         self.assertEqual(response.status_code, 200)

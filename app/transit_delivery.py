@@ -101,7 +101,9 @@ def serialize(db, batch_id):
             "label": carrier_label(shipment), "expectedDate": shipment.expected_date.isoformat() if shipment.expected_date else "",
             "expectedLabel": shipment.expected_date.strftime("%d.%m.%Y") if shipment.expected_date else "Не визначена",
             "ttn": shipment.ttn, "npStatus": shipment.np_status, "error": shipment.last_error,
-            "pickedAt": shipment.picked_at.strftime("%d.%m.%Y %H:%M:%S") if shipment.picked_at else ""}
+            "pickedAt": shipment.picked_at.strftime("%d.%m.%Y %H:%M:%S") if shipment.picked_at else "",
+            "npCode": shipment.np_code, "senderCity": shipment.sender_city, "recipientCity": shipment.recipient_city,
+            "arrivalNotified": shipment.arrival_notified, "pickupNotified": shipment.pickup_notified}
 
 
 def carrier_label(shipment):

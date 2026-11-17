@@ -42,8 +42,8 @@
     box-shadow:0 0 0 3px rgba(220,38,38,.12)!important;
   }
 </style>
-<div class="orders-page-head">
-  <div><h2>Замовлення / Видача</h2><p>Від нового замовлення до видачі клієнту. Деталі й дії — у картці замовлення.</p></div>
+<div class="orders-page-head workspace-heading">
+  <div><span class="workspace-eyebrow">Продажі</span><h2>Замовлення / Видача</h2><p>Комплектування, відправлення та видача в одному місці</p></div>
   <button class="btn primary" type="button" data-cabinet-open="manual-packing-create">+ Створити видачу</button>
 </div>
 <div class="orders-toolbar">
@@ -306,7 +306,7 @@
     {% endif %}
     <div class="orders-list orders-main-list">
       {% for order in orders %}
-      <article class="order-card status-{{ order.status }}" data-tracking-order="{{ order.id }}" data-order-status="{{ order.status }}" data-packing-issue="{{ '1' if order.hasIssue else '0' }}" data-order-issue="{{ '1' if order.hasIssue or order.tracking.attention else '0' }}">
+      <article class="order-card status-{{ order.status }}" data-customer="{{ order.customerName or 'Без імені клієнта' }}" data-position-count="{{ order['items']|length }}" data-carrier="{{ order.packingDeliveryType }}" data-created="{{ order.createdAt }}" data-tracking-order="{{ order.id }}" data-order-status="{{ order.status }}" data-packing-issue="{{ '1' if order.hasIssue else '0' }}" data-order-issue="{{ '1' if order.hasIssue or order.tracking.attention else '0' }}">
         <details class="order-disclosure" id="order-{{ order.id }}">
           <summary>
             <div class="order-overview-copy">
@@ -456,7 +456,7 @@
   </section>
   {% endif %}
 </div>
-<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261117-1"></script>
+<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261117-3"></script>
 
 <div class="payment-modal hidden" id="control-payment-modal" aria-hidden="true">
   <div class="payment-modal__backdrop" data-control-payment-close></div>

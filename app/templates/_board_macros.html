@@ -1,0 +1,2 @@
+{% macro icon(name) %}<i data-lucide="{{ name }}" aria-hidden="true"></i>{% endmacro %}
+{% macro carrier(delivery) %}{% if delivery.carrier == 'nova_poshta' %}<span class="board-np">НП</span><span>Нова Пошта</span>{% else %}{{ icon('truck') }}<span>{{ delivery.carrierName or 'Перевізник не вказаний' }}</span>{% endif %}{% endmacro %}

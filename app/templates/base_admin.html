@@ -16,20 +16,50 @@
   <script defer src="{{ url_for('static', filename='product-search.js') }}?v=20261018-1"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='storage-locations.css') }}?v=20261117-1">
   <script defer src="{{ url_for('static', filename='storage-locations.js') }}?v=20261107-1"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='cabinet.css') }}?v=20261117-2">
-  <script defer src="{{ url_for('static', filename='cabinet.js') }}?v=20261117-1"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='cabinet.css') }}?v=20261117-3">
+  <link rel="stylesheet" href="{{ url_for('static', filename='approved-board.css') }}?v=20261117-4">
+  <script defer src="{{ url_for('static', filename='vendor/lucide.min.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='cabinet.js') }}?v=20261117-3"></script>
 </head>
 <body class="admin-theme {% block admin_body_class %}{% endblock %}">
   <header class="topbar">
     <a href="{{ url_for('home') }}" class="logo site-logo" aria-label="USAparts.top">
-      <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top">
+      <span class="cabinet-wordmark">USA<b>parts</b>.top</span>
     </a>
-    <span class="cabinet-title">Кабінет</span>
+    <nav class="cabinet-primary" aria-label="Робочі розділи">
+      <a class="nav-link {% if request.endpoint == 'admin_parts' %}is-active{% endif %}" href="{{ url_for('admin_parts') }}">Товари</a>
+      <a class="nav-link {% if request.endpoint in ['admin_transit','admin_transit_create','admin_transit_update'] %}is-active{% endif %}" href="{{ url_for('admin_transit') }}">Товар в дорозі</a>
+      <a class="nav-link {% if request.endpoint == 'admin_orders' %}is-active{% endif %}" href="{{ url_for('admin_orders', group='active') }}">Замовлення</a>
+    </nav>
     <div class="header-right cabinet-header-actions">
       <button class="btn ghost" type="button" data-cabinet-open="cabinet-news">Події</button>
       <details class="cabinet-tools">
-        <summary class="nav-link">Керування</summary>
-        <nav class="admin-header-links" aria-label="Керування магазином">
+        <summary class="nav-link" aria-label="Усі розділи та налаштування"><span>Розділи</span><i data-lucide="menu" aria-hidden="true"></i></summary>
+        <nav class="admin-header-links" aria-label="Усі розділи кабінету">        <div class="cabinet-operation-links">
+          <a class="nav-link {% if request.endpoint == 'admin_parts' %}is-active{% endif %}" href="{{ url_for('admin_parts') }}">Запчастини</a>
+          <a class="nav-link {% if request.endpoint == 'admin_products' %}is-active{% endif %}" href="{{ url_for('admin_products') }}">Склади</a>
+          <a class="nav-link {% if request.endpoint == 'admin_inventory_revision' %}is-active{% endif %}" href="{{ url_for('admin_inventory_revision') }}">Ревізія</a>
+          <a class="nav-link {% if request.endpoint in ['admin_receiving', 'admin_receiving_import'] %}is-active{% endif %}" href="{{ url_for('admin_receiving') }}">
+            Прийом товару
+            {% if receiving_draft_count %}
+            <span class="cart-badge">{{ receiving_draft_count }}</span>
+            {% endif %}
+          </a>
+          <a class="nav-link {% if request.endpoint in ['admin_transit', 'admin_transit_create', 'admin_transit_update', 'admin_transit_delete', 'admin_transit_arrive', 'print_transit_barcodes'] %}is-active{% endif %}" href="{{ url_for('admin_transit') }}">
+            Товар в дорозі
+            {% if transit_open_count %}
+            <span class="cart-badge">{{ transit_open_count }}</span>
+            {% endif %}
+          </a>
+          <a class="nav-link {% if request.endpoint == 'admin_orders' %}is-active{% endif %}" href="{{ url_for('admin_orders') }}">
+            Замовлення / Видача
+            <span class="nav-split-badge" title="Нові / активні">
+              <span class="nav-count-green">{{ orders_new_count }}</span>
+              <span class="nav-count-separator">/</span>
+              <span class="nav-count-yellow">{{ orders_active_count }}</span>
+            </span>
+          </a>
+        </div>
       <a class="nav-link {% if request.endpoint in ['admin_marketplaces', 'admin_avtopro_feeds'] %}is-active{% endif %}" href="{{ url_for('admin_marketplaces') }}">Маркетплейси</a>
       <a class="nav-link {% if request.endpoint == 'admin_cars' %}is-active{% endif %}" href="{{ url_for('admin_cars') }}">Авто</a>
       <a class="nav-link {% if request.endpoint == 'admin_statistics' %}is-active{% endif %}" href="{{ url_for('admin_statistics') }}">Статистика</a>
@@ -42,6 +72,8 @@
       <a class="nav-link {% if request.endpoint in ['admin_backup', 'admin_backup_settings', 'admin_backup_create', 'admin_backup_download'] %}is-active{% endif %}" href="{{ url_for('admin_backup') }}">Бекап</a>
       <a class="nav-link {% if request.endpoint == 'admin_account' %}is-active{% endif %}" href="{{ url_for('admin_account') }}">Змінити пароль</a>
       <a class="nav-link {% if request.endpoint == 'admin_api' %}is-active{% endif %}" href="{{ url_for('admin_api') }}">API</a>
+        <button class="nav-link" type="button" data-cabinet-open="cabinet-news">Події магазину</button>
+        <a class="nav-link" href="{{ url_for('admin_logout') }}">Вийти</a>
         </nav>
       </details>
       <a class="cabinet" href="{{ url_for('admin_logout') }}">Вийти</a>
@@ -84,31 +116,7 @@
       </dialog>
 
       <section class="admin-main">
-        <nav class="admin-nav admin-nav-main" aria-label="Основні розділи кабінету">
-          <a class="nav-link {% if request.endpoint == 'admin_parts' %}is-active{% endif %}" href="{{ url_for('admin_parts') }}">Запчастини</a>
-          <a class="nav-link {% if request.endpoint == 'admin_products' %}is-active{% endif %}" href="{{ url_for('admin_products') }}">Склади</a>
-          <a class="nav-link {% if request.endpoint == 'admin_inventory_revision' %}is-active{% endif %}" href="{{ url_for('admin_inventory_revision') }}">Ревізія</a>
-          <a class="nav-link {% if request.endpoint in ['admin_receiving', 'admin_receiving_import'] %}is-active{% endif %}" href="{{ url_for('admin_receiving') }}">
-            Прийом товару
-            {% if receiving_draft_count %}
-            <span class="cart-badge">{{ receiving_draft_count }}</span>
-            {% endif %}
-          </a>
-          <a class="nav-link {% if request.endpoint in ['admin_transit', 'admin_transit_create', 'admin_transit_update', 'admin_transit_delete', 'admin_transit_arrive', 'print_transit_barcodes'] %}is-active{% endif %}" href="{{ url_for('admin_transit') }}">
-            Товар в дорозі
-            {% if transit_open_count %}
-            <span class="cart-badge">{{ transit_open_count }}</span>
-            {% endif %}
-          </a>
-          <a class="nav-link {% if request.endpoint == 'admin_orders' %}is-active{% endif %}" href="{{ url_for('admin_orders') }}">
-            Замовлення / Видача
-            <span class="nav-split-badge" title="Нові / активні">
-              <span class="nav-count-green">{{ orders_new_count }}</span>
-              <span class="nav-count-separator">/</span>
-              <span class="nav-count-yellow">{{ orders_active_count }}</span>
-            </span>
-          </a>
-        </nav>
+
         {% block admin_content %}{% endblock %}
       </section>
     </div>

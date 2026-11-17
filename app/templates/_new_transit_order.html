@@ -1,0 +1,35 @@
+{% set create_delivery = transit_form['delivery'] if transit_form['delivery'].get('carrier') else {'carrier':'nova_poshta'} %}
+<dialog id="new-transit" class="cabinet-dialog transit-new-dialog" aria-labelledby="new-transit-title">
+  <div class="cabinet-dialog-head"><div><span class="workspace-eyebrow">Товар в дорозі</span><h3 id="new-transit-title">Нове замовлення</h3><p class="muted">Одна доставка — будь-яка кількість позицій.</p></div><button class="btn ghost board-icon-button" type="button" data-cabinet-close aria-label="Закрити">{{ icon('x') }}</button></div>
+  <form method="post" action="{{ url_for('admin_transit_create') }}" enctype="multipart/form-data" class="stack" data-transit-form data-create-transit data-prefill-url="{{ url_for('admin_part_prefill') }}">
+    <label class="board-field">Назва замовлення *<input name="short_description" value="{{ transit_form['shortDescription'] }}" placeholder="Наприклад: деталі Taos від постачальника" required></label>
+    {{ delivery_fields(create_delivery, 'new') }}
+    <section class="transit-form-section">
+      <h3>Позиції замовлення</h3>
+      <div class="transit-position-entry">
+        <label class="board-field" data-entry="oem">OEM номер *<input name="part_number" data-role="part-number" value="{{ transit_form['partNumber'] }}" placeholder="Артикул запчастини" autocomplete="off"></label>
+        <label class="board-field" data-entry="title">Опис *<input name="title" data-role="title" value="{{ transit_form['title'] }}" placeholder="Підставиться з картки"></label>
+        <label class="board-field" data-entry="price">Ціна, $ *<input name="price_usd" data-role="price" type="number" min="0" step="0.01" value="{{ transit_form['priceUsd'] }}"></label>
+        <label class="board-field" data-entry="qty">Кількість<input name="qty" type="number" min="1" step="1" value="{{ transit_form['qty'] }}"></label>
+        <button class="btn ghost" type="submit" name="draft_add" data-draft-add formaction="{{ url_for('admin_transit_draft_add') }}" formnovalidate>{{ icon('plus') }} Додати</button>
+      </div>
+      <div class="transit-lookup" data-role="status" role="status">Введіть OEM — опис і ціна підставляться з картки товару.</div>
+      <input type="hidden" name="existing_photo_url" data-role="existing-photo-url" value="{{ transit_form['existingPhotoUrl'] }}">
+      <div data-role="prefill-card" hidden><strong data-role="prefill-title"></strong><span data-role="prefill-meta"></span><img data-role="prefill-photo" alt="" hidden></div>
+      {% if transit_draft_items %}
+      <div class="transit-draft-lines">
+        {% for item in transit_draft_items %}
+        <div class="transit-draft-line"><div><strong>{{ item.partNumber }}</strong> · {{ item.title }}<small>{{ '%.2f'|format(item.priceUsd|float) }} $ × {{ item.qty }} шт.</small></div><button class="btn ghost board-icon-button" type="submit" form="transit-draft-delete-{{ item.draftId }}" aria-label="Видалити {{ item.partNumber }}">{{ icon('x') }}</button></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+    <details class="board-additional"><summary>Додаткова інформація {{ icon('chevron-down') }}</summary><div class="stack">
+      <label class="board-field">Повний опис замовлення<textarea name="full_description">{{ transit_form['fullDescription'] }}</textarea></label>
+      <label class="board-field">Службова інформація<textarea name="service_info" data-role="service-info">{{ transit_form['serviceInfo'] }}</textarea></label>
+      <label class="board-field">Фото товару<input type="file" name="photo" accept="image/*"></label>
+    </div></details>
+    <div class="board-dialog-footer"><small>Нові картки створюються разом із замовленням.<br>Залишок на складі — після прийому.</small><button class="btn primary" type="submit" data-transit-save formnovalidate>Створити замовлення {{ icon('arrow-right') }}</button></div>
+  </form>
+  {% for item in transit_draft_items %}<form id="transit-draft-delete-{{ item.draftId }}" method="post" action="{{ url_for('admin_transit_draft_delete', draft_id=item.draftId) }}"></form>{% endfor %}
+</dialog>

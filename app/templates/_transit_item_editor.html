@@ -1,0 +1,50 @@
+                  <dialog id="transit-editor-{{ order.id }}" class="cabinet-dialog" aria-label="Редагувати товар"><div class="cabinet-dialog-head"><h3>Редагувати {{ order.partNumber }}</h3><button type="button" class="btn ghost" data-cabinet-close>Закрити</button></div>
+                    <form method="post" action="{{ url_for('admin_transit_update', order_id=order.id) }}" enctype="multipart/form-data" class="stack part-form-vertical" data-transit-form data-prefill-url="{{ url_for('admin_part_prefill') }}">
+                      <label class="field-label">Короткий опис замовлення</label>
+                      <input name="short_description" value="{{ order.shortDescription }}">
+
+                      <label class="field-label">Повний опис замовлення</label>
+                      <textarea name="full_description">{{ order.fullDescription }}</textarea>
+
+                      <label class="field-label">OEM номер</label>
+                      <input name="part_number" data-role="part-number" value="{{ order.partNumber }}" required>
+
+                      <div data-role="status" class="helper-note">Змініть OEM номер, якщо потрібно підвантажити іншу картку або шаблон.</div>
+
+                      <div data-role="prefill-card" class="card inner-card hidden">
+                        <strong data-role="prefill-title"></strong>
+                        <div data-role="prefill-meta" class="muted"></div>
+                        <img data-role="prefill-photo" class="rev-photo" alt="" style="display:none;margin-top:10px">
+                      </div>
+
+                      <input type="hidden" name="existing_photo_url" value="{{ order.photoUrl or '' }}" data-role="existing-photo-url">
+
+                      <label class="field-label">Опис товару</label>
+                      <input name="title" data-role="title" value="{{ order.title }}" required>
+                      <label class="field-label">Службова інформація</label>
+                      <textarea name="service_info" data-role="service-info">{{ order.serviceInfo }}</textarea>
+
+                      <div class="grid-2">
+                        <div class="stack">
+                          <label class="field-label">Кількість, шт.</label>
+                          <input type="number" min="1" name="qty" value="{{ order.qty }}" required>
+                        </div>
+                        <div class="stack">
+                          <label class="field-label">Ціна в USD</label>
+                          <input type="number" min="0" step="0.01" name="price_usd" data-role="price" value="{{ '%.2f'|format(order.priceUsd|float) }}">
+                        </div>
+                      </div>
+
+                      <label class="field-label">Оновити фото</label>
+                      <input type="file" name="photo" accept="image/*">
+
+                      <div class="button-row">
+                        <button class="btn primary" type="submit">Зберегти зміни</button>
+                        <button class="btn ghost" type="button" data-cabinet-close>Закрити</button>
+                      </div>
+                    </form>
+<div class="board-dialog-footer">
+  <form id="print-transit-form-{{ order.id }}" method="post" action="{{ url_for('print_transit_barcodes', order_id=order.id) }}"><input type="hidden" name="label_qty" value="{{ order.qty }}"><button type="button" class="btn ghost" onclick="promptTransitLabels({{ order.id }}, {{ order.qty }})">Етикетки позиції</button></form>
+  <form method="post" action="{{ url_for('admin_transit_delete', order_id=order.id) }}" data-part-number="{{ order.partNumber }}" onsubmit="return confirmTransitDelete(this, this.dataset.partNumber)"><input type="hidden" name="confirm_text"><button type="submit" class="btn danger">Видалити позицію</button></form>
+</div>
+</dialog>

@@ -11249,6 +11249,8 @@ def admin_transit():
         )
         active_payload = [serialize_transit_order(db, order) for order in active_orders]
         archive_payload = [serialize_transit_order(db, order) for order in archive_orders]
+        from .transit_board import build_batches
+        board_batches = build_batches(active_payload, archive_payload)
         active_groups = group_transit_batches(active_payload)
         archive_groups = group_transit_batches(archive_payload)
         transit_form = build_transit_form_state()
@@ -11256,6 +11258,7 @@ def admin_transit():
         news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
         return render_template(
             "admin_transit.html",
+            board_batches=board_batches,
             transit_orders=active_payload,
             transit_archive=archive_payload,
             transit_groups=active_groups,
@@ -11300,12 +11303,12 @@ def admin_transit_draft_add():
         save_transit_draft(draft_items, short_description, full_description)
         db.commit()
         flash(f'Позицію {item["partNumber"]} додано до списку', "success")
-        return redirect(url_for("admin_transit"))
+        return redirect(url_for("admin_transit", _anchor="new-transit"))
     except ValueError:
         db.rollback()
         save_transit_draft(get_transit_draft_items(), short_description, full_description)
         flash("Вкажіть OEM номер, опис товару і кількість більше нуля", "error")
-        return redirect(url_for("admin_transit"))
+        return redirect(url_for("admin_transit", _anchor="new-transit"))
     finally:
         db.close()
 
@@ -11320,7 +11323,7 @@ def admin_transit_draft_delete(draft_id):
     else:
         clear_transit_draft()
     flash("Позицію прибрано зі списку", "success")
-    return redirect(url_for("admin_transit"))
+    return redirect(url_for("admin_transit", _anchor="new-transit"))
 
 
 @app.route("/admin/transit/create", methods=["POST"])

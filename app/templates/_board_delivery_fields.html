@@ -1,0 +1,11 @@
+{% macro delivery_fields(value, prefix='new') %}
+{% set carrier = value.get('carrier', '') %}
+<div class="stack" data-delivery-fields>
+  <label class="board-field" for="carrier-{{ prefix }}">Перевізник *<select name="carrier" id="carrier-{{ prefix }}" data-carrier-select required><option value="">Оберіть перевізника</option><option value="nova_poshta" {% if carrier == 'nova_poshta' %}selected{% endif %}>Нова Пошта</option><option value="other" {% if carrier == 'other' %}selected{% endif %}>Інші</option></select></label>
+  <div class="delivery-subfields">
+    <div class="{% if carrier != 'nova_poshta' %}hidden{% endif %}" data-carrier-np><label class="board-field" for="ttn-{{ prefix }}">ТТН Нової пошти<input name="ttn" id="ttn-{{ prefix }}" inputmode="numeric" maxlength="14" pattern="[0-9]{14}" value="{{ value.get('ttn','') }}" placeholder="Можна додати після відправлення"></label></div>
+    <div class="{% if carrier != 'other' %}hidden{% endif %}" data-carrier-other><label class="board-field" for="carrier-name-{{ prefix }}">Хто привезе *<input name="carrier_name" id="carrier-name-{{ prefix }}" maxlength="255" value="{{ value.get('carrier_name', value.get('carrierName','')) }}" placeholder="Ім’я або компанія"></label></div>
+    <label class="board-field" for="expected-date-{{ prefix }}">Очікуване прибуття <span data-date-required>{% if carrier == 'other' %}*{% endif %}</span><input type="date" name="expected_date" id="expected-date-{{ prefix }}" value="{{ value.get('expected_date', value.get('expectedDate','')) }}"></label>
+  </div>
+</div>
+{% endmacro %}

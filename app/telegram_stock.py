@@ -226,7 +226,7 @@ def finish_command(identifier, config):
         command = db.get(MODELS.Command, identifier)
         if not command or command.chat_id != config["chat_id"]:
             return
-        if command.status == "applied" and command.prom_status != "confirmed":
+        if command.part_id and command.status == "applied" and command.prom_status != "confirmed":
             result = SITE.marketplaces.sync_part_stock(command.part_id, expected_before=command.before_qty)
             command.prom_status, command.prom_message = result["status"], result["message"]
             command.next_attempt = datetime.utcnow() + timedelta(seconds=30)
@@ -272,7 +272,7 @@ def retry_pending(bot_id, config):
     with SITE.SessionLocal() as db:
         command = MODELS.Command
         rows = (db.query(command.id).filter_by(bot_id=str(bot_id), chat_id=config["chat_id"])
-                .filter(or_(command.reply_sent == 0, and_(command.status == "applied",
+                .filter(or_(command.reply_sent == 0, and_(command.status == "applied", command.part_id.isnot(None),
                     command.prom_status != "confirmed", or_(command.next_attempt.is_(None),
                     command.next_attempt <= datetime.utcnow()))))
                 .order_by(command.id).limit(10).all())

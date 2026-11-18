@@ -104,6 +104,86 @@ class PartsWorkflowTests(unittest.TestCase):
     def test_photo_route_requires_csrf_and_existing_card(self):
         self.assertEqual(self.client.post('/admin/parts/photos', data={'part_number': '5Q0-123'}).status_code, 403)
 
+    def delete_token(self):
+        self.client.get('/admin/parts?warehouse_id=all')
+        with self.client.session_transaction() as state:
+            return state['parts_delete_csrf']
+
+    def test_delete_product_rejects_missing_token_and_wrong_confirmation(self):
+        token = self.delete_token()
+        route = '/admin/parts/delete'
+        fields = {'part_number': '5Q0-123', 'confirm_text': 'видалити'}
+        self.assertEqual(site.app.test_client().post(route, data=fields).status_code, 302)
+        self.assertEqual(self.client.post(route, data=fields).status_code, 403)
+        response = self.client.post(route, data={**fields, 'csrf_token': token, 'confirm_text': 'так'})
+        self.assertEqual(response.status_code, 302)
+        with self.sessions() as db:
+            self.assertIsNotNone(db.get(site.Part, 1))
+            self.assertIsNotNone(site.find_part_template(db, '5Q0-123'))
+
+    def test_delete_removes_catalog_stock_and_revision_and_keeps_order_history(self):
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql('PRAGMA foreign_keys=ON')
+        with self.sessions.begin() as db:
+            part = db.get(site.Part, 1)
+            revision = site.RevisionPart(part_number=part.part_number, part_key='5Q0123', name=part.name,
+                                         qty=2, location='REV-12')
+            db.add(revision)
+            db.flush()
+            published = site.publish_revision_part(db, revision, warehouse=db.get(site.Warehouse, 1))
+            published_id = published.id
+            order = site.Order(customer_name='QA', status='done')
+            db.add(order)
+            db.flush()
+            db.add_all([
+                site.OrderItem(order_id=order.id, part_id=part.id, part_number=part.part_number,
+                               name=part.name, qty=2, price_usd=15),
+                site.ProductReview(part_id=part.id, part_number=part.part_number, body='QA'),
+                site.marketplace_models.Link(remote_id='123', sku=part.part_number, part_id=part.id,
+                                             stock_ready=True, synced_qty=3),
+                site.telegram_stock_models.Command(bot_id='1', update_id=1, chat_id='1', sender_id='1',
+                                                   message_id=1, nonce='qa-stock', part_id=part.id,
+                                                   status='applied', prom_status='pending', reply_sent=1),
+                site.PartSearchProfile(part_key='5Q0123', title='QA'),
+            ])
+        token = self.delete_token()
+        self.assertEqual(self.client.get('/part/1').status_code, 301)
+        fields = {'part_number': '5q0-123', 'csrf_token': token, 'confirm_text': 'видалити', 'warehouse_id': '2'}
+        for _ in range(2):
+            self.assertEqual(self.client.post('/admin/parts/delete', data=fields).status_code, 302)
+        self.assertEqual(self.client.post('/admin/api/parts/autosave', data={
+            'part_number': '5Q0-123', 'warehouse_id': 'all', 'qty': '0', 'storage_location': 'A-12'
+        }).status_code, 404)
+        for part_id in (1, published_id):
+            self.assertEqual(self.client.get(f'/part/{part_id}').status_code, 404)
+        with self.sessions.begin() as db:
+            site.publish_existing_revision_parts(db)
+            self.assertIsNone(site.find_part_template(db, '5Q0-123'))
+            self.assertIsNotNone(site.find_part_template(db, 'ONLY-456'))
+            self.assertEqual(db.query(site.Part).count(), 0)
+            self.assertEqual(db.query(site.RevisionPart).count(), 0)
+            self.assertEqual(db.query(site.RevisionPublication).count(), 0)
+            self.assertEqual(db.query(site.ProductReview).count(), 0)
+            self.assertIsNone(db.get(site.PartSearchProfile, '5Q0123'))
+            item = db.query(site.OrderItem).one()
+            self.assertEqual((item.part_id, item.part_number, item.qty, item.price_usd), (None, '5Q0-123', 2, 15))
+            link = db.query(site.marketplace_models.Link).one()
+            self.assertFalse(link.stock_ready)
+            self.assertIsNone(link.part_id)
+            command = db.query(site.telegram_stock_models.Command).one()
+            self.assertIsNone(command.part_id)
+            self.assertEqual(command.prom_status, 'unavailable')
+
+    def test_delete_removes_template_only_product(self):
+        token = self.delete_token()
+        response = self.client.post('/admin/parts/delete', data={
+            'part_number': 'ONLY-456', 'csrf_token': token, 'confirm_text': 'видалити'
+        })
+        self.assertEqual(response.status_code, 302)
+        with self.sessions() as db:
+            self.assertIsNone(site.find_part_template(db, 'ONLY-456'))
+            self.assertIsNotNone(db.get(site.Part, 1))
+
     def test_cover_choice_also_updates_verified_stock_and_preserves_its_other_photos(self):
         with self.sessions.begin() as db:
             revision = site.RevisionPart(part_number='5Q0-123', part_key='5Q0123', name='Перевірена деталь',

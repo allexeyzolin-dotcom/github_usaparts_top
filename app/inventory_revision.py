@@ -26,6 +26,12 @@ def number_key(value):
     return "".join(c for c in unicodedata.normalize("NFKC", value).upper() if c.isalnum())
 
 
+def lock_product_number(db, part_number):
+    if db.get_bind().dialect.name == "postgresql":
+        key = int.from_bytes(hashlib.sha256(number_key(part_number).encode()).digest()[:8], "big", signed=True)
+        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+
 def register_inventory_revision(site):
     from .native_revision_auth import register_native_revision_auth
     site.NativeRevisionSession, revision_access = register_native_revision_auth(site)
@@ -392,16 +398,15 @@ def register_inventory_revision(site):
         actor = getattr(g, "native_revision_actor", None) or session.get("revision_mobile_user") or "Сайт"
         via = "mobile" if getattr(g, "native_revision_authorized", False) or session.get("revision_mobile_user") else "website"
         with site.SessionLocal() as db:
-            if db.get_bind().dialect.name == "postgresql":
-                # Serialize a number even before its first card exists. Concurrent
-                # operators must still see the duplicate question before creating it.
-                lock_key = int.from_bytes(hashlib.sha256(values["part_key"].encode()).digest()[:8], "big", signed=True)
-                db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+            lock_product_number(db, values["part_number"])
             previous = db.get(RevisionOperation, request_id)
             if previous:
                 if previous.request_hash != fingerprint:
                     return error("Цей запит уже використано. Відкрийте картку ще раз.", 409)
-                return jsonify(ok=True, card=card(db.get(RevisionPart, previous.part_id)), replayed=True)
+                saved = db.get(RevisionPart, previous.part_id)
+                if not saved:
+                    return error("Картку ревізії видалено.", 404)
+                return jsonify(ok=True, card=card(saved), replayed=True)
             target = None
             if action in {"increment", "update"}:
                 target_id = payload.get("target_id")
@@ -454,7 +459,10 @@ def register_inventory_revision(site):
                 db.rollback()
                 previous = db.get(RevisionOperation, request_id)
                 if previous and previous.request_hash == fingerprint:
-                    return jsonify(ok=True, card=card(db.get(RevisionPart, previous.part_id)), replayed=True)
+                    saved = db.get(RevisionPart, previous.part_id)
+                    if not saved:
+                        return error("Картку ревізії видалено.", 404)
+                    return jsonify(ok=True, card=card(saved), replayed=True)
                 raise
             return jsonify(ok=True, card=card(target))
 

@@ -261,6 +261,9 @@
             {{ media_editor(item.gallery) }}
             <button class="btn primary" type="submit">Зберегти головне фото</button>
           </form>
+          <div class="button-row">
+            <button class="btn danger small" type="button" data-delete-product="{{ item.partNumber }}" aria-haspopup="dialog">Видалити товар</button>
+          </div>
         </div>
       </article>
       {% else %}
@@ -308,8 +311,9 @@
           <button class="btn ghost small" type="button" onclick="togglePanel('part-editor-{{ part.id }}')">Редагувати</button>
           <form method="post" action="{{ url_for('delete_part', part_id=part.id) }}" onsubmit="return confirmPartDelete(this, '{{ part.part_number }}')">
             <input type="hidden" name="confirm_text">
-            <button class="btn danger small" type="submit">Видалити</button>
+            <button class="btn ghost small" type="submit">Прибрати зі складу</button>
           </form>
+          <button class="btn danger small" type="button" data-delete-product="{{ part.part_number }}" aria-haspopup="dialog">Видалити товар</button>
         </div>
 
         <div id="part-editor-{{ part.id }}" class="hidden part-editor-block">
@@ -400,7 +404,50 @@
   </section>
 </div>
 
+<dialog id="part-delete-dialog" class="cabinet-dialog" aria-labelledby="part-delete-title" aria-describedby="part-delete-scope">
+  <div class="cabinet-dialog-head">
+    <h3 id="part-delete-title">Видалити товар</h3>
+  </div>
+  <form method="post" action="{{ url_for('admin_delete_product_card') }}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ parts_delete_csrf }}">
+    <input type="hidden" name="part_number">
+    <input type="hidden" name="warehouse_id" value="{{ selected_scope }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+    <input type="hidden" name="page" value="{{ pagination.page }}">
+    <p id="part-delete-scope">Картку <strong data-delete-product-number></strong> буде видалено з каталогу, усіх складів і ревізії. Цю дію неможливо скасувати.</p>
+    <label class="stack field-label">Введіть слово «видалити»
+      <input name="confirm_text" required maxlength="8" autocomplete="off" spellcheck="false" autofocus>
+    </label>
+    <div class="button-row">
+      <button class="btn ghost" type="button" data-cabinet-close>Скасувати</button>
+      <button class="btn danger" type="submit" disabled>Видалити товар</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
+(() => {
+  const dialog = document.getElementById('part-delete-dialog');
+  const form = dialog.querySelector('form');
+  const confirmation = form.elements.confirm_text;
+  const submit = form.querySelector('button[type="submit"]');
+  document.querySelectorAll('[data-delete-product]').forEach(opener => {
+    opener.addEventListener('click', () => {
+      form.elements.part_number.value = opener.dataset.deleteProduct;
+      dialog.querySelector('[data-delete-product-number]').textContent = opener.dataset.deleteProduct;
+      confirmation.value = '';
+      submit.disabled = true;
+      dialog.showModal();
+    });
+  });
+  confirmation.addEventListener('input', () => { submit.disabled = confirmation.value !== 'видалити'; });
+  form.addEventListener('submit', event => {
+    if (confirmation.value !== 'видалити') event.preventDefault();
+    else submit.disabled = true;
+  });
+})();
+
 function togglePanel(id) {
   const node = document.getElementById(id);
   if (node) node.classList.toggle('hidden');
@@ -787,7 +834,7 @@ function promptPrintLabels(partId, defaultQty) {
       const response = await fetch(form.dataset.autosaveUrl, { method: 'POST', body: new FormData(form) });
       const data = await response.json();
       if (!response.ok || !data.ok) {
-        if (status) status.textContent = 'Не вдалося зберегти зміни.';
+        if (status) status.textContent = data.message || 'Не вдалося зберегти зміни.';
         return false;
       }
       state.dirty = false;
@@ -867,7 +914,7 @@ function promptPrintLabels(partId, defaultQty) {
   });
 
   document.addEventListener('click', async (event) => {
-    if (!activeCard || activeCard.contains(event.target)) return;
+    if (!activeCard || activeCard.contains(event.target) || event.target.closest('#part-delete-dialog')) return;
     await closeCard(activeCard);
   });
 })();

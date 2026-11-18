@@ -11056,6 +11056,7 @@ def admin_parts():
             pagination=pagination,
             focus_number=focus_number,
             parts_photo_csrf=session.setdefault("parts_photo_csrf", secrets.token_urlsafe(32)),
+            parts_delete_csrf=session.setdefault("parts_delete_csrf", secrets.token_urlsafe(32)),
         )
     finally:
         db.close()
@@ -11139,6 +11140,16 @@ def clear_part_relationships(db, part_ids):
     db.query(OrderItem).filter(OrderItem.part_id.in_(normalized_ids)).update({OrderItem.part_id: None}, synchronize_session=False)
     db.query(PackingRequestItem).filter(PackingRequestItem.part_id.in_(normalized_ids)).update({PackingRequestItem.part_id: None}, synchronize_session=False)
     db.query(TransitOrder).filter(TransitOrder.linked_part_id.in_(normalized_ids)).update({TransitOrder.linked_part_id: None}, synchronize_session=False)
+    link = marketplace_models.Link
+    db.query(link).filter(link.part_id.in_(normalized_ids)).update(
+        {link.part_id: None, link.stock_ready: False, link.synced_qty: None,
+         link.issue: "Товар видалено зі складу сайту", link.updated_at: now()}, synchronize_session=False)
+    command = telegram_stock_models.Command
+    commands = db.query(command).filter(command.part_id.in_(normalized_ids))
+    commands.filter(command.status == "applied", command.prom_status != "confirmed").update(
+        {command.prom_status: "unavailable", command.prom_message: "товар видалено зі складу сайту",
+         command.next_attempt: None}, synchronize_session=False)
+    commands.update({command.part_id: None}, synchronize_session=False)
     db.query(AppNotification).filter(AppNotification.part_id.in_(normalized_ids)).delete(synchronize_session=False)
     affected_request_ids = [
         row[0]
@@ -11166,22 +11177,65 @@ def clear_template_relationships(db, template_ids):
     )
 
 
-def delete_master_card_everywhere(db, part_number: str):
+def delete_master_card_everywhere(db, part_number: str, *, include_revision=False):
     normalized = normalize_text(part_number or "").strip().upper()
     if not normalized:
-        return {"partsDeleted": 0, "templateDeleted": False}
-    template = find_part_template(db, normalized)
-    all_parts = db.query(Part).filter(Part.part_number == normalized).all()
-    part_ids = [part.id for part in all_parts]
+        return {"partsDeleted": 0, "templateDeleted": False, "revisionsDeleted": 0}
+    lock_product_number(db, normalized)
+    templates = db.query(PartTemplate).filter(func.upper(func.trim(PartTemplate.part_number)) == normalized).all()
+    matches = func.upper(func.trim(Part.part_number)) == normalized
+    revision_ids = []
+    if include_revision:
+        revision_ids = [key for key, in db.query(RevisionPart.id)
+                        .filter(func.upper(func.trim(RevisionPart.part_number)) == normalized)]
+        if revision_ids:
+            matches |= Part.id.in_(db.query(RevisionPublication.part_id)
+                                   .filter(RevisionPublication.revision_id.in_(revision_ids)).statement)
+    part_ids = [key for key, in db.query(Part.id).filter(matches).order_by(Part.id).with_for_update()]
     clear_part_relationships(db, part_ids)
     if part_ids:
         db.query(Part).filter(Part.id.in_(part_ids)).delete(synchronize_session=False)
-    template_deleted = False
-    if template:
-        clear_template_relationships(db, [template.id])
-        db.delete(template)
-        template_deleted = True
-    return {"partsDeleted": len(part_ids), "templateDeleted": template_deleted}
+    if revision_ids:
+        db.query(RevisionPublication).filter(RevisionPublication.revision_id.in_(revision_ids)).delete(synchronize_session=False)
+        db.query(RevisionPart).filter(RevisionPart.id.in_(revision_ids)).delete(synchronize_session=False)
+    if templates:
+        clear_template_relationships(db, [template.id for template in templates])
+        for template in templates:
+            db.delete(template)
+    return {"partsDeleted": len(part_ids), "templateDeleted": bool(templates), "revisionsDeleted": len(revision_ids)}
+
+
+@app.post("/admin/parts/delete")
+@admin_required
+def admin_delete_product_card():
+    expected_token = session.get("parts_delete_csrf")
+    if not expected_token or not secrets.compare_digest(expected_token.encode(), request.form.get("csrf_token", "").encode()):
+        abort(403)
+    warehouse_id = request.form.get("warehouse_id", type=int) or 0
+    target = url_for("admin_parts", warehouse_id=warehouse_id if 0 < warehouse_id <= 2147483647 else "all",
+                     q=request.form.get("q", "")[:255], per_page=request.form.get("per_page", type=int),
+                     page=request.form.get("page", type=int))
+    number = normalize_text(request.form.get("part_number", "")).strip().upper()
+    if request.form.get("confirm_text", "").strip() != "видалити":
+        flash('Для видалення введіть слово «видалити».', "error")
+        return redirect(target)
+    if not number or len(number) > 255:
+        abort(400)
+    with SessionLocal() as db:
+        deleted = delete_master_card_everywhere(db, number, include_revision=True)
+        if not any(deleted.values()):
+            flash("Картку товару не знайдено.", "info")
+            return redirect(target)
+        profile_key = compact_part_code(number)
+        profile = db.get(PartSearchProfile, profile_key) if profile_key else None
+        if profile:
+            other_numbers = db.query(Part.part_number).union(db.query(PartTemplate.part_number))
+            if not any(compact_part_code(other) == profile_key for other, in other_numbers):
+                db.delete(profile)
+        flash_news(db, "parts", "Картку видалено", f"Товар {number} повністю видалено з каталогу сайту.", "info")
+        db.commit()
+    flash(f"Картку {number} та її складські записи видалено.", "success")
+    return redirect(target)
 
 
 @app.route("/admin/warehouses/delete/review", methods=["POST"])
@@ -12008,8 +12062,9 @@ def admin_part_autosave():
     db = SessionLocal()
     try:
         part_number = normalize_text(request.form.get("part_number") or "").strip().upper()
-        if not part_number:
+        if not part_number or len(part_number) > 255:
             return jsonify({"ok": False, "error": "part_number_required"}), 400
+        lock_product_number(db, part_number)
 
         def to_float(value, default=0.0):
             try:
@@ -12047,6 +12102,9 @@ def admin_part_autosave():
 
         before_template_qty = template_unassigned_qty(existing_template)
         exemplar = find_part_prefill(db, part_number, None)
+        if not existing_template and not db.query(Part.id).filter(
+                func.upper(func.trim(Part.part_number)) == part_number).first():
+            return jsonify({"ok": False, "error": "product_not_found", "message": "Картку товару вже видалено."}), 404
         template_payload = {
             "brand": brand if raw_brand is not None else (existing_template.brand if existing_template else exemplar.brand if exemplar else ""),
             "producer_type": producer_type if raw_type is not None else (existing_template.producer_type if existing_template else exemplar.producer_type if exemplar else "OEM"),
@@ -15900,7 +15958,7 @@ def avtopro_price_feed(warehouse_id, token):
 from . import marketplaces
 marketplace_models = marketplaces.install(app, sys.modules[__name__])
 
-from .inventory_revision import register_inventory_revision
+from .inventory_revision import register_inventory_revision, lock_product_number
 
 RevisionPart, RevisionOperation = register_inventory_revision(sys.modules[__name__])
 

@@ -9,7 +9,6 @@
   const group = feed.dataset.orderGroup;
   const moved = new Map();
   const historyNotice = document.querySelector('[data-prom-moved]');
-  const shippingNotice = document.querySelector('[data-shipped-moved]');
   let fetching = false;
   const board = setupBoard();
   function setupBoard() {
@@ -139,7 +138,6 @@
     if (count === 1) url.searchParams.set('selected', id);
     else url.searchParams.delete('selected');
     link.href = url.toString();
-    if (previous === 'active' && ![...moved.values()].includes('active')) shippingNotice.hidden = true;
   }
   document.querySelectorAll('[data-prom-match]').forEach(form => {
     const input = form.querySelector('[data-prom-number]');
@@ -230,11 +228,6 @@
           if (item.orderStatus === 'shipped' && card.dataset.orderStatus !== 'shipped') {
             card.dataset.orderStatus = 'shipped';
             if (group === 'new') {
-              moveCard(String(item.id), 'active', shippingNotice,
-                `Замовлення #${item.id} переміщено у «Відправлені».`, 'Замовлення переміщено у «Відправлені»');
-              continue;
-            }
-            if (group === 'active') {
               board?.ship(card);
               const packing = card.querySelector('[id^="order-packing-form-"] button');
               if (packing) { packing.disabled = true; packing.textContent = 'Відправлено'; }

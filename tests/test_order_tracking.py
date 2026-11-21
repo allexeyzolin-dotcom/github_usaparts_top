@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -68,7 +69,7 @@ class OrderTrackingTests(unittest.TestCase):
         self.run_check()
         status = self.client.get('/admin/orders/tracking-status?id=1').json['orders'][0]
         self.assertEqual((status['group'], status['orderStatus']), ('active', 'shipped'))
-        self.assertNotIn('data-tracking-order="1"', self.client.get('/admin/orders?group=new').text)
+        self.assertIn('data-tracking-order="1"', self.client.get('/admin/orders?group=new').text)
         with self.sessions() as db:
             statuses = [order.status for order in db.query(site.Order).order_by(site.Order.id)]
             self.assertEqual(statuses, ['shipped', 'processing', 'done', 'cancelled', 'processing'])
@@ -93,14 +94,14 @@ class OrderTrackingTests(unittest.TestCase):
     def test_received_prom_order_moves_to_history_without_writing_off_inventory(self):
         self.create(status='processing', external_source='prom', stock_reserved=True, is_processing=True)
         self.create(id=2, status='new', ttn='')
-        start = self.client.get('/admin/orders?group=active')
+        start = self.client.get('/admin/orders?group=new')
         self.assertIn('data-order-tag>Prom</span>', start.text)
         self.assertIn('data-order-tag>Сайт</span>', self.client.get('/admin/orders?group=new').text)
         self.run_check([self.snapshot(code='9', status='Відправлення отримано')])
         status = self.client.get('/admin/orders/tracking-status?id=1').json['orders'][0]
         self.assertEqual(status['group'], 'history')
         self.assertTrue(status['promProcessed'])
-        self.assertNotIn('data-tracking-order="1"', self.client.get('/admin/orders?group=active').text)
+        self.assertNotIn('data-tracking-order="1"', self.client.get('/admin/orders?group=new').text)
         history = self.client.get('/admin/orders?group=history')
         self.assertIn('data-tracking-order="1"', history.text)
         self.assertIn('Опрацьовано на Prom', history.text)
@@ -227,20 +228,50 @@ class OrderTrackingTests(unittest.TestCase):
     def test_new_layout_renders_all_groups_and_searches_real_order_fields(self):
         self.create(status='new')
         self.create(id=2, status='shipped')
-        for group in ('new', 'active', 'manual', 'history'):
+        for group in ('new', 'manual', 'history'):
             response = self.client.get('/admin/orders', query_string={'group': group})
             self.assertEqual(response.status_code, 200)
             self.assertIn('cabinet.css', response.text)
             self.assertIn('Нова ручна видача', response.text)
-        response = self.client.get('/admin/orders?group=active&q=OEM-1')
+        response = self.client.get('/admin/orders?group=new&q=OEM-1')
         self.assertIn('id="order-2"', response.text)
-        self.assertNotIn('id="order-1"', response.text)
+        self.assertIn('id="order-1"', response.text)
         card_items = response.text.split('data-order-items>', 1)[1].split('class="order-overview-end"', 1)[0]
         self.assertIn('OEM-1', card_items)
         self.assertIn('Радіатор', card_items)
         self.assertIn('1 шт.', card_items)
-        response = self.client.get('/admin/orders?group=active&q=НЕМАЄ')
+        response = self.client.get('/admin/orders', query_string={'group': 'new', 'q': 'Клієнт 2'})
+        self.assertIn('id="order-2"', response.text)
+        self.assertNotIn('id="order-1"', response.text)
+        response = self.client.get('/admin/orders?group=new&q=НЕМАЄ')
         self.assertNotIn('data-tracking-order=', response.text)
+
+    def test_orders_board_includes_all_open_stages_and_keeps_history_separate(self):
+        for id, status in enumerate(('new', 'processing', 'awaiting_shipment', 'shipped', 'done', 'cancelled'), 1):
+            self.create(id=id, status=status, ttn='')
+        page = self.client.get('/admin/orders').text
+        for id in range(1, 5):
+            self.assertIn(f'data-tracking-order="{id}"', page)
+        for id in (5, 6):
+            self.assertNotIn(f'data-tracking-order="{id}"', page)
+        tabs = page.split('aria-label="Етапи замовлень">', 1)[1].split('</nav>', 1)[0]
+        self.assertNotIn('В роботі', tabs)
+        self.assertNotIn('group=active', tabs)
+        self.assertIn('data-order-count="new">4</span>', tabs)
+        history = self.client.get('/admin/orders?group=history').text
+        self.assertIn('data-tracking-order="5"', history)
+        self.assertIn('data-tracking-order="6"', history)
+        self.assertNotIn('data-tracking-order="4"', history)
+
+    def test_old_active_link_preserves_search_and_selected_order(self):
+        self.create(id=2)
+        response = self.client.get('/admin/orders', query_string={'group': 'active', 'q': 'Клієнт 2', 'selected': 2})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(parse_qs(urlsplit(response.location).query),
+                         {'group': ['new'], 'q': ['Клієнт 2'], 'selected': ['2']})
+        page = self.client.get(response.location).text
+        self.assertIn('data-tracking-order="2"', page)
+        self.assertIn('data-order-group="new" data-selected-order="2"', page)
 
     def test_manual_refresh_uses_the_same_safe_tracking_path(self):
         self.create()

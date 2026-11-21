@@ -12894,9 +12894,14 @@ def car_wizard():
 @app.route("/admin/orders")
 @admin_required
 def admin_orders():
+    selected_group = request.args.get("group", "new").strip() or "new"
+    if selected_group == "active":
+        return redirect(url_for(
+            "admin_orders", group="new", q=request.args.get("q", ""),
+            selected=request.args.get("selected", type=int),
+        ))
     db = SessionLocal()
     try:
-        selected_group = request.args.get("group", "new").strip() or "new"
         orders = db.query(Order).order_by(desc(Order.created_at)).all()
         order_tracking.prime_cache(db, orders)
         prom_stock = marketplaces.prom_order_stock_details(db, orders)
@@ -12907,8 +12912,7 @@ def admin_orders():
                 order_card["promStock"] = detail
                 order_card["hasIssue"] = bool(order_card["hasIssue"] or detail["issue"] or detail["unmapped"])
         counts = {
-            "new": sum(1 for order in order_cards if order["group"] == "new"),
-            "active": sum(1 for order in order_cards if order["group"] == "active"),
+            "new": sum(1 for order in order_cards if order["group"] in {"new", "active"}),
             "history": sum(1 for order in order_cards if order["group"] == "history"),
         }
         packing_requests = (
@@ -12931,7 +12935,9 @@ def admin_orders():
         news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
         return render_template(
             "admin_orders.html",
-            orders=[item for item in order_cards if item["group"] == selected_group and matches(item)],
+            orders=[item for item in order_cards
+                    if (item["group"] == selected_group or
+                        selected_group == "new" and item["group"] == "active") and matches(item)],
             order_counts=counts,
             selected_group=selected_group,
             selected_order=request.args.get("selected", type=int),

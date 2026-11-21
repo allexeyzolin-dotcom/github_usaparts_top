@@ -48,7 +48,7 @@
 </div>
 <div class="orders-toolbar">
   <nav class="order-group-tabs" aria-label="Етапи замовлень">
-    {% for key, label in [('new', 'Нові'), ('active', 'В роботі'), ('manual', 'Ручна видача'), ('history', 'Історія')] %}
+    {% for key, label in [('new', 'Замовлення'), ('manual', 'Ручна видача'), ('history', 'Історія')] %}
     <a class="order-group-tab {% if selected_group == key %}active{% endif %}" {% if selected_group == key %}aria-current="page"{% endif %} href="{{ url_for('admin_orders', group=key, q=orders_query) }}">{{ label }} <span class="cart-badge" data-order-count="{{ key }}">{{ order_counts[key] }}</span></a>
     {% endfor %}
   </nav>
@@ -60,7 +60,6 @@
 </div>
 <div class="orders-monitor" data-tracking-feed="{{ url_for('admin_orders_tracking_status') }}" data-order-group="{{ selected_group }}" data-selected-order="{{ selected_order or '' }}"><span class="orders-monitor-dot" aria-hidden="true"></span><span data-tracking-feed-label>Статуси НП перевіряються автоматично кожні 5 хвилин, навіть коли кабінет закритий.</span></div>
 <p class="orders-prom-moved" data-prom-moved role="status" hidden><span></span> <a href="{{ url_for('admin_orders', group='history') }}">Перейти до історії</a></p>
-<p class="orders-prom-moved" data-shipped-moved role="status" hidden><span></span> <a href="{{ url_for('admin_orders', group='active', q=orders_query) }}">Перейти до відправлених</a></p>
 <div class="orders-workspace">
   <section class="orders-sidebar-stack">
     <dialog id="manual-packing-create" class="cabinet-dialog orders-manual-card" aria-labelledby="manual-packing-title">
@@ -303,8 +302,8 @@
 
   {% if selected_group != 'manual' %}
   <section class="orders-main-stack">
-    {% if selected_group == 'active' %}
-    <label class="order-active-filter">Етап<select data-order-stage><option value="all">Усі активні</option><option value="processing">Комплектування</option><option value="awaiting_shipment">Готові до відправки</option><option value="shipped">Відправлені</option><option value="issue">Потребують уваги</option></select><span data-stage-count></span></label>
+    {% if selected_group == 'new' %}
+    <label class="order-active-filter">Етап<select data-order-stage><option value="all">Усі замовлення</option><option value="new">Нові</option><option value="processing">Комплектування</option><option value="awaiting_shipment">Готові до відправки</option><option value="shipped">Відправлені</option><option value="issue">Потребують уваги</option></select><span data-stage-count></span></label>
     {% endif %}
     <div class="orders-list orders-main-list">
       {% for order in orders %}
@@ -507,7 +506,7 @@
   </section>
   {% endif %}
 </div>
-<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261121-1"></script>
+<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261121-2"></script>
 
 <div class="payment-modal hidden" id="control-payment-modal" aria-hidden="true">
   <div class="payment-modal__backdrop" data-control-payment-close></div>

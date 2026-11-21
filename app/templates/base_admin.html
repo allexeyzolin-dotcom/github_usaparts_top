@@ -29,7 +29,7 @@
     <nav class="cabinet-primary" aria-label="Робочі розділи">
       <a class="nav-link {% if request.endpoint == 'admin_parts' %}is-active{% endif %}" href="{{ url_for('admin_parts') }}">Товари</a>
       <a class="nav-link {% if request.endpoint in ['admin_transit','admin_transit_create','admin_transit_update'] %}is-active{% endif %}" href="{{ url_for('admin_transit') }}">Товар в дорозі</a>
-      <a class="nav-link {% if request.endpoint == 'admin_orders' %}is-active{% endif %}" href="{{ url_for('admin_orders', group='active') }}">Замовлення</a>
+      <a class="nav-link {% if request.endpoint == 'admin_orders' %}is-active{% endif %}" href="{{ url_for('admin_orders', group='new') }}">Замовлення</a>
     </nav>
     <div class="header-right cabinet-header-actions">
       <button class="btn ghost" type="button" data-cabinet-open="cabinet-news">Події</button>

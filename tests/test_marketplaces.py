@@ -228,7 +228,7 @@ class MarketplaceTests(unittest.TestCase):
         row["products"][0].update(id=remote_id, sku="PROM-OEM")
         self.assertEqual(self.process(row), "issue")
         self.login()
-        page = self.client.get("/admin/orders?group=active")
+        page = self.client.get("/admin/orders?group=new")
         self.assertIn("Потрібен складський номер", page.text)
         self.assertIn("PROM-OEM", page.text)
         options = self.client.get("/admin/marketplaces/parts?exact=1&q=D-U-P").json["results"]

@@ -1,0 +1,29 @@
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.48.7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${N8N_LOCAL_PORT:-5678}:5678"
+    environment:
+      GENERIC_TIMEZONE: Europe/Kyiv
+      TZ: Europe/Kyiv
+      N8N_HOST: localhost
+      N8N_EDITOR_BASE_URL: http://localhost:${N8N_LOCAL_PORT:-5678}/
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PUBLIC_API_DISABLED: "true"
+      EXECUTIONS_DATA_MAX_AGE: "24"
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: "false"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5678/healthz/readiness').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 35s
+      retries: 5
+
+volumes:
+  n8n_data:

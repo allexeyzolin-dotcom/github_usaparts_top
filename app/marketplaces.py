@@ -863,14 +863,6 @@ def install(app, site):
                         finally:
                             LOCK.release()
                         flash("Замовлення оброблено. Перевірте його стан", "success")
-                    elif action == "avtopro_settings":
-                        put(db, "avtopro_account", request.form.get("account", "").strip()[:120])
-                        put(db, "avtopro_note", request.form.get("note", "").strip()[:1000])
-                        new_key = request.form.get("api_key", "").strip()
-                        if new_key:
-                            put(db, "avtopro_key", cipher().encrypt(new_key.encode()).decode())
-                        db.commit()
-                        flash("Базові налаштування Автопро збережено", "success")
                     else:
                         abort(400)
                 except (PromError, ValueError) as error:
@@ -933,8 +925,6 @@ def install(app, site):
                 total_filtered=total_filtered, search=search,
                 events=db.query(Event).order_by(Event.id.desc()).limit(80).all() if tab in {"journal", "overview"} else [],
                 feeds=feeds, feed_token=session.setdefault("avtopro_feed_form_token", secrets.token_urlsafe(32)),
-                avtopro={"account": setting(db, "avtopro_account", "USA SHOP · 337792"),
-                         "note": setting(db, "avtopro_note"), "key_set": bool(setting(db, "avtopro_key"))},
                 news=[])
         finally:
             db.close()

@@ -5600,17 +5600,6 @@ def refresh_order_ttn_status_from_np(db, order: Order) -> str:
     return tracking["status"] if not tracking["error"] else ""
 
 
-def autopro_token_info(db):
-    settings = get_api_settings_map(db)
-    return {
-        "api_key": settings.get("autopro_api_key", ""),
-        "environment": settings.get("autopro_environment", "production") or "production",
-        "orders_url": settings.get("autopro_orders_url", ""),
-        "base_url": settings.get("autopro_base_url", "https://avto.pro/api/v1"),
-        "cached_jwt": settings.get("autopro_jwt_token", ""),
-        "cached_at": settings.get("autopro_jwt_created_at", ""),
-    }
-
 def set_setting(db, key, value):
     row = db.query(ApiSetting).filter(ApiSetting.setting_key == key).one_or_none()
     if row:
@@ -6508,76 +6497,6 @@ def start_backup_scheduler():
     thread = threading.Thread(target=backup_scheduler_loop, name="backup-scheduler", daemon=True)
     thread.start()
     BACKUP_SCHEDULER_STARTED = True
-
-
-def get_autopro_jwt(db, force_refresh=False):
-    info = autopro_token_info(db)
-    if not info["api_key"]:
-        raise Exception("Autopro API key РЅРµ РІРєР°Р·Р°РЅРёР№")
-    if info["cached_jwt"] and info["cached_at"] and not force_refresh:
-        try:
-            ts = datetime.fromisoformat(info["cached_at"])
-            if (datetime.utcnow() - ts).total_seconds() < 23 * 3600:
-                return info["cached_jwt"]
-        except Exception:
-            pass
-    payload = {"apiKey": info["api_key"], "environment": info["environment"]}
-    token_url = "https://avto.pro/api/v1/authentication/token"
-    resp = requests.post(token_url, json=payload, timeout=25)
-    if resp.status_code >= 400:
-        raise Exception(f"Autopro auth error: {resp.status_code} {resp.text[:300]}")
-    data = resp.json()
-    jwt = data.get("jwtToken", "")
-    if not jwt:
-        raise Exception("Autopro РЅРµ РїРѕРІРµСЂРЅСѓРІ jwtToken")
-    set_setting(db, "autopro_jwt_token", jwt)
-    set_setting(db, "autopro_jwt_created_at", datetime.utcnow().isoformat())
-    db.commit()
-    return jwt
-
-def autopro_request(db, method, url, body=None, force_refresh=False):
-    jwt = get_autopro_jwt(db, force_refresh=force_refresh)
-    headers = {"Authorization": f"Bearer {jwt}", "Content-Type": "application/json"}
-    resp = requests.request(method, url, headers=headers, json=body, timeout=30)
-    if resp.status_code == 401 and not force_refresh:
-        jwt = get_autopro_jwt(db, force_refresh=True)
-        headers["Authorization"] = f"Bearer {jwt}"
-        resp = requests.request(method, url, headers=headers, json=body, timeout=30)
-    if resp.status_code >= 400:
-        raise Exception(f"Autopro request error: {resp.status_code} {resp.text[:500]}")
-    if "application/json" in resp.headers.get("Content-Type", ""):
-        return resp.json()
-    return {"raw_text": resp.text}
-
-def normalize_autopro_orders(payload):
-    if isinstance(payload, dict):
-        if isinstance(payload.get("items"), list):
-            return payload["items"]
-        if isinstance(payload.get("orders"), list):
-            return payload["orders"]
-        if isinstance(payload.get("data"), list):
-            return payload["data"]
-        return [payload]
-    if isinstance(payload, list):
-        return payload
-    return []
-
-def extract_autopro_order_fields(raw):
-    oid = str(raw.get("id") or raw.get("orderId") or raw.get("number") or raw.get("uid") or "")
-    customer = raw.get("customerName") or raw.get("buyerName") or raw.get("clientName") or "Autopro buyer"
-    phone = raw.get("phone") or raw.get("buyerPhone") or ""
-    city = raw.get("city") or raw.get("deliveryCity") or ""
-    comment = raw.get("comment") or raw.get("deliveryComment") or ""
-    total = float(raw.get("total") or raw.get("totalPrice") or raw.get("amount") or 0)
-    item_candidates = raw.get("items") or raw.get("products") or raw.get("positions") or []
-    items = []
-    for it in item_candidates:
-        part_number = str(it.get("partNumber") or it.get("article") or it.get("sku") or it.get("number") or "")
-        name = it.get("name") or it.get("title") or part_number or "Autopro item"
-        qty = int(it.get("qty") or it.get("quantity") or 1)
-        price = float(it.get("price") or it.get("unitPrice") or 0)
-        items.append({"part_number": part_number, "name": name, "qty": qty, "price_usd": price})
-    return {"oid": oid, "customer": customer, "phone": phone, "city": city, "comment": comment, "total": total, "items": items}
 
 
 def normalize_prom_orders(payload):
@@ -12409,8 +12328,15 @@ def admin_orders():
         orders = db.query(Order).order_by(desc(Order.created_at)).all()
         order_tracking.prime_cache(db, orders)
         prom_stock = marketplaces.prom_order_stock_details(db, orders)
+        avtopro_notices = avtopro_order_notices(db, orders)
         order_cards = [serialize_admin_order(db, order) for order in orders]
         for order_card in order_cards:
+            notices = avtopro_notices.get(order_card["id"], set())
+            order_card["avtoproCancelledNotice"] = "cancelled" in notices
+            order_card["avtoproPaidNotice"] = "paid" in notices
+            order_card["avtoproReview"] = bool(notices and order_card["status"] == "new" and not order_card["items"])
+            if order_card["avtoproReview"] or (order_card["avtoproCancelledNotice"] and order_card["status"] not in {"done", "cancelled"}):
+                order_card["hasIssue"] = True
             detail = prom_stock.get(order_card["id"])
             if detail:
                 order_card["promStock"] = detail
@@ -13177,12 +13103,6 @@ def admin_order_refresh_ttn(order_id):
         return redirect(url_for("admin_orders"))
     finally:
         db.close()
-
-
-@app.route("/admin/orders/sync/autopro", methods=["POST"])
-@admin_required
-def admin_sync_autopro_orders():
-    return redirect(url_for("admin_marketplaces", tab="avtopro"))
 
 
 @app.route("/admin/orders/sync/prom", methods=["POST"])
@@ -15488,6 +15408,9 @@ transit_delivery_models = transit_delivery.install(sys.modules[__name__])
 
 from . import order_tracking
 order_tracking_models = order_tracking.install(sys.modules[__name__])
+
+from . import avtopro_mail
+avtopro_order_notices = avtopro_mail.install(sys.modules[__name__])
 
 from . import merchant_revision
 merchant_revision_model = merchant_revision.install(sys.modules[__name__])

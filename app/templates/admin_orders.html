@@ -317,6 +317,8 @@
                 <span class="order-source-tag{% if order.externalSource == 'prom' %} is-prom{% endif %}" data-order-tag>{{ order.sourceLabel }}</span>
                 {% if order.tracking.promProcessed %}<span class="order-note-tag is-processed" data-order-tag>Опрацьовано на Prom</span>{% endif %}
                 {% if order.promStock and (order.promStock.unmapped or order.promStock.issue) %}<span class="order-note-tag" data-order-tag>{{ 'Потрібен складський номер' if order.promStock.unmapped else 'Потрібна звірка складу' }}</span>{% endif %}
+                {% if order.avtoproCancelledNotice %}<span class="order-note-tag" data-order-tag>Автопро повідомив про скасування</span>
+                {% elif order.avtoproReview %}<span class="order-note-tag" data-order-tag>Потребує звірки</span>{% endif %}
                 {% if order.packingStatusLabel %}<span class="badge neutral">{{ order.packingStatusLabel }}</span>{% endif %}
               </div>
               <div class="order-overview-meta"><span>{{ order.phone or 'Телефон не вказано' }}</span><span>{{ order["items"]|length }} поз.</span><span>{{ order.createdAt }}</span>{% if order.city %}<span>{{ order.city }}</span>{% endif %}</div>
@@ -340,6 +342,12 @@
           </summary>
         <div class="order-body" style="padding-top:18px">
           {% if order.comment %}<div class="muted">{{ order.comment }}</div>{% endif %}
+          {% if order.avtoproReview or order.avtoproPaidNotice or order.avtoproCancelledNotice %}
+          <div class="helper-note {{ 'warn' if order.avtoproCancelledNotice else '' }}">
+            {% if order.avtoproCancelledNotice %}Є лист про скасування. Звірте його перед видачею.{% elif order.avtoproPaidNotice %}Є лист про оплату. Звірте суму в Автопро.{% endif %}
+            <a href="{{ url_for('admin_avtopro_mail') }}">Переглянути повідомлення</a>
+          </div>
+          {% endif %}
 
           {% if (order.packingControlPaymentUah or 0) > 0 and (order.prepaymentUsd or 0) <= 0 %}
           <div class="choice" style="margin-top:12px"><strong>Контроль оплати:</strong> {{ '%.2f'|format(order.packingControlPaymentUah or 0) }} грн</div>

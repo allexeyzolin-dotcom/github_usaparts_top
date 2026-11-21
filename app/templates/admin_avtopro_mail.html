@@ -10,7 +10,7 @@
 <section class="card stack">
   <h3>Підключення n8n</h3>
   <div class="helper-note">{{ 'Ключ приймання створено.' if key_set else 'Очікує підключення. Створіть ключ для HTTP Request у n8n.' }}</div>
-  <label>Адреса приймання<input readonly value="{{ url_for('receive_avtopro_mail', _external=true) }}"></label>
+  <label>Адреса приймання<input readonly value="{{ intake_url }}"></label>
   {% if token %}
     <label>Значення заголовка Authorization<input readonly value="Bearer {{ token }}" autocomplete="off" spellcheck="false"></label>
     <p class="muted">Скопіюйте значення в облікові дані Header Auth у n8n. Ключ показується один раз.</p>
@@ -28,7 +28,7 @@
     <summary><strong>{{ labels[event.event_kind] }}{% if event.order_number %} · №{{ event.order_number }}{% endif %}</strong> <span class="muted">{{ event.received_at|mp_time }}</span></summary>
     <p>{{ event.subject }}</p>
     {% if event.email_text %}<p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ event.email_text }}</p>{% endif %}
-    {% if event.order_id %}<a href="{{ url_for('admin_orders', q=event.order_number, selected=event.order_id) }}">До замовлення №{{ event.order_id }}</a>
+    {% if event.order_id in order_groups %}<a href="{{ url_for('admin_orders', q=event.order_number, selected=event.order_id, group=order_groups[event.order_id]) }}">До замовлення №{{ event.order_id }}</a>
     {% else %}<p class="muted">Звірте повідомлення з кабінетом Автопро.</p>{% endif %}
   </details>
   {% else %}<p class="muted">Повідомлень ще немає. Після підключення пошти тут з’являться перші листи Автопро.</p>{% endfor %}

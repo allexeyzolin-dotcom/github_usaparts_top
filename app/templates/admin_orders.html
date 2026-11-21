@@ -338,7 +338,7 @@
               <span class="order-board-item-empty">Позицій немає</span>
               {% endfor %}
             </span>
-            <div class="order-overview-end"><strong>${{ '%.2f'|format(order.totalUsd) }}</strong><small>Деталі ⌄</small></div>
+            <div class="order-overview-end"><strong>{% if order.avtoproReview %}Сума уточнюється{% else %}${{ '%.2f'|format(order.totalUsd) }}{% endif %}</strong><small>Деталі ⌄</small></div>
           </summary>
         <div class="order-body" style="padding-top:18px">
           {% if order.comment %}<div class="muted">{{ order.comment }}</div>{% endif %}

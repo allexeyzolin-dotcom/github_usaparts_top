@@ -130,9 +130,13 @@ def install(site):
                 db.commit()
                 flash("Ключ для n8n створено", "success")
             events = db.query(AvtoproMailEvent).order_by(AvtoproMailEvent.received_at.desc()).limit(50).all()
+            order_ids = {event.order_id for event in events if event.order_id is not None}
+            order_groups = {order_id: site.order_group_for_status(status) for order_id, status in
+                            db.query(site.Order.id, site.Order.status).filter(site.Order.id.in_(order_ids))}
             response = site.app.make_response(render_template("admin_avtopro_mail.html", csrf=csrf,
                 token=token, key_set=db.query(site.ApiSetting.id).filter_by(setting_key=TOKEN_KEY).first() is not None,
-                events=events, labels=EVENT_LABELS))
+                events=events, labels=EVENT_LABELS, order_groups=order_groups,
+                intake_url=site.absolute_public_url(url_for("receive_avtopro_mail"))))
             response.headers.update({"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
             return response
 

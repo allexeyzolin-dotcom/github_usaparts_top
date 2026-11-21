@@ -2511,6 +2511,7 @@ def serialize_admin_order(db, order: Order):
         "tracking": order_tracking.serialize(db, order),
         "cancelReason": normalize_text(order.cancel_reason or ""),
         "externalSource": external_source,
+        "externalOrderId": order.external_order_id,
         "sourceLabel": source_label,
         "externalStatus": normalize_text(order.external_status or ""),
         "isProcessing": bool(order.is_processing),
@@ -12359,7 +12360,7 @@ def admin_orders():
         def matches(card):
             if not query:
                 return True
-            values = [str(card.get(key) or "") for key in ("id", "customerName", "phone", "city", "ttn", "comment", "title", "sourceLabel")]
+            values = [str(card.get(key) or "") for key in ("id", "customerName", "phone", "city", "ttn", "comment", "title", "sourceLabel", "externalOrderId")]
             values.extend(str(item.get(key) or "") for item in card.get("items", []) for key in ("partNumber", "warehousePartNumber", "name", "title"))
             return query.casefold() in " ".join(values).casefold()
         news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()

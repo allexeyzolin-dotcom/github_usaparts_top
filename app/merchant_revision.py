@@ -206,7 +206,16 @@ def discover(db, config, now):
     offers = {}
     for revision, part in rows:
         if part.in_stock and not part.is_deleted and part.qty > 0:
-            offers.setdefault(SITE.google_merchant_offer_id(part), []).append(revision.id)
+            offers.setdefault(SITE.google_merchant_offer_id(part), []).append((revision, part))
+    canonical = {}
+    for offer, candidates in offers.items():
+        identities = {(SITE.seo_clean_label(part.part_number).upper(), SITE.seo_clean_label(part.brand or part.brand_export).upper(),
+                       SITE.part_condition_code(part)) for _, part in candidates}
+        if len(candidates) > 1 and len(identities) == 1:
+            # The public catalog already selects one card per OEM. Use that exact
+            # card/price rather than letting duplicate cards overwrite one offer.
+            preferred = SITE.best_unique_public_parts([part for _, part in candidates])[0]
+            canonical[offer] = next(revision.id for revision, part in candidates if part.id == preferred.id)
     present = set()
     for revision, part in rows:
         present.add(revision.id)
@@ -215,19 +224,25 @@ def discover(db, config, now):
             job = MODEL(revision_id=revision.id, destination=dest, state="pending", attempts=0)
             db.add(job)
         job.part_id, job.offer_id, job.title = part.id, SITE.google_merchant_offer_id(part), part.name
-        reason, payload = "", None
+        reason, payload, duplicate = "", None, False
         try:
             payload = prepare_payload(part, config, revision=revision.id > 0)
         except ValueError as exc:
             reason = str(exc)
         if len(offers.get(job.offer_id, [])) > 1:
-            reason = "Однаковий Merchant ID у картках ревізії: " + ", ".join(map(str, offers[job.offer_id]))
+            preferred = canonical.get(job.offer_id)
+            if preferred and revision.id != preferred:
+                duplicate, reason = True, f"Однаковий товар: передається публічна картка #{preferred} з актуальною ціною сайту"
+            elif not preferred:
+                reason = "Однаковий Merchant ID у картках: " + ", ".join(str(row.id) for row, _ in offers[job.offer_id])
         signature = digest([payload, reason, revision.version])
         changed = signature != job.source_hash
         if changed:
             job.source_hash, job.source_json = signature, json.dumps(payload, ensure_ascii=False)
             job.attempts, job.next_at = 0, now
             job.state, job.error = ("blocked", reason) if reason else ("pending", "")
+        if duplicate:
+            job.state, job.error = "skipped", reason
         if not part.in_stock or part.is_deleted or part.qty <= 0:
             if not job.sent_at and not job.product_name:
                 job.state, job.error = "skipped", "Нульовий залишок; товар ще не відправлявся"

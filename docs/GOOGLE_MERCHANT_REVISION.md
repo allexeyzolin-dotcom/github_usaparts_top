@@ -19,7 +19,9 @@ startup schema initialization. No destructive schema migration is needed.
   failures use exponential backoff and Retry-After. Invalid data is visible on the
   card, retried daily, or immediately with the retry control after corrections.
 - A new destination has an independent queue. Existing offer IDs keep their
-  previous normalization; collisions are reported rather than overwritten.
+  previous normalization. Identical OEM/brand/condition cards use the exact
+  preferred public card and selling price; other duplicates are marked skipped.
+  Conflicting manufacturer identities or normalized-ID collisions are reported.
 - Previously sent cards becoming unavailable are sent as OUT_OF_STOCK, including
   when photo or price was subsequently removed. A changed OEM first withdraws
   the previous offer. Removed cards retain enough queue data for withdrawal.

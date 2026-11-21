@@ -201,6 +201,17 @@ class MerchantRevisionTests(unittest.TestCase):
         self.assertEqual(self.post.call_count, 2)
         self.assertEqual(self.post.call_args.kwargs["params"]["dataSource"], "accounts/123/dataSources/789")
 
+    def test_same_product_uses_exact_public_winner_without_overwriting_one_offer_twice(self):
+        self.card(number="SAME", price=10)
+        self.card(number="SAME", price=12)
+        with self.sessions() as db:
+            preferred = site.best_unique_public_parts(db.query(site.Part).all())[0]
+            expected_price = site.google_merchant_price_micros(site.display_uah(preferred.price_usd, preferred.warehouse.markup_percent))
+        merchant.run_batch(force=True)
+        self.assertEqual(self.post.call_count, 1)
+        self.assertEqual(self.post.call_args.kwargs["json"]["productAttributes"]["price"]["amountMicros"], expected_price)
+        self.assertEqual(sorted(j.state for j in self.jobs()), ["skipped", "synced"])
+
     def test_images_are_real_jpeg_public_cacheable_and_not_upscaled(self):
         url, warning = merchant.cache_image(site.absolute_public_url("/uploads/original.png"))
         file = site.UPLOAD_DIR / "merchant" / url.rsplit("/", 1)[-1]

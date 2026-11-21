@@ -225,6 +225,25 @@ class OrderTrackingTests(unittest.TestCase):
         anonymous = site.app.test_client().get('/admin/orders/tracking-status?id=1')
         self.assertEqual(anonymous.status_code, 302)
 
+    def test_new_orders_counter_excludes_other_stages_and_is_private(self):
+        for id, status in enumerate(('new', 'new', 'processing', 'awaiting_shipment', 'shipped', 'done', 'cancelled'), 1):
+            self.create(id=id, status=status, ttn='')
+        response = self.client.get('/admin/orders/new-count')
+        self.assertEqual(response.json, {'count': 2})
+        self.assertEqual(response.headers['Cache-Control'], 'no-store')
+        self.assertEqual(site.app.test_client().get('/admin/orders/new-count').status_code, 302)
+        self.np.assert_not_called()
+        header = self.client.get('/admin/orders?group=history').text.split('aria-label="Робочі розділи">', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('has-new-orders', header)
+        self.assertIn('Нових: 2', header)
+        self.assertIn('data-new-orders-count aria-hidden="true">2</span>', header)
+        with self.sessions.begin() as db:
+            db.query(site.Order).filter(site.Order.status == 'new').update({'status': 'processing'})
+        self.assertEqual(self.client.get('/admin/orders/new-count').json, {'count': 0})
+        header = self.client.get('/admin/orders?group=history').text.split('aria-label="Робочі розділи">', 1)[1].split('</nav>', 1)[0]
+        self.assertNotIn('has-new-orders', header)
+        self.assertIn('data-new-orders-count aria-hidden="true" hidden>0</span>', header)
+
     def test_new_layout_renders_all_groups_and_searches_real_order_fields(self):
         self.create(status='new')
         self.create(id=2, status='shipped')

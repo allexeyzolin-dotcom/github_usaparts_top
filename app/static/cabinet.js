@@ -25,4 +25,35 @@
     const dialog = document.getElementById(location.hash.slice(1));
     if (dialog instanceof HTMLDialogElement) dialog.showModal();
   }
+  const ordersLink = document.querySelector('[data-new-orders-link]');
+  const ordersCount = ordersLink?.querySelector('[data-new-orders-count]');
+  if (ordersCount) {
+    let refreshing = false;
+    async function refreshNewOrders() {
+      if (refreshing || document.hidden) return;
+      refreshing = true;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      try {
+        const response = await fetch(ordersLink.dataset.newOrdersUrl, {
+          credentials:'same-origin', cache:'no-store', redirect:'error', signal:controller.signal,
+        });
+        if (!response.ok) return;
+        const {count} = await response.json();
+        if (!Number.isSafeInteger(count) || count < 0) return;
+        ordersCount.textContent = String(count);
+        ordersCount.hidden = count === 0;
+        ordersLink.classList.toggle('has-new-orders', count > 0);
+        ordersLink.setAttribute('aria-label', count ? `Замовлення. Нових: ${count}` : 'Замовлення');
+        ordersLink.title = count ? `Нових замовлень: ${count}` : 'Замовлення';
+      } catch (_) {
+        // Keep the last known count until the next successful check.
+      } finally {
+        clearTimeout(timeout);
+        refreshing = false;
+      }
+    }
+    setInterval(refreshNewOrders, 30000);
+    document.addEventListener('visibilitychange', () => {if (!document.hidden) refreshNewOrders();});
+  }
 })();

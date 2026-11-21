@@ -17,9 +17,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='storage-locations.css') }}?v=20261117-1">
   <script defer src="{{ url_for('static', filename='storage-locations.js') }}?v=20261107-1"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='cabinet.css') }}?v=20261117-3">
-  <link rel="stylesheet" href="{{ url_for('static', filename='approved-board.css') }}?v=20261121-1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='approved-board.css') }}?v=20261121-2">
   <script defer src="{{ url_for('static', filename='vendor/lucide.min.js') }}"></script>
-  <script defer src="{{ url_for('static', filename='cabinet.js') }}?v=20261117-3"></script>
+  <script defer src="{{ url_for('static', filename='cabinet.js') }}?v=20261121-1"></script>
 </head>
 <body class="admin-theme {% block admin_body_class %}{% endblock %}">
   <header class="topbar">
@@ -29,7 +29,12 @@
     <nav class="cabinet-primary" aria-label="Робочі розділи">
       <a class="nav-link {% if request.endpoint == 'admin_parts' %}is-active{% endif %}" href="{{ url_for('admin_parts') }}">Товари</a>
       <a class="nav-link {% if request.endpoint in ['admin_transit','admin_transit_create','admin_transit_update'] %}is-active{% endif %}" href="{{ url_for('admin_transit') }}">Товар в дорозі</a>
-      <a class="nav-link {% if request.endpoint == 'admin_orders' %}is-active{% endif %}" href="{{ url_for('admin_orders', group='new') }}">Замовлення</a>
+      <a class="nav-link nav-orders-link {% if request.endpoint == 'admin_orders' %}is-active{% endif %}{% if orders_new_count %} has-new-orders{% endif %}"
+         href="{{ url_for('admin_orders', group='new') }}" data-new-orders-link data-new-orders-url="{{ url_for('admin_orders_new_count') }}"
+         aria-label="Замовлення{% if orders_new_count %}. Нових: {{ orders_new_count }}{% endif %}"
+         title="{% if orders_new_count %}Нових замовлень: {{ orders_new_count }}{% else %}Замовлення{% endif %}">
+        Замовлення <span class="nav-new-orders-count" data-new-orders-count aria-hidden="true"{% if not orders_new_count %} hidden{% endif %}>{{ orders_new_count }}</span>
+      </a>
     </nav>
     <div class="header-right cabinet-header-actions">
       <button class="btn ghost" type="button" data-cabinet-open="cabinet-news">Події</button>

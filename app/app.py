@@ -12950,6 +12950,16 @@ def admin_orders():
         db.close()
 
 
+@app.route("/admin/orders/new-count")
+@admin_required
+def admin_orders_new_count():
+    with SessionLocal() as db:
+        count = db.query(Order).filter(Order.status == "new").count()
+    response = jsonify({"count": count})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/admin/orders/tracking-status")
 @admin_required
 def admin_orders_tracking_status():

@@ -2344,6 +2344,8 @@ def effective_packing_delivery_type(request_obj: PackingRequest | None, order: O
 
 
 def packing_button_view(request_obj: PackingRequest | None, order: Order | None = None):
+    if order and order.status == "shipped":
+        return {"tone": "success", "label": "Відправлено", "disabled": True, "action": ""}
     if not request_obj:
         return {
             "tone": "violet",
@@ -2400,16 +2402,17 @@ def admin_order_capabilities(order: Order, packing_request: PackingRequest | Non
     locked_packing_statuses = {"packed", "awaiting_shipment", "shipped"}
     has_locked_packing = bool(packing_request and request_status in locked_packing_statuses)
     can_edit_items = order.status not in {"done", "cancelled"} and not has_locked_packing
+    can_direct_ttn = (delivery_type == "nova_poshta"
+                      and order.status in (order_tracking.UNSHIPPED | {"shipped"})
+                      and order.external_status not in {"canceled", "cancelled"})
 
     if packing_request:
-        can_direct_ttn = delivery_type == "nova_poshta" and request_status in {"awaiting_shipment", "shipped"}
         can_complete = (
             delivery_type == "nova_poshta" and order.status == "shipped"
         ) or (
             delivery_type != "nova_poshta" and request_status in {"awaiting_shipment", "shipped"}
         )
     else:
-        can_direct_ttn = delivery_type == "nova_poshta" and order.status in {"awaiting_shipment", "shipped"}
         can_complete = delivery_type == "nova_poshta" and order.status == "shipped"
 
     return {
@@ -12949,7 +12952,7 @@ def admin_orders_tracking_status():
     with SessionLocal() as db:
         orders = db.query(Order).filter(Order.id.in_([int(value) for value in ids])).all() if ids else []
         order_tracking.prime_cache(db, orders)
-        response = jsonify({"orders": [{"id": order.id, "group": order_group_for_status(order.status),
+        response = jsonify({"orders": [{"id": order.id, "group": order_group_for_status(order.status), "orderStatus": order.status,
                                       **order_tracking.serialize(db, order)} for order in orders]})
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -13008,10 +13011,13 @@ def admin_packing_create():
 def admin_order_send_to_packing(order_id):
     db = SessionLocal()
     try:
-        order = db.get(Order, order_id)
+        order = db.query(Order).filter_by(id=order_id).with_for_update().one_or_none()
         if not order:
             flash("Замовлення не знайдено", "error")
             return redirect(url_for("admin_orders"))
+        if order.status not in order_tracking.UNSHIPPED or order_tracking.valid_number(order.ttn):
+            flash("Це замовлення вже відправлено або закрито.", "error")
+            return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
         existing_request = latest_packing_request_for_order(db, order.id)
         if existing_request:
             flash("Це замовлення вже передано в додаток на збірку", "error")
@@ -13267,7 +13273,11 @@ def admin_packing_send_to_order(request_id):
             flash("Спочатку завершіть пакування в додатку", "error")
             return redirect(url_for("admin_orders"))
 
-        order = db.get(Order, request_obj.source_order_id) if request_obj.source_order_id else None
+        order = (db.query(Order).filter_by(id=request_obj.source_order_id).with_for_update().one_or_none()
+                 if request_obj.source_order_id else None)
+        if order and (order.status not in order_tracking.UNSHIPPED or order_tracking.valid_number(order.ttn)):
+            flash("Це замовлення вже відправлено або закрито.", "error")
+            return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
         effective_delivery_type = effective_packing_delivery_type(request_obj, order)
         request_obj.delivery_type = effective_delivery_type
         if effective_delivery_type == "nova_poshta" and order:
@@ -13533,7 +13543,7 @@ def admin_order_complete(order_id):
 def admin_order_update(order_id):
     db = SessionLocal()
     try:
-        order = db.get(Order, order_id)
+        order = db.query(Order).filter_by(id=order_id).with_for_update().one_or_none()
         if not order:
             flash("Замовлення не знайдено", "error")
             return redirect(url_for("admin_orders"))
@@ -13549,32 +13559,25 @@ def admin_order_update(order_id):
             order.prepayment_usd = control_payment_uah
         else:
             order.prepayment_usd = 0
-        new_ttn = request.form.get("ttn", "").strip()
-        previous_ttn = normalize_text(order.ttn or "").strip()
-        ttn_changed = bool(new_ttn and new_ttn != previous_ttn)
+        new_ttn = order_tracking.number(request.form.get("ttn"))
+        ttn_changed = bool(new_ttn and new_ttn != order_tracking.number(order.ttn))
         if ttn_changed and not capabilities["canDirectTtnEdit"]:
-            flash("ТТН можна вносити лише після натискання \"Відправити замовлення\".", "error")
+            flash("ТТН можна змінити в незакритому замовленні з доставкою Новою поштою.", "error")
             return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
-        if order.status == "cancelled":
-            order.is_processing = False
-        elif ttn_changed:
-            order.ttn = new_ttn
-            order.status = "shipped"
-            order.is_processing = True
-            order.ttn_status = "Очікує оновлення"
+        if ttn_changed and not order_tracking.valid_number(new_ttn):
+            flash("ТТН Нової пошти повинна містити 14 цифр.", "error")
+            return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
+        if ttn_changed:
+            order_tracking.set_waybill(order, new_ttn)
             queue_telegram_message(db, build_order_ttn_telegram_message(order, new_ttn))
             flash_news(db, "telegram", "ТТН передано в Telegram", f"Замовлення #{order.id}: {new_ttn}.", "info")
 
-        if order.status == "cancelled":
+        order_tracking.mark_shipped(db, order, now())
+        if order.status in {"cancelled", "done"}:
             order.is_processing = False
-        elif order.status == "done":
-            order.is_processing = False
-        elif order.status == "awaiting_shipment" and not order.ttn:
+        elif order.status in {"awaiting_shipment", "shipped"}:
             order.is_processing = True
-        elif order.ttn:
-            order.status = "shipped"
-            order.is_processing = True
-        elif order.is_processing and order.status != "done":
+        elif order.is_processing:
             order.status = "processing"
         elif order.status not in ("processing", "done", "awaiting_shipment", "shipped"):
             order.status = "new"
@@ -13583,7 +13586,7 @@ def admin_order_update(order_id):
         flash_news(db, "orders", "Оновлено замовлення", f"Замовлення #{order.id} оновлено.", "info")
         db.commit()
         flash("Замовлення оновлено", "success")
-        return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
+        return redirect(url_for("admin_orders", group=order_group_for_status(order.status), selected=order.id))
     finally:
         db.close()
 
@@ -15623,11 +15626,16 @@ def api_mobile_shipment_submit_ttn(request_id):
             return jsonify({"error": "request_not_ready", "message": "Заявка ще не готова до відправки."}), 400
 
         payload = request.get_json(silent=True) or {}
-        ttn = normalize_text(payload.get("ttn", "") or "").strip()
+        ttn = order_tracking.number(payload.get("ttn"))
         if not ttn:
             return jsonify({"error": "ttn_required", "message": "Вкажіть ТТН Нової пошти."}), 400
+        if not order_tracking.valid_number(ttn):
+            return jsonify({"error": "ttn_invalid", "message": "ТТН Нової пошти повинна містити 14 цифр."}), 400
 
-        order = db.get(Order, request_obj.source_order_id) if request_obj.source_order_id else None
+        order = (db.query(Order).filter_by(id=request_obj.source_order_id).with_for_update().one_or_none()
+                 if request_obj.source_order_id else None)
+        if order and (order.status not in order_tracking.UNSHIPPED or order.external_status in {"canceled", "cancelled"}):
+            return jsonify({"error": "request_not_ready", "message": "Замовлення вже відправлено або закрито."}), 400
         if not order:
             order = Order(
                 customer_name=normalize_text(request_obj.customer_name or "").strip() or "Клієнт",
@@ -15636,6 +15644,7 @@ def api_mobile_shipment_submit_ttn(request_id):
                 comment=packing_request_order_comment(request_obj) or request_obj.comment or "",
                 total_usd=0,
                 status="awaiting_shipment",
+                delivery_type="nova_poshta",
                 is_processing=True,
                 prepayment_usd=float(request_obj.control_payment_uah or 0),
                 ttn="",
@@ -15668,13 +15677,8 @@ def api_mobile_shipment_submit_ttn(request_id):
             order.total_usd = total_usd
             request_obj.source_order_id = order.id
 
-        order.ttn = ttn
-        order.status = "shipped"
-        order.is_processing = True
-        order.ttn_status = "Очікує оновлення"
-        order.updated_at = now()
-        request_obj.status = "shipped"
-        request_obj.updated_at = now()
+        order_tracking.set_waybill(order, ttn)
+        order_tracking.mark_shipped(db, order, now())
 
         flash_news(
             db,

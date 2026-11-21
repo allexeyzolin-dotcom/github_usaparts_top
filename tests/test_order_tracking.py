@@ -56,6 +56,40 @@ class OrderTrackingTests(unittest.TestCase):
             self.assertEqual(db.get(site.Part, 1).qty, 7)
             self.assertTrue(tracking.serialize(db, order)['received'])
 
+    def test_existing_waybill_moves_open_order_to_shipped_without_carrier_response(self):
+        self.create(status='new')
+        self.create(id=2, status='processing', ttn='123')
+        self.create(id=3, status='done')
+        self.create(id=4, status='cancelled')
+        self.create(id=5, status='processing', external_source='prom', external_status='canceled')
+        with self.sessions.begin() as db:
+            db.add(site.PackingRequest(source_type='order', source_order_id=1, delivery_type='nova_poshta',
+                                        status='awaiting_shipment'))
+        self.run_check()
+        status = self.client.get('/admin/orders/tracking-status?id=1').json['orders'][0]
+        self.assertEqual((status['group'], status['orderStatus']), ('active', 'shipped'))
+        self.assertNotIn('data-tracking-order="1"', self.client.get('/admin/orders?group=new').text)
+        with self.sessions() as db:
+            statuses = [order.status for order in db.query(site.Order).order_by(site.Order.id)]
+            self.assertEqual(statuses, ['shipped', 'processing', 'done', 'cancelled', 'processing'])
+            self.assertEqual(db.query(site.PackingRequest).one().status, 'shipped')
+            self.assertEqual(db.get(site.Part, 1).qty, 7)
+
+    def test_saving_waybill_in_a_new_order_moves_directly_to_shipped(self):
+        self.create(status='new', ttn='')
+        fields = {'ttn': '2045 0000 0000 01', 'prepayment_usd': '0'}
+        with patch.object(site, 'queue_telegram_message') as notify:
+            invalid = self.client.post('/admin/orders/1/update', data=dict(fields, ttn='123'))
+            self.assertIn('group=new', invalid.location)
+            response = self.client.post('/admin/orders/1/update', data=fields)
+            self.assertIn('group=active&selected=1', response.location)
+            self.client.post('/admin/orders/1/update', data=fields)
+            self.assertEqual(notify.call_count, 1)
+        with self.sessions() as db:
+            order = db.get(site.Order, 1)
+            self.assertEqual((order.status, order.ttn), ('shipped', '20450000000001'))
+            self.assertEqual(db.get(site.Part, 1).qty, 7)
+
     def test_received_prom_order_moves_to_history_without_writing_off_inventory(self):
         self.create(status='processing', external_source='prom', stock_reserved=True, is_processing=True)
         self.create(id=2, status='new', ttn='')
@@ -201,6 +235,10 @@ class OrderTrackingTests(unittest.TestCase):
         response = self.client.get('/admin/orders?group=active&q=OEM-1')
         self.assertIn('id="order-2"', response.text)
         self.assertNotIn('id="order-1"', response.text)
+        card_items = response.text.split('data-order-items>', 1)[1].split('class="order-overview-end"', 1)[0]
+        self.assertIn('OEM-1', card_items)
+        self.assertIn('Радіатор', card_items)
+        self.assertIn('1 шт.', card_items)
         response = self.client.get('/admin/orders?group=active&q=НЕМАЄ')
         self.assertNotIn('data-tracking-order=', response.text)
 

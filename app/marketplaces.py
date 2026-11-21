@@ -255,8 +255,7 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
     order.np_warehouse_ref = str(provider.get("recipient_warehouse_id") or "")
     order.np_warehouse_label = str(address or "")[:255]
     already_delivered = order.status == "done" and order_tracking.serialize(db, order)["promProcessed"]
-    if provider.get("declaration_number"):
-        order.ttn = str(provider["declaration_number"])
+    order_tracking.set_waybill(order, provider.get("declaration_number"))
     order.external_status = remote_status
     order.updated_at = datetime.utcnow()
     state.issue = ""
@@ -341,6 +340,7 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
                     name=str(product.get("name") or ""), qty=count, price_usd=0))
         if remote_status == "canceled" and not state.return_pending:
             order.status = "cancelled"
+    order_tracking.mark_shipped(db, order, datetime.utcnow())
     if not state.historical and (created or previous_status != remote_status or
                                 previous_payment != state.payment_status or (line_change and not already_delivered)):
         title = f"Prom №{identifier}: {raw.get('status_name') or remote_status}"

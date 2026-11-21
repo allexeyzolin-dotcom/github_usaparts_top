@@ -60,6 +60,7 @@
 </div>
 <div class="orders-monitor" data-tracking-feed="{{ url_for('admin_orders_tracking_status') }}" data-order-group="{{ selected_group }}" data-selected-order="{{ selected_order or '' }}"><span class="orders-monitor-dot" aria-hidden="true"></span><span data-tracking-feed-label>Статуси НП перевіряються автоматично кожні 5 хвилин, навіть коли кабінет закритий.</span></div>
 <p class="orders-prom-moved" data-prom-moved role="status" hidden><span></span> <a href="{{ url_for('admin_orders', group='history') }}">Перейти до історії</a></p>
+<p class="orders-prom-moved" data-shipped-moved role="status" hidden><span></span> <a href="{{ url_for('admin_orders', group='active', q=orders_query) }}">Перейти до відправлених</a></p>
 <div class="orders-workspace">
   <section class="orders-sidebar-stack">
     <dialog id="manual-packing-create" class="cabinet-dialog orders-manual-card" aria-labelledby="manual-packing-title">
@@ -322,6 +323,20 @@
               <div class="order-overview-meta"><span>{{ order.phone or 'Телефон не вказано' }}</span><span>{{ order["items"]|length }} поз.</span><span>{{ order.createdAt }}</span>{% if order.city %}<span>{{ order.city }}</span>{% endif %}</div>
               {% if order.ttn %}<div class="order-ttn-summary"><span>НП · {{ order.ttn }}</span><span data-ttn-status class="{{ 'is-received' if order.tracking.received else ('needs-attention' if order.tracking.attention else '') }}">{{ order.tracking.status or 'Очікує перевірки' }}</span></div>{% endif %}
             </div>
+            <span class="order-board-items" data-order-items>
+              <strong class="order-board-items-title">Запчастини</strong>
+              {% for item in order['items'] %}
+              <span class="order-board-item">
+                {% if item.partNumber or item.warehousePartNumber %}
+                <strong>{{ item.partNumber or item.warehousePartNumber }}</strong>
+                {% endif %}
+                <span class="order-board-item-qty">{{ item.qty }} шт.</span>
+                {% if item.name %}<span class="order-board-item-name">{{ item.name }}</span>{% endif %}
+              </span>
+              {% else %}
+              <span class="order-board-item-empty">Позицій немає</span>
+              {% endfor %}
+            </span>
             <div class="order-overview-end"><strong>${{ '%.2f'|format(order.totalUsd) }}</strong><small>Деталі ⌄</small></div>
           </summary>
         <div class="order-body" style="padding-top:18px">
@@ -435,7 +450,7 @@
           {% if order.canDirectTtnEdit or order.ttn %}
           <form method="post" action="{{ url_for('admin_order_update', order_id=order.id) }}" class="stack order-ttn-form" style="margin-top:14px">
             <input type="hidden" name="prepayment_usd" value="{{ order.prepaymentUsd or 0 }}">
-            <label class="stack field-label">ТТН Нової пошти<input name="ttn" value="{{ order.ttn or '' }}" placeholder="14 цифр" inputmode="numeric" pattern="[0-9 ]{14,20}" {% if not order.canDirectTtnEdit %}readonly{% endif %}></label>
+            <label class="stack field-label">ТТН Нової пошти<input name="ttn" value="{{ order.ttn or '' }}" data-saved-ttn="{{ order.ttn or '' }}" placeholder="14 цифр" inputmode="numeric" pattern="(?:[0-9] *){14}" {% if not order.canDirectTtnEdit %}readonly{% endif %}></label>
             <div class="muted" data-ttn-status>{{ order.tracking.status or 'Очікує перевірки' }}</div>
             <div class="muted" data-ttn-checked>{{ ('Перевірено: ' ~ order.tracking.checkedAt ~ ' · Київ') if order.tracking.checkedAt else 'Перша перевірка — автоматично протягом 5 хвилин.' }}</div>
             <div class="ttn-error" data-ttn-error {% if not order.tracking.error %}hidden{% endif %}>{{ order.tracking.error }}</div>
@@ -492,7 +507,7 @@
   </section>
   {% endif %}
 </div>
-<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261117-4"></script>
+<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261121-1"></script>
 
 <div class="payment-modal hidden" id="control-payment-modal" aria-hidden="true">
   <div class="payment-modal__backdrop" data-control-payment-close></div>

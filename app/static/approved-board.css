@@ -139,6 +139,22 @@ body.admin-theme .orders-page-head.workspace-heading{margin-bottom:18px}
 body.admin-theme .orders-toolbar{margin-bottom:12px}
 body.admin-theme .order-active-filter{margin-bottom:12px}
 body.admin-theme .order-board-tags{display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-width:0}
+body.admin-theme .customer-order-board .board-lane{container-type:inline-size}
+body.admin-theme .customer-order-board .delivery-card{grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:9px 12px;align-content:start}
+body.admin-theme .order-board-card-main{display:grid;gap:8px;align-content:start;min-width:0}
+body.admin-theme .order-board-items{display:grid;gap:5px;align-content:start;min-width:0;overflow-wrap:anywhere}
+body.admin-theme .customer-order-board .order-board-items{border-inline-start:1px solid #e3e7ed;padding-inline-start:10px}
+body.admin-theme .order-board-items-title{font-size:11px;font-weight:650;color:#475467}
+body.admin-theme .order-board-item{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:5px;align-items:baseline;font-size:11px;line-height:1.35}
+body.admin-theme .order-board-item>strong{font-weight:650}
+body.admin-theme .order-board-item-qty{grid-column:2;white-space:nowrap;color:#475467}
+body.admin-theme .order-board-item-name{grid-column:1/-1;color:#475467}
+body.admin-theme .order-board-item-empty{font-size:11px;color:#667085}
+body.admin-theme .customer-order-board .delivery-card-bottom{grid-column:1/-1}
+@container (max-width:235px){
+  body.admin-theme .customer-order-board .delivery-card{grid-template-columns:minmax(0,1fr)}
+  body.admin-theme .customer-order-board .order-board-items{border-inline-start:0;padding-inline-start:0;border-top:1px solid #e3e7ed;padding-top:7px}
+}
 body.admin-theme .order-source-tag,body.admin-theme .order-note-tag{display:inline-flex;align-items:center;width:fit-content;max-width:100%;padding:4px 7px;border-radius:6px;font-size:11px;font-weight:650;line-height:1.3;text-align:left}
 body.admin-theme .order-source-tag{background:#edf1f5;color:#334155}
 body.admin-theme .order-source-tag.is-prom{background:#f1e9ff;color:#5e3491}

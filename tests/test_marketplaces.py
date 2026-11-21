@@ -129,6 +129,22 @@ class MarketplaceTests(unittest.TestCase):
             self.assertEqual(order.items[0].part_id, 1)
             self.assertEqual(db.query(mp.MODELS.Event).filter_by(notify=True).count(), 1)
 
+    def test_prom_order_with_new_waybill_is_shipped_even_if_prom_still_reports_received(self):
+        row = self.raw(status="received")
+        self.assertEqual(self.process(row), "created")
+        with self.sessions() as db:
+            self.assertEqual(db.query(site.Order).one().status, "processing")
+        row["delivery_provider_data"]["declaration_number"] = "20450000000001"
+        row["date_modified"] = (datetime.utcnow() + timedelta(seconds=1)).isoformat()
+        self.assertEqual(self.process(row), "updated")
+        self.assertEqual(self.process(row), "unchanged")
+        with self.sessions() as db:
+            order = db.query(site.Order).one()
+            self.assertEqual((order.status, order.ttn, order.external_status),
+                             ("shipped", "20450000000001", "received"))
+            self.assertTrue(order.stock_reserved)
+        self.assertEqual(self.part_qty(), 2)
+
     def test_cancel_releases_only_our_reservation_once(self):
         row = self.raw()
         self.process(row)
@@ -212,7 +228,7 @@ class MarketplaceTests(unittest.TestCase):
         row["products"][0].update(id=remote_id, sku="PROM-OEM")
         self.assertEqual(self.process(row), "issue")
         self.login()
-        page = self.client.get("/admin/orders?group=new")
+        page = self.client.get("/admin/orders?group=active")
         self.assertIn("Потрібен складський номер", page.text)
         self.assertIn("PROM-OEM", page.text)
         options = self.client.get("/admin/marketplaces/parts?exact=1&q=D-U-P").json["results"]

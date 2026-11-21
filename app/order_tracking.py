@@ -13,10 +13,36 @@ LOCK = threading.Lock()
 STARTED = False
 INTERVAL = timedelta(minutes=5)
 COLLECTED = {"9", "10", "11"}
+UNSHIPPED = {"new", "processing", "awaiting_shipment"}
 
 
 def number(value):
     return re.sub(r"\s+", "", str(value or ""))
+
+
+def valid_number(value):
+    return bool(re.fullmatch(r"[0-9]{14}", number(value)))
+
+
+def set_waybill(order, value):
+    ttn = number(value)
+    if not ttn or ttn == number(order.ttn):
+        return False
+    order.ttn = ttn
+    order.ttn_status = "Очікує оновлення"
+    return True
+
+
+def mark_shipped(db, order, now):
+    if (order.status not in UNSHIPPED or order.external_status in {"canceled", "cancelled"}
+            or not valid_number(order.ttn)):
+        return
+    order.status = "shipped"
+    order.is_processing = True
+    order.updated_at = now
+    request = SITE.PackingRequest
+    db.query(request).filter_by(source_order_id=order.id, status="awaiting_shipment").update(
+        {request.status: "shipped", request.updated_at: now}, synchronize_session="fetch")
 
 
 def local_label(value):
@@ -82,7 +108,7 @@ def refresh(db, orders, *, now=None, force=False):
                 continue
         if not force and not changed and row.checked_at and row.checked_at > now - INTERVAL:
             continue
-        if not re.fullmatch(r"\d{14}", ttn):
+        if not valid_number(ttn):
             invalid.append((order.id, ttn))
             continue
         due.setdefault(ttn, []).append(order.id)
@@ -153,6 +179,12 @@ def run_once(now=None):
                 return
         now = now or datetime.utcnow()
         with SITE.SessionLocal() as db:
+            order = SITE.Order
+            pending = (db.query(order).filter(order.ttn != "", order.status.in_(UNSHIPPED))
+                       .order_by(order.id).with_for_update().all())
+            for entry in pending:
+                mark_shipped(db, entry, now)
+            db.commit()
             orders = db.query(SITE.Order).filter(SITE.Order.ttn != "",
                 SITE.Order.status.notin_(["done", "cancelled"])).all()
             refresh(db, orders, now=now)

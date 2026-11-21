@@ -7,8 +7,9 @@
   const label = feed.querySelector('[data-tracking-feed-label]');
   const normalLabel = label.textContent;
   const group = feed.dataset.orderGroup;
-  const moved = document.querySelector('[data-prom-moved]');
-  const archived = new Set();
+  const moved = new Map();
+  const historyNotice = document.querySelector('[data-prom-moved]');
+  const shippingNotice = document.querySelector('[data-shipped-moved]');
   let fetching = false;
   const board = setupBoard();
   function setupBoard() {
@@ -61,7 +62,10 @@
       const bottom = document.createElement('span');bottom.className = 'delivery-card-bottom';
       const qty = document.createElement('span');qty.textContent = '#' + card.dataset.trackingOrder + ' · ' + card.dataset.positionCount + ' поз.';
       const price = document.createElement('span');price.textContent = summary.querySelector('.order-overview-end strong')?.textContent || '';
-      bottom.append(qty,price);button.append(title,tags,meta,bottom);
+      const main = document.createElement('span');main.className = 'order-board-card-main';
+      main.append(title,tags,meta);
+      bottom.append(qty,price);
+      button.append(main,summary.querySelector('[data-order-items]').cloneNode(true),bottom);
       button.addEventListener('click',()=>select(card.dataset.trackingOrder));
       lanes.get(lane).items.append(button);buttons.set(card,button);
       card.classList.add('board-selection');
@@ -82,7 +86,20 @@
     });
     list.classList.add('order-board-details');
     if (window.lucide) window.lucide.createIcons({attrs:{width:17,height:17,'stroke-width':1.7}});
-    return {render(eligible) {
+    return {ship(card) {
+      const button = buttons.get(card);
+      const badge = button.querySelector('.board-status');
+      const icon = document.createElement('i');
+      icon.dataset.lucide = 'truck';
+      icon.setAttribute('aria-hidden','true');
+      badge.className = 'board-status tone-route';
+      badge.replaceChildren(icon, document.createTextNode('Відправлено'));
+      card.dataset.boardLane = 'shipping';
+      const lane = lanes.get('shipping').items;
+      const following = cards.slice(cards.indexOf(card) + 1).find(other => other.dataset.boardLane === 'shipping');
+      lane.insertBefore(button, following ? buttons.get(following) : null);
+      if (window.lucide) window.lucide.createIcons({attrs:{width:17,height:17,'stroke-width':1.7}});
+    }, render(eligible) {
       buttons.forEach((button,card)=>button.hidden = !eligible.includes(card));
       lanes.forEach((lane,key)=>{
         const count = eligible.filter(card=>card.dataset.boardLane === key).length;
@@ -95,7 +112,7 @@
     const eligible = [];
     let shown = 0;
     cards.forEach(card => {
-      const match = !archived.has(card.dataset.trackingOrder) && (!stage || stage.value === 'all' ||
+      const match = !moved.has(card.dataset.trackingOrder) && (!stage || stage.value === 'all' ||
         (stage.value === 'issue' ? card.dataset.orderIssue === '1' : card.dataset.orderStatus === stage.value));
       if (!board) card.hidden = !match;
       if (match) {shown++;eligible.push(card);}
@@ -105,23 +122,24 @@
   }
   stage?.addEventListener('change', filterStage);
   filterStage();
-  function archiveCard(id) {
-    if (archived.has(id)) return;
-    archived.add(id);
-    const currentCount = document.querySelector(`[data-order-count="${group}"]`);
-    const historyCount = document.querySelector('[data-order-count="history"]');
+  function moveCard(id, target, notice, singleMessage, multipleMessage) {
+    const previous = moved.get(id);
+    if (previous === target) return;
+    moved.set(id, target);
+    const currentCount = document.querySelector(`[data-order-count="${previous || group}"]`);
+    const nextCount = document.querySelector(`[data-order-count="${target}"]`);
     if (currentCount) currentCount.textContent = Math.max(0, Number(currentCount.textContent) - 1);
-    if (historyCount) historyCount.textContent = Number(historyCount.textContent) + 1;
-    if (!moved) return;
-    moved.hidden = false;
-    moved.querySelector('span').textContent = archived.size === 1
-      ? `Замовлення #${id} отримано й переміщено в історію.`
-      : `Отримані замовлення Prom переміщено в історію (${archived.size}).`;
-    const link = moved.querySelector('a');
+    if (nextCount) nextCount.textContent = Number(nextCount.textContent) + 1;
+    if (!notice) return;
+    const count = [...moved.values()].filter(value => value === target).length;
+    notice.hidden = false;
+    notice.querySelector('span').textContent = count === 1 ? singleMessage : `${multipleMessage} (${count}).`;
+    const link = notice.querySelector('a');
     const url = new URL(link.href);
-    if (archived.size === 1) url.searchParams.set('selected', id);
+    if (count === 1) url.searchParams.set('selected', id);
     else url.searchParams.delete('selected');
     link.href = url.toString();
+    if (previous === 'active' && ![...moved.values()].includes('active')) shippingNotice.hidden = true;
   }
   document.querySelectorAll('[data-prom-match]').forEach(form => {
     const input = form.querySelector('[data-prom-number]');
@@ -205,8 +223,27 @@
           const card = cards.find(el => el.dataset.trackingOrder === String(item.id));
           if (!card) continue;
           if (group !== 'history' && item.group === 'history' && item.promProcessed) {
-            archiveCard(String(item.id));
+            moveCard(String(item.id), 'history', historyNotice,
+              `Замовлення #${item.id} отримано й переміщено в історію.`, 'Отримані замовлення Prom переміщено в історію');
             continue;
+          }
+          if (item.orderStatus === 'shipped' && card.dataset.orderStatus !== 'shipped') {
+            card.dataset.orderStatus = 'shipped';
+            if (group === 'new') {
+              moveCard(String(item.id), 'active', shippingNotice,
+                `Замовлення #${item.id} переміщено у «Відправлені».`, 'Замовлення переміщено у «Відправлені»');
+              continue;
+            }
+            if (group === 'active') {
+              board?.ship(card);
+              const packing = card.querySelector('[id^="order-packing-form-"] button');
+              if (packing) { packing.disabled = true; packing.textContent = 'Відправлено'; }
+            }
+          }
+          const ttnInput = card.querySelector('[data-saved-ttn]');
+          if (ttnInput && item.ttn && ttnInput !== document.activeElement && ttnInput.value === ttnInput.dataset.savedTtn) {
+            ttnInput.value = item.ttn;
+            ttnInput.dataset.savedTtn = item.ttn;
           }
           card.querySelectorAll('[data-ttn-status]').forEach(node => {
             node.textContent = item.status || 'Очікує перевірки';

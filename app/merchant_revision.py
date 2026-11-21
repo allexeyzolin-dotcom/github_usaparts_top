@@ -139,6 +139,10 @@ def prepare_payload(part, config, revision=True):
     proxy = SimpleNamespace(**{column.name: getattr(part, column.name) for column in SITE.Part.__table__.columns})
     proxy.warehouse = part.warehouse
     proxy.is_deleted, proxy.in_stock, proxy.qty = False, True, 1
+    gallery = list(dict.fromkeys(SITE.parse_media_urls(part.showcase_photo_urls) + SITE.parse_media_urls(part.photo_urls)))
+    # A stale showcase URL must not hide a real original upload on the same card.
+    gallery.sort(key=lambda url: not urlsplit(url).path.startswith("/uploads/"))
+    proxy.showcase_photo_urls = json.dumps(gallery)
     payload, reason = SITE.google_merchant_part_payload(proxy, {**config, "allow_placeholder_images": False})
     if payload is None:
         raise ValueError(reason)
@@ -352,6 +356,7 @@ def run_batch(force=False):
             discover(db, config, now)
             SITE.set_setting(db, "merchant_revision_last_at", now.isoformat(timespec="seconds"))
             SITE.set_setting(db, "merchant_revision_next_at", (now + timedelta(seconds=opt["interval"])).isoformat())
+            SITE.set_setting(db, "merchant_revision_message", "Виконується порція. Завершені товари зберігаються по одному; наступний запуск продовжить чергу.")
             db.commit()
             headers = SITE.google_merchant_request_headers(config)
             import_existing(db, config, headers, now)

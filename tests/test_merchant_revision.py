@@ -214,6 +214,22 @@ class MerchantRevisionTests(unittest.TestCase):
         self.assertIn("public", response.headers["Cache-Control"])
         self.assertNotIn("X-Robots-Tag", response.headers)
 
+    def test_original_upload_is_used_when_showcase_photo_is_stale(self):
+        self.card()
+        with self.sessions.begin() as db:
+            part = db.query(site.Part).one()
+            part.showcase_photo_urls = '["https://i.avto.pro/broken.jpg"]'
+        original_loader = merchant.image_bytes
+        def load_photo(url):
+            if "i.avto.pro" in url:
+                raise merchant.requests.HTTPError("photo 404")
+            return original_loader(url)
+        with patch.object(merchant, "image_bytes", side_effect=load_photo) as load:
+            merchant.run_batch(force=True)
+        self.assertEqual(self.jobs()[0].state, "synced")
+        self.assertIn("/uploads/original.png", load.call_args_list[0].args[0])
+        self.assertIn("/uploads/merchant/", self.post.call_args.kwargs["json"]["productAttributes"]["imageLink"])
+
     def test_bad_image_origins_traversal_and_corrupt_files_are_blocked(self):
         for url in ("https://127.0.0.1/photo.jpg", "http://i.avto.pro/a.jpg", "https://i.avto.pro.evil.test/a.jpg",
                     "https://i.avto.pro:8443/a.jpg", "https://usaparts.top/static/product-photo-placeholder.png",

@@ -22,7 +22,7 @@
   })(window,document,'script','dataLayer','GTM-NMTDSFSZ');</script>
   <!-- End Google Tag Manager -->
   {% set meta_title = seo_title|default('USAparts.top | Запчастини для авто з США', true) %}
-  {% set meta_description = seo_description|default('USAparts.top: запчастини для авто з США, авто в наявності та авто в дорозі. Пошук по OEM номеру, назві або VIN.', true) %}
+  {% set meta_description = seo_description|default('USAparts.top: запчастини для авто з США. Пошук за OEM номером, назвою або крос-номером. Доставка по Україні.', true) %}
   <title>{{ meta_title }}</title>
   <meta name="description" content="{{ meta_description }}">
   <meta name="robots" content="{% if seo_noindex|default(false) %}{{ 'noindex,nofollow' if seo_nofollow|default(false) else 'noindex,follow' }}{% else %}index,follow{% endif %}">
@@ -61,6 +61,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='storage-locations.css') }}?v=20261117-1">
   {% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='storefront.css') }}?v={{ storefront_asset_version }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='storefront-pages.css') }}?v=20261121-2">
   <script defer src="{{ url_for('static', filename='image-fallback.js') }}?v=20261013" data-fallback="{{ url_for('static', filename='photo-unavailable.svg') }}"></script>
   <link rel="preload" href="{{ url_for('static', filename='manrope.ttf') }}" as="font" type="font/ttf" crossorigin>
   {% if json_ld|default('') %}
@@ -71,7 +72,7 @@
   <script defer src="{{ url_for('static', filename='product-search.js') }}?v=20261018-1"></script>
   {% endif %}
 </head>
-<body class="public-shop-theme">
+<body class="public-shop-theme{% if request.endpoint in ['catalog', 'delivery_payment'] %} storefront-focused{% endif %}">
   <!-- Google Tag Manager (noscript) -->
   <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-NMTDSFSZ"
   height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
@@ -88,25 +89,22 @@
       <a href="{{ url_for('home') }}" class="site-logo" aria-label="USAparts.top — головна">
         <img class="site-logo-img" src="{{ url_for('static', filename='usaparts-logo-transparent.png') }}" alt="USAparts.top" width="220" height="60" decoding="async">
       </a>
-      <form class="store-header-search" method="get" action="{{ url_for('catalog') }}" role="search">
-        <input name="q" aria-label="Пошук за OEM номером або назвою" value="{{ request.args.get('q', '') }}" placeholder="OEM номер або назва запчастини" autocomplete="off">
-        <button class="btn primary" type="submit">Знайти <span aria-hidden="true">↗</span></button>
-      </form>
+      <nav class="store-primary-nav" aria-label="Основна навігація">
+        <a href="{{ url_for('catalog') }}"{% if request.endpoint == 'catalog' %} aria-current="page"{% endif %}><span class="nav-label-long">Каталог запчастин</span><span class="nav-label-short">Каталог</span></a>
+        <a href="{{ url_for('delivery_payment') }}"{% if request.endpoint == 'delivery_payment' %} aria-current="page"{% endif %}>Оплата і доставка</a>
+        <a href="{{ url_for('delivery_calculator') }}"{% if request.endpoint == 'delivery_calculator' %} aria-current="page"{% endif %}><span class="nav-label-long">Калькулятор доставки</span><span class="nav-label-short">Калькулятор</span></a>
+      </nav>
       <div class="store-actions">
-        <a class="cart-link" href="{{ url_for('cart_view') }}" rel="nofollow">Кошик <span class="cart-badge">{{ cart_count }}</span></a>
+        <a class="cart-link" href="{{ url_for('cart_view') }}" rel="nofollow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 3h2l3 12h10l3-9H6"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg>Кошик <span class="cart-badge">{{ cart_count }}</span></a>
         <a class="cabinet desktop-only" href="{{ url_for('admin_root') if session.get('admin_auth') else url_for('admin_login') }}" rel="nofollow">Кабінет</a>
       </div>
     </div>
-    <nav class="store-nav" aria-label="Основна навігація">
-      <div class="container store-nav-inner">
-        <a class="store-catalog-button" href="{{ url_for('catalog') }}">Каталог запчастин <span aria-hidden="true">↗</span></a>
-        <a class="nav-link" href="{{ url_for('cars_public', status='in_stock') }}">Авто в наявності</a>
-        <a class="nav-link" href="{{ url_for('cars_public', status='in_transit') }}">Авто в дорозі</a>
-        <a class="nav-link" href="{{ url_for('delivery_calculator') }}">Калькулятор доставки</a>
-        <button type="button" class="nav-link tracking-btn" id="openTracking">Трекінг VIN</button>
-        <a class="nav-link" href="{{ url_for('delivery_payment') }}">Оплата і доставка</a>
-      </div>
-    </nav>
+    {% if request.endpoint not in ['home', 'catalog', 'delivery_payment', 'return_policy'] %}
+    <form class="container store-header-search store-secondary-search" method="get" action="{{ url_for('catalog') }}" role="search">
+      <input name="q" aria-label="Пошук за OEM номером або назвою" value="{{ request.args.get('q', '') }}" placeholder="OEM номер або назва запчастини" autocomplete="off">
+      <button class="btn primary" type="submit">Знайти</button>
+    </form>
+    {% endif %}
   </header>
 
   <main class="page" id="main-content">
@@ -136,120 +134,6 @@
     <div class="container footer-bottom">USAparts.top · Автозапчастини зі США</div>
   </footer>
 
-  <div class="drawer-backdrop hidden" id="trackingBackdrop"></div>
-  <div class="tracking-modal hidden" id="trackingModal" role="dialog" aria-modal="true" aria-labelledby="tracking-title">
-    <div class="drawer-handle"></div>
-    <div class="drawer-header">
-      <h3 id="tracking-title">Трекінг авто по VIN</h3>
-      <button type="button" class="btn ghost small" id="closeTracking" data-tracking-close>Закрити</button>
-    </div>
-    <div class="stack compact-checkout-form">
-      <input id="trackingVin" placeholder="Введіть VIN номер">
-      <div class="button-row">
-        <button type="button" class="btn primary" id="runTracking">Знайти</button>
-      </div>
-      <div class="muted" id="trackingHelp">Система спробує знайти VIN на OliCargo, YO Auto або W8 Shipping і відкриє відповідну сторінку в новій вкладці.</div>
-      <div class="button-row tracking-direct-links">
-        <a id="olicargoDirect" class="btn ghost small" href="#" target="_blank" rel="noopener">OliCargo</a>
-        <a id="yoautoDirect" class="btn ghost small" href="#" target="_blank" rel="noopener">YO Auto</a>
-        <a id="w8Direct" class="btn ghost small" href="#" target="_blank" rel="noopener">W8 Shipping</a>
-      </div>
-    </div>
-  </div>
-
-  <script>
-  (function(){
-    const openBtn = document.getElementById('openTracking');
-    const closeBtn = document.getElementById('closeTracking');
-    const modal = document.getElementById('trackingModal');
-    const backdrop = document.getElementById('trackingBackdrop');
-    const vinInput = document.getElementById('trackingVin');
-    const runBtn = document.getElementById('runTracking');
-    const help = document.getElementById('trackingHelp');
-    const olicargoDirect = document.getElementById('olicargoDirect');
-    const yoautoDirect = document.getElementById('yoautoDirect');
-    const w8Direct = document.getElementById('w8Direct');
-
-    function openModal(){
-      if(!modal || !backdrop) return;
-      modal.classList.remove('hidden');
-      backdrop.classList.remove('hidden');
-      document.body.classList.add('drawer-open');
-      setTimeout(() => vinInput?.focus(), 40);
-    }
-    function closeModal(){
-      modal?.classList.add('hidden');
-      backdrop?.classList.add('hidden');
-      document.body.classList.remove('drawer-open');
-      if (document.activeElement && modal?.contains(document.activeElement)) openBtn?.focus();
-    }
-    function updateDirectLinks(vin){
-      const clean = (vin || '').trim().toUpperCase();
-      olicargoDirect.href = `https://tracking.olicargo.lt/public/search?code=${encodeURIComponent(clean)}`;
-      yoautoDirect.href = `https://yoauto.net/tracking/${encodeURIComponent(clean)}`;
-      w8Direct.href = `https://w8shipping.com/en/cargo?q=${encodeURIComponent(clean)}`;
-    }
-
-    openBtn?.addEventListener('click', openModal);
-    closeBtn?.addEventListener('click', closeModal);
-    backdrop?.addEventListener('click', closeModal);
-    document.addEventListener('click', (event) => {
-      const target = event.target;
-      if(!(target instanceof Element)) return;
-      if(target.closest('[data-tracking-close]') || target === backdrop){
-        event.preventDefault();
-        closeModal();
-      }
-    });
-    window.addEventListener('pageshow', closeModal);
-    document.addEventListener('keydown', (event) => {
-      if(event.key === 'Escape' && !modal?.classList.contains('hidden')){
-        closeModal();
-      }
-    });
-    vinInput?.addEventListener('input', () => updateDirectLinks(vinInput.value));
-    vinInput?.addEventListener('keydown', (event) => {
-      if(event.key === 'Enter'){
-        event.preventDefault();
-        runBtn?.click();
-      }
-    });
-
-    runBtn?.addEventListener('click', async () => {
-      const vin = (vinInput.value || '').trim().toUpperCase();
-      if(vin.length < 6){
-        help.textContent = 'Введіть коректний VIN.';
-        return;
-      }
-      updateDirectLinks(vin);
-      help.textContent = 'Пошук...';
-      try{
-        const response = await fetch('/api/tracking/lookup', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({vin})
-        });
-        const data = await response.json();
-        if(data.ok && data.url){
-          window.open(data.url, '_blank', 'noopener');
-          help.textContent = data.needsBrowserVerification
-            ? 'W8 відкрито. Якщо сервіс попросить перевірку, підтвердіть її у відкритій вкладці.'
-            : 'Знайдено. Відкриваю нову вкладку.';
-        }else if(data.ok && data.fallback && data.urls && data.urls.length){
-          yoautoDirect.href = data.urls[0] || yoautoDirect.href;
-          if(data.urls[1]) w8Direct.href = data.urls[1];
-          window.open(data.urls[0], '_blank', 'noopener');
-          help.textContent = 'Точного збігу не знайдено. Відкрито найбільш ймовірну сторінку.';
-        }else{
-          help.textContent = data.error || 'Не вдалося знайти VIN.';
-        }
-      }catch(error){
-        help.textContent = 'Помилка пошуку VIN.';
-      }
-    });
-  })();
-
-  </script>
   {% if request.endpoint in ['home', 'catalog', 'part_detail', 'cross_part_detail'] %}
   <!-- AutoPro partnership: load asynchronously on the parts storefront. -->
   <script>

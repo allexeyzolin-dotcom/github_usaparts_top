@@ -102,7 +102,7 @@ class SitemapTests(unittest.TestCase):
         root = self.xml("/sitemap/images.xml")
         photos = [node.text for node in root.findall("s:url/image:image/image:loc", NS)]
         self.assertIn("https://usaparts.top/uploads/a.jpg?x=1&y=2", photos)
-        self.assertIn("https://usaparts.top/uploads/car.jpg", photos)
+        self.assertNotIn("https://usaparts.top/uploads/car.jpg", photos)
         self.assertFalse(root.findall(".//image:title", NS))
         robots_response = self.get("/robots.txt")
         self.assertEqual(robots_response.status_code, 200)
@@ -112,6 +112,25 @@ class SitemapTests(unittest.TestCase):
         self.assertTrue(robots.can_fetch("Googlebot-Image", "https://usaparts.top/uploads/a.jpg"))
         self.assertFalse(robots.can_fetch("Googlebot", "https://usaparts.top/admin/products"))
         self.assertEqual(robots.site_maps(), ["https://usaparts.top/sitemap.xml"])
+
+    def test_removed_vehicle_pages_and_vin_api_are_unavailable(self):
+        for path in ('/cars', '/cars?status=in_stock', '/cars?status=in_transit', '/cars/1',
+                     '/admin/cars', '/admin/cars/wizard', '/sitemap/cars.xml'):
+            with self.subTest(path=path):
+                self.assertEqual(self.get(path).status_code, 404)
+        for path in ('/api/tracking/lookup', '/admin/cars/1/update', '/admin/cars/delete', '/admin/cars/wizard'):
+            self.assertEqual(self.client.post(path, json={'vin': 'WVWZZZ12345678901'}).status_code, 404)
+        for path in ('/', '/catalog', '/delivery-payment', '/return-policy'):
+            response = self.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn('href="/cars', response.text)
+            self.assertNotIn('Трекінг VIN', response.text)
+            self.assertNotIn('/api/tracking/lookup', response.text)
+        self.assertNotIn('/sitemap/cars.xml', self.get('/sitemap.xml').text)
+        self.assertNotIn('/cars', self.get('/sitemap/pages.xml').text)
+        with self.client.session_transaction() as state:
+            state['admin_auth'] = True
+        self.assertNotIn('href="/admin/cars', self.client.get('/admin/orders').text)
 
     def test_cached_documents_are_refreshed_after_catalog_change(self):
         self.xml("/sitemap/parts.xml")

@@ -182,14 +182,6 @@ class MerchantSchemaTests(unittest.TestCase):
         self.assertEqual(product["offers"]["priceCurrency"], "UAH")
         self.assertNotIn("image", product)
 
-    def test_car_offer_uses_car_taxonomy_and_actual_publication_date(self):
-        car = site.Car(id=1, brand="Ford", model="Escape", year=2018,
-                       price_usd=10000, status="in_stock", created_at=datetime(2026, 10, 2))
-        with site.app.test_request_context("/"):
-            graph = json.loads(site.build_car_product_schema(car, []))["@graph"]
-        product = next(item for item in graph if item["@type"] == "Product")
-        self.assertEqual(product["category"]["codeValue"], "916")
-        self.assertEqual(product["offers"]["validFrom"], "2026-10-02")
 
     def test_missing_dates_do_not_fabricate_an_offer_start_date(self):
         part = site.Part(id=1, part_number="UNDATED", name="Крило", price_usd=20,

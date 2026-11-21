@@ -1,30 +1,43 @@
 {% extends 'base_public.html' %}
 {% block content %}
-<div class="container shop-catalog-page">
-  <nav class="seo-breadcrumbs" aria-label="Навігація сторінки"><a href="{{ url_for('home') }}">Головна</a><span>/</span><span>Каталог запчастин</span></nav>
-  <div class="showcase-section-head">
-    <div><span class="eyebrow">USAparts.top / КАТАЛОГ</span><h1>{{ 'Результати пошуку' if q else 'Запчастини для авто з США' }}</h1>
-    <p class="muted">{% if q %}«{{ q }}» · {{ parts_total }} позицій{% else %}{{ parts_total }} деталей. Знайдіть свою за OEM номером, назвою або крос-номером.{% endif %}</p></div>
+<div class="container shop-catalog-page catalog-redesign">
+  <nav class="seo-breadcrumbs" aria-label="Навігація сторінки"><a href="{{ url_for('home') }}">Головна</a><span aria-hidden="true">/</span><span aria-current="page">Каталог запчастин</span></nav>
+  <div class="catalog-heading">
+    <div><h1>{{ 'Результати пошуку' if q else 'Каталог запчастин' }}</h1><p>{% if q %}За запитом «{{ q }}» знайдено {{ parts_total }} позицій{% else %}{{ parts_total }} деталей для авто зі США. Знайдіть потрібну за номером або назвою.{% endif %}</p></div>
+    <a class="catalog-help-link" href="tel:+380960865846">Допомога з підбором <strong>+38 (096) 086 5846</strong></a>
   </div>
-  <form class="catalog-filter-card" method="get" role="search">
-    <input name="q" value="{{ q }}" aria-label="OEM номер або назва" placeholder="OEM номер або назва запчастини">
-    <select name="condition" aria-label="Стан запчастини"><option value="">Усі стани</option><option value="used"{% if condition == 'used' %} selected{% endif %}>Вживані / Б/У</option><option value="new"{% if condition == 'new' %} selected{% endif %}>Нові запчастини</option></select>
-    <button class="btn primary" type="submit">Знайти ↗</button>
-    {% if q or condition %}<a class="text-link" href="{{ url_for('catalog') }}">Скинути</a>{% endif %}
+  <form class="catalog-search-panel" method="get" role="search">
+    <label class="catalog-search-field"><span class="sr-only">OEM номер або назва запчастини</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input name="q" value="{{ q }}" aria-label="OEM номер або назва" placeholder="OEM номер, назва або крос-номер" autocomplete="off"></label>
+    <label class="catalog-condition-field"><span class="sr-only">Стан запчастини</span><select name="condition" aria-label="Стан запчастини"><option value="">Усі стани</option><option value="used"{% if condition == 'used' %} selected{% endif %}>Вживані / Б/У</option><option value="new"{% if condition == 'new' %} selected{% endif %}>Нові запчастини</option></select></label>
+    <button class="btn primary" type="submit">Знайти запчастину</button>
+    {% if q or condition %}<a class="catalog-reset" href="{{ url_for('catalog') }}">Скинути фільтри</a>{% endif %}
   </form>
-  <details class="catalog-directory">
-    <summary>Категорії та моделі авто <span aria-hidden="true">+</span></summary>
-    <div class="directory-content">
-      {% if warehouse_catalogs %}<div><h2>За автомобілем</h2><div class="seo-chip-row">{% for item in warehouse_catalogs %}<a class="seo-chip" href="{{ url_for('seo_vehicle_page', slug=item.slug) }}">{{ item.label }} <small>{{ item.count }}</small></a>{% endfor %}</div></div>{% endif %}
-      {% if seo_entries.categories %}<div><h2>За категорією</h2><div class="seo-chip-row">{% for item in seo_entries.categories %}<a class="seo-chip" href="{{ url_for('seo_category_page', slug=item.slug) }}">{{ item.label }} <small>{{ item.count }}</small></a>{% endfor %}</div></div>{% endif %}
-      {% if seo_entries.brands %}<div><h2>За виробником</h2><div class="seo-chip-row">{% for item in seo_entries.brands %}<a class="seo-chip" href="{{ url_for('seo_brand_page', slug=item.slug) }}">{{ item.label }}</a>{% endfor %}</div></div>{% endif %}
-    </div>
-  </details>
-  {% include '_pagination.html' %}
-  <div class="showcase-grid">
-    {% for part in parts %}{% set eager_image = loop.index <= 4 %}{% include '_product_card.html' %}
-    {% else %}<div class="empty-results"><h2>Не знайшли збігів</h2><p>Перевірте OEM номер або спробуйте коротшу назву. Менеджер допоможе уточнити наявність.</p><a class="btn primary" href="tel:+380960865846">Допомога з підбором</a></div>{% endfor %}
+  <div class="catalog-workspace">
+    <aside class="catalog-filter-column">
+      <details class="catalog-sidebar" open>
+        <summary>Фільтри каталогу <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg></summary>
+        <div class="catalog-sidebar-content">
+          {% if warehouse_catalogs %}<details class="catalog-filter-group" open><summary>За автомобілем</summary><div class="catalog-filter-links">{% for item in warehouse_catalogs %}<a href="{{ url_for('seo_vehicle_page', slug=item.slug) }}"><span>{{ item.label }}</span><small>{{ item.count }}</small></a>{% endfor %}</div></details>{% endif %}
+          {% if seo_entries.categories %}<details class="catalog-filter-group" open><summary>Категорії запчастин</summary><div class="catalog-filter-links">{% for item in seo_entries.categories %}<a href="{{ url_for('seo_category_page', slug=item.slug) }}"><span>{{ item.label }}</span><small>{{ item.count }}</small></a>{% endfor %}</div></details>{% endif %}
+          {% if seo_entries.brands %}<details class="catalog-filter-group"><summary>Виробник</summary><div class="catalog-filter-links">{% for item in seo_entries.brands %}<a href="{{ url_for('seo_brand_page', slug=item.slug) }}"><span>{{ item.label }}</span></a>{% endfor %}</div></details>{% endif %}
+        </div>
+      </details>
+      <div class="catalog-advice"><strong>Не впевнені у сумісності?</strong><p>Звіримо OEM номер і допоможемо обрати потрібну деталь.</p><a href="tel:+380960865846">Зателефонувати</a></div>
+    </aside>
+    <section class="catalog-results" aria-label="Запчастини">
+      <div class="catalog-results-heading"><span><strong>{{ parts_total }}</strong> позицій{% if condition %} · {{ 'Нові' if condition == 'new' else 'Вживані / Б/У' }}{% endif %}</span>{% if pagination and pagination.pages > 1 %}<span>Сторінка {{ pagination.page }} з {{ pagination.pages }}</span>{% endif %}</div>
+      <div class="showcase-grid">
+        {% for part in parts %}{% set eager_image = loop.index <= 4 %}{% include '_product_card.html' %}
+        {% else %}<div class="empty-results"><h2>Не знайшли збігів</h2><p>Перевірте OEM номер або спробуйте коротшу назву. Менеджер допоможе уточнити наявність.</p><a class="btn primary" href="tel:+380960865846">Допомога з підбором</a></div>{% endfor %}
+      </div>
+      {% include '_pagination.html' %}
+    </section>
   </div>
-  {% include '_pagination.html' %}
 </div>
+<script>
+(() => {
+  const filters = document.querySelector('.catalog-sidebar');
+  if (filters && window.matchMedia('(max-width: 1000px)').matches) filters.open = false;
+})();
+</script>
 {% endblock %}

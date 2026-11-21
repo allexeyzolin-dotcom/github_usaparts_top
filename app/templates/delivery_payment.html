@@ -1,0 +1,47 @@
+{% extends 'base_public.html' %}
+{% macro icon(kind) -%}
+<svg class="storefront-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{% if kind == 'truck' %}<path d="M3 6h11v11H3zM14 10h4l3 4v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>
+{% elif kind == 'clock' %}<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+{% elif kind == 'pin' %}<path d="M20 10c0 6-8 11-8 11S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>
+{% elif kind == 'card' %}<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h3"/>
+{% elif kind == 'check' %}<path d="m5 12 4 4L19 6"/>
+{% else %}<path d="M3 7h18v14H3zM6 3h12v4M8 11h8M8 15h6"/>{% endif %}
+</svg>
+{%- endmacro %}
+{% block content %}
+<div class="container delivery-redesign">
+  <nav class="seo-breadcrumbs" aria-label="Навігація сторінки"><a href="{{ url_for('home') }}">Головна</a><span aria-hidden="true">/</span><span aria-current="page">Оплата і доставка</span></nav>
+  <div class="delivery-heading"><span class="eyebrow">ІНФОРМАЦІЯ ДЛЯ ПОКУПЦЯ</span><h1>Оплата і доставка</h1><p>Зручний спосіб отримати вашу деталь — по Україні або зі складу в Ромнах.</p></div>
+  <div class="dispatch-note">{{ icon('clock') }}<div><strong>Замовлення до 12:00 — відправлення того ж дня</strong><p>Замовлення після 12:00 відвантажуються наступного дня. Час — київський.</p></div></div>
+  <div class="delivery-workspace">
+    <div class="delivery-main">
+      <section class="delivery-panel" aria-labelledby="shipping-title">
+        <div class="delivery-panel-heading"><span class="delivery-icon-box">{{ icon('truck') }}</span><div><h2 id="shipping-title">Способи доставки</h2><p>Оберіть перевізника під час оформлення замовлення.</p></div></div>
+        <div class="shipping-table">
+          <div class="shipping-table-head"><span>Перевізник</span><span>Строк доставки</span><span>Вартість</span></div>
+          <div class="shipping-option"><div><strong>Нова Пошта</strong><span>До відділення</span></div><span>1–3 дні</span><strong>300 грн</strong></div>
+          <div class="shipping-option"><div><strong>Делівері</strong><span>До відділення</span></div><span>1–3 дні</span><strong>300 грн</strong></div>
+          <div class="shipping-option"><div><strong>Кур'єрська доставка</strong><span>За вашою адресою</span></div><span>2–4 дні</span><strong>500 грн</strong></div>
+          <div class="shipping-option"><div><strong>Самовивіз</strong><span>Зі складу в Ромнах</span></div><span>Пн–Пт, 9:00–18:00</span><strong class="shipping-free">Безкоштовно</strong></div>
+        </div>
+      </section>
+      <section class="delivery-panel" aria-labelledby="payment-title">
+        <div class="delivery-panel-heading"><span class="delivery-icon-box">{{ icon('card') }}</span><div><h2 id="payment-title">Як оплатити</h2><p>Чотири варіанти — оберіть зручний для вас.</p></div></div>
+        <div class="payment-options">
+          <div>{{ icon('check') }}<div><h3>На рахунок ФОП</h3><p>Безготівковий розрахунок.</p></div></div>
+          <div>{{ icon('check') }}<div><h3>При отриманні</h3><p>Оплата під час отримання замовлення.</p></div></div>
+          <div>{{ icon('check') }}<div><h3>Банківською карткою</h3><p>Онлайн-оплата на сайті.</p></div></div>
+          <div>{{ icon('check') }}<div><h3>Готівкою на складі</h3><p>Під час самовивозу в Ромнах.</p></div></div>
+        </div>
+      </section>
+      <div class="delivery-return-note"><div><strong>Потрібно обміняти або повернути деталь?</strong><p>Умови та порядок звернення зібрали на окремій сторінці.</p></div><a href="{{ url_for('return_policy') }}">Обмін та повернення</a></div>
+    </div>
+    <aside class="pickup-panel">
+      <div class="pickup-copy"><span class="delivery-icon-box">{{ icon('pin') }}</span><h2>Заберіть зі складу</h2><span class="pickup-free">Самовивіз безкоштовний</span><address>вул. Прокопенка, 43/13А<br>м. Ромни, Сумська область<br>42005, Україна</address><p class="pickup-hours">Пн–Пт: 9:00–18:00</p><a class="pickup-phone" href="tel:+380960865846">+38 (096) 086 5846</a><a class="btn primary full" href="https://www.google.com/maps/search/?api=1&amp;query=USAparts.top%20%D0%A0%D0%BE%D0%BC%D0%BD%D0%B8%20%D0%9F%D1%80%D0%BE%D0%BA%D0%BE%D0%BF%D0%B5%D0%BD%D0%BA%D0%B0%2043%2F13%D0%90" target="_blank" rel="noopener">Прокласти маршрут</a></div>
+      <div class="pickup-map"><iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2524.0852188039753!2d33.4568206!3d50.755453499999994!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x4129f1586eecb163%3A0xd66faf3ba059506!2sUSAparts.top!5e0!3m2!1suk!2sua!4v1777838546798!5m2!1suk!2sua" width="400" height="260" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Склад USAparts.top на мапі"></iframe></div>
+    </aside>
+  </div>
+  <div class="delivery-contact-strip"><div><strong>Залишилися запитання?</strong><p>Допоможемо з підбором деталі та уточнимо умови відправлення.</p></div><a class="btn primary" href="tel:+380960865846">Зателефонувати</a><a class="text-link" href="{{ url_for('catalog') }}">До каталогу запчастин</a></div>
+</div>
+{% endblock %}

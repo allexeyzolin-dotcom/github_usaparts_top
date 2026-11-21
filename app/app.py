@@ -4951,8 +4951,6 @@ def primary_template_photo(template: PartTemplate) -> str:
     return gallery[0] if gallery else ""
 
 
-def primary_car_photo(car: Car) -> str:
-    return safe_photo(car.image_urls)
 
 
 def serialize_receiving_item(db, item: ReceivingDraftItem):
@@ -6767,8 +6765,6 @@ def should_track_guest_visit() -> bool:
         "home",
         "catalog",
         "part_detail",
-        "cars_public",
-        "car_detail_public",
         "cart_view",
     }
 
@@ -7429,48 +7425,6 @@ def build_part_product_schema(
     )
 
 
-def build_car_product_schema(car: Car, photos: list[str]) -> str:
-    car_url = public_url_for("car_detail_public", car_id=car.id)
-    title = compact_meta_text(car.brand, car.model, car.year, limit=120)
-    description = compact_meta_text(car.description, car.vin, limit=300) or title
-    payload = {
-        "@type": "Product",
-        "@id": f"{car_url}#vehicle",
-        "name": title,
-        "url": car_url,
-        "sku": normalize_text(car.vin or f"car-{car.id}").strip(),
-        "category": google_product_category_payload("916"),
-        "image": [absolute_public_url(url) for url in photos],
-        "description": description,
-        "offers": {
-            "@type": "Offer",
-            "url": car_url,
-            "priceCurrency": "UAH",
-            "price": display_uah(car.price_usd or 0, 0),
-            **offer_validity_payload(car),
-            "availability": "https://schema.org/InStock" if car.status == "in_stock" else "https://schema.org/PreOrder",
-            "itemCondition": "https://schema.org/UsedCondition",
-            "seller": {"@id": f"{public_site_base_url()}/#organization"},
-            "shippingDetails": offer_shipping_details_payload(),
-            "hasMerchantReturnPolicy": merchant_return_policy_payload(),
-        },
-        "additionalProperty": [
-            {"@type": "PropertyValue", "name": "VIN", "value": normalize_text(car.vin or "").strip()},
-            {"@type": "PropertyValue", "name": "Year", "value": str(car.year or "")},
-            {"@type": "PropertyValue", "name": "Mileage", "value": str(car.mileage or "")},
-        ],
-    }
-    return graph_json_ld(
-        webpage_schema_payload(title, description, car_url),
-        breadcrumb_schema_payload(
-            [
-                ("Головна", public_url_for("home")),
-                ("Авто", public_url_for("cars_public")),
-                (title, car_url),
-            ]
-        ),
-        payload,
-    )
 
 
 def sitemap_lastmod(value) -> str:
@@ -8212,13 +8166,6 @@ def build_sitemap_inventory_documents() -> dict[str, list[str]]:
             images = [{"loc": absolute_public_url(url)} for url in storefront_part_gallery_urls(part)]
             if images:
                 image_nodes.append(sitemap_image_url_node(location, images, lastmod=lastmod))
-        for car in db.query(Car).order_by(Car.id.asc()).yield_per(500):
-            images = [{"loc": absolute_public_url(url)} for url in parse_media_urls(car.image_urls)]
-            if images:
-                image_nodes.append(sitemap_image_url_node(
-                    public_url_for("car_detail_public", car_id=car.id), images,
-                    lastmod=sitemap_lastmod(car.created_at),
-                ))
         return {"parts": sitemap_documents(part_nodes),
                 "images": sitemap_documents(image_nodes, images=True)}
     finally:
@@ -8250,7 +8197,6 @@ def sitemap_index_locations() -> list[tuple[str, str]]:
     locations = [
         (public_url_for("sitemap_pages_xml"), today),
         (public_url_for("sitemap_catalog_xml"), today),
-        (public_url_for("sitemap_cars_xml"), today),
     ]
     documents = sitemap_inventory_documents()
     for kind in ("parts", "images"):
@@ -8307,7 +8253,6 @@ def build_main_sitemap_nodes(db) -> list[str]:
     add(public_url_for("home"), changefreq="daily", priority="1.0")
     add(public_url_for("catalog"), changefreq="daily", priority="0.9")
     add(public_url_for("delivery_calculator"), changefreq="monthly", priority="0.6")
-    add(public_url_for("cars_public"), changefreq="weekly", priority="0.7")
 
     parts = cached_unique_public_parts(db)
     for part in parts:
@@ -8329,14 +8274,6 @@ def build_main_sitemap_nodes(db) -> list[str]:
                 priority="0.8",
             )
 
-    cars = db.query(Car).order_by(desc(Car.created_at), desc(Car.id)).all()
-    for car in cars:
-        add(
-            public_url_for("car_detail_public", car_id=car.id),
-            lastmod=sitemap_lastmod(car.created_at),
-            changefreq="weekly",
-            priority="0.7",
-        )
 
     entries = cached_seo_entries(db)
     for entry in entries["brands"]:
@@ -8907,12 +8844,6 @@ def seed_if_empty():
                         updated_at=now(),
                     ))
                 flash_news(db, "import", "Р‘Р°Р·РѕРІРёР№ СЃРєР»Р°Рґ С–РјРїРѕСЂС‚РѕРІР°РЅРѕ", f"Р†РјРїРѕСЂС‚РѕРІР°РЅРѕ {len(rows)} РїРѕР·РёС†С–Р№ Р· demo CSV.", "success")
-            cars = [
-                Car(vin="WVWZZZ5NZGW000111", brand="Volkswagen", model="Tiguan", year=2016, mileage=112000, status="in_stock", price_usd=12900, description="РђРІС‚Рѕ РІ РЅР°СЏРІРЅРѕСЃС‚С–, РґРѕРЅРѕСЂ.", image_urls="", created_at=now()),
-                Car(vin="1C4RJFBG6FC625222", brand="Jeep", model="Grand Cherokee", year=2015, mileage=138000, status="in_transit", price_usd=15800, description="РџРѕСЃС‚Р°РІРєР° РІ РґРѕСЂРѕР·С– Р·С– РЎРЁРђ.", image_urls="", created_at=now()),
-            ]
-            for c in cars:
-                db.add(c)
             db.commit()
             recalc_warehouse_stats(warehouse)
 
@@ -9023,7 +8954,6 @@ def inject_globals():
         "public_part_photo": public_part_photo,
         "storefront_image_url": storefront_image_url,
         "storefront_asset_version": STOREFRONT_ASSET_VERSION,
-        "primary_car_photo": primary_car_photo,
         "primary_template_photo": primary_template_photo,
         "template_gallery_urls": template_gallery_urls,
     }
@@ -9173,7 +9103,6 @@ def sitemap_pages_xml():
             sitemap_url_node(public_url_for("delivery_calculator"), changefreq="monthly", priority="0.6"),
             sitemap_url_node(public_url_for("delivery_payment"), changefreq="monthly", priority="0.6"),
             sitemap_url_node(public_url_for("return_policy"), changefreq="monthly", priority="0.6"),
-            sitemap_url_node(public_url_for("cars_public"), changefreq="weekly", priority="0.7"),
         ]
         return sitemap_xml_response(nodes)
 
@@ -9287,30 +9216,6 @@ def sitemap_images_page_xml(page):
     return sitemap_inventory_response("images", page)
 
 
-@app.route("/sitemap/cars.xml")
-def sitemap_cars_xml():
-    db = SessionLocal()
-    try:
-        cars = db.query(Car).order_by(desc(Car.created_at), desc(Car.id)).all()
-        nodes = [
-            sitemap_url_node(
-                public_url_for("cars_public"),
-                changefreq="weekly",
-                priority="0.7",
-            )
-        ]
-        for car in cars:
-            nodes.append(
-                sitemap_url_node(
-                    public_url_for("car_detail_public", car_id=car.id),
-                    lastmod=sitemap_lastmod(car.created_at),
-                    changefreq="weekly",
-                    priority="0.7",
-                )
-            )
-        return sitemap_xml_response(nodes)
-    finally:
-        db.close()
 
 
 @app.route("/sitemap/brands.xml")
@@ -9487,8 +9392,7 @@ def delivery_payment():
     seo_description = "Оплата і доставка запчастин USAparts.top: Нова Пошта, Делівері, самовивіз у Ромнах, строки відправки та варіанти оплати."
     canonical_url = public_url_for("delivery_payment")
     return render_template(
-        "policy_page.html",
-        policy_kind="delivery",
+        "delivery_payment.html",
         seo_title=seo_title,
         seo_description=seo_description,
         canonical_url=canonical_url,
@@ -9526,10 +9430,6 @@ def home():
             needle = normalize_text(q).strip().casefold()
             search_found_without_photo = any(public_part_matches_query(part, needle, cross_map) for part in parts_pool)
         has_more = featured_total > len(featured)
-        cars_pool = db.query(Car).filter(Car.status == "in_stock").order_by(desc(Car.created_at)).all()
-        cars_random = random.sample(cars_pool, min(5, len(cars_pool))) if cars_pool else []
-        cars_stock = db.query(Car).filter(Car.status == "in_stock").count()
-        cars_transit = db.query(Car).filter(Car.status == "in_transit").count()
         vehicle_warehouses = cached_vehicle_names_from_warehouses(db)
         warehouse_catalogs = cached_warehouse_catalog_entries(db)
         unique_public_parts = cached_unique_public_parts(db)
@@ -9552,12 +9452,9 @@ def home():
             has_more=has_more,
             featured_total=featured_total,
             search_found_without_photo=search_found_without_photo,
-            cars_stock=cars_stock,
-            cars_transit=cars_transit,
             safe_photo=safe_photo,
             display_usd=display_usd,
             display_uah=display_uah,
-            cars_random=cars_random,
             vehicle_warehouses=vehicle_warehouses,
             warehouse_catalogs=warehouse_catalogs[:18],
             seo_entries=seo_entries,
@@ -9574,226 +9471,14 @@ def home():
 
 
 
-def _w8_tracking_response_matches(response, vin: str) -> bool:
-    try:
-        if "/api/cargo-tracking" not in response.url:
-            return False
-        query_value = parse_qs(urlsplit(response.url).query).get("searchQuery", [""])[0]
-        normalized_query = re.sub(r"[^A-Z0-9]", "", str(query_value or "").upper())
-        return normalized_query == vin
-    except Exception:
-        return False
 
 
-def _w8_payload_contains_vin(payload, vin: str) -> bool:
-    if isinstance(payload, dict):
-        for value in payload.values():
-            if isinstance(value, (dict, list)):
-                if _w8_payload_contains_vin(value, vin):
-                    return True
-                continue
-            normalized = re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
-            if normalized == vin:
-                return True
-    elif isinstance(payload, list):
-        return any(_w8_payload_contains_vin(item, vin) for item in payload)
-    return False
 
 
-def _lookup_w8_tracking(vin: str):
-    w8_url = f"https://w8shipping.com/en/cargo?q={quote(vin)}"
-    w8_api_url = f"https://w8shipping.com/api/cargo-tracking?searchQuery={quote(vin)}"
-    recaptcha_required = False
-    w8_result = {
-        "url": w8_url,
-        "source": "w8",
-        "sourceLabel": "W8 Shipping",
-        "vin": vin,
-    }
-
-    try:
-        api_resp = requests.get(
-            w8_api_url,
-            headers={
-                "User-Agent": W8_TRACKING_USER_AGENT,
-                "Accept": "application/json,text/plain,*/*",
-                "Referer": w8_url,
-            },
-            timeout=18,
-            allow_redirects=True,
-        )
-        if api_resp.status_code == 200:
-            data = api_resp.json()
-            if _w8_payload_contains_vin(data, vin):
-                return {**w8_result, "verified": True}
-        elif api_resp.status_code == 403 and "recaptcha" in api_resp.text.lower():
-            recaptcha_required = True
-    except Exception:
-        pass
-
-    try:
-        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-    except Exception:
-        return {**w8_result, "verified": False, "needsBrowserVerification": True} if recaptcha_required and len(vin) == 17 else None
-
-    browser = None
-    context = None
-    result = None
-    try:
-        with sync_playwright() as playwright:
-            launch_kwargs = {
-                "headless": True,
-                "args": [
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            }
-            chromium_path = next(
-                (path for path in W8_TRACKING_BROWSER_CANDIDATES if path and os.path.exists(path)),
-                None,
-            )
-            if chromium_path:
-                launch_kwargs["executable_path"] = chromium_path
-            browser = playwright.chromium.launch(**launch_kwargs)
-            context = browser.new_context(
-                viewport={"width": 1366, "height": 900},
-                user_agent=W8_TRACKING_USER_AGENT,
-                locale="en-US",
-                timezone_id="America/New_York",
-                java_script_enabled=True,
-            )
-            page = context.new_page()
-            page.add_init_script(W8_TRACKING_STEALTH_SCRIPT)
-            try:
-                with page.expect_response(
-                    lambda r: _w8_tracking_response_matches(r, vin),
-                    timeout=W8_TRACKING_TIMEOUT_MS,
-                ) as response_info:
-                    page.goto(w8_url, wait_until="domcontentloaded", timeout=60000)
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=15000)
-                    except PlaywrightTimeoutError:
-                        pass
-                response = response_info.value
-            except PlaywrightTimeoutError:
-                response = None
-            if response is None:
-                data = None
-            elif response.status == 403:
-                recaptcha_required = True
-                data = None
-            elif response.status != 200:
-                data = None
-            else:
-                data = response.json()
-            if isinstance(data, list):
-                for item in data:
-                    if not isinstance(item, dict):
-                        continue
-                    item_vin = re.sub(r"[^A-Z0-9]", "", str(item.get("vin") or "").upper())
-                    if item_vin == vin:
-                        result = {
-                            **w8_result,
-                            "verified": True,
-                        }
-                        break
-    except Exception:
-        result = None
-    finally:
-        if context is not None:
-            try:
-                context.close()
-            except Exception:
-                pass
-        if browser is not None:
-            try:
-                browser.close()
-            except Exception:
-                pass
-    if result:
-        return result
-    if recaptcha_required and len(vin) == 17:
-        return {**w8_result, "verified": False, "needsBrowserVerification": True}
-    return None
 
 
-def _lookup_yoauto_tracking(vin: str):
-    yoauto_api = f"https://yoauto.net/api/order/tracking/{quote(vin)}"
-    yoauto_result_url = f"https://yoauto.net/tracking/{quote(vin)}"
-    try:
-        resp = requests.get(yoauto_api, timeout=15, allow_redirects=True)
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        if not isinstance(data, dict):
-            return None
-        order_number = re.sub(r"[^A-Z0-9]", "", str(data.get("orderNumber") or "").upper())
-        vehicle = data.get("orderVehicleDetails") if isinstance(data.get("orderVehicleDetails"), dict) else {}
-        vehicle_vin = re.sub(r"[^A-Z0-9]", "", str(vehicle.get("VIN") or "").upper())
-        if vin in {order_number, vehicle_vin}:
-            return {
-                "url": yoauto_result_url,
-                "source": "yoauto",
-                "sourceLabel": "YO Auto",
-                "vin": vin,
-                "verified": True,
-            }
-    except Exception:
-        return None
-    return None
 
 
-@app.route("/api/tracking/lookup", methods=["POST"])
-def tracking_lookup():
-    payload = request.get_json(silent=True) or {}
-    vin = re.sub(r"[^A-Z0-9]", "", (payload.get("vin") or "").strip().upper())
-    if len(vin) < 6:
-        return jsonify({"ok": False, "error": "VIN занадто короткий."})
-
-    olicargo_api = f"https://api.olicargo.lt/public/lookup?code={vin}"
-    olicargo_result_url = f"https://tracking.olicargo.lt/public/search?code={vin}"
-    try:
-        resp = requests.get(olicargo_api, timeout=12, allow_redirects=True)
-        if resp.status_code == 200:
-            data = resp.json()
-            vehicles = data.get("vehicles") if isinstance(data, dict) else None
-            if data and (
-                data.get("trackable")
-                or data.get("tracked")
-                or data.get("code")
-                or (isinstance(vehicles, list) and len(vehicles) > 0)
-            ):
-                return jsonify({
-                    "ok": True,
-                    "url": olicargo_result_url,
-                    "source": "olicargo",
-                    "sourceLabel": "OliCargo",
-                    "vin": vin,
-                    "verified": True,
-                })
-    except Exception:
-        pass
-
-    yoauto_result = _lookup_yoauto_tracking(vin)
-    if yoauto_result:
-        return jsonify({"ok": True, **yoauto_result})
-
-    w8_result = _lookup_w8_tracking(vin)
-    if w8_result:
-        return jsonify({"ok": True, **w8_result})
-
-    return jsonify({
-        "ok": False,
-        "vin": vin,
-        "error": (
-            "Авто не знайдено у підтвердженому трекінгу. "
-            "Сторінка відкривається тільки для VIN, які реально знайдені на зовнішньому сервісі."
-        ),
-        "source": "tracking",
-        "sourceLabel": "OliCargo / W8 Shipping / YO Auto",
-        "verified": False,
-    }), 404
 
 @app.route("/catalog")
 def catalog():
@@ -10336,60 +10021,8 @@ def part_review_submit(part_id):
         db.close()
 
 
-@app.route("/cars")
-def cars_public():
-    db = SessionLocal()
-    try:
-        status = request.args.get("status", "")
-        cars_q = db.query(Car)
-        if status:
-            cars_q = cars_q.filter(Car.status == status)
-        cars = cars_q.order_by(desc(Car.created_at)).all()
-        status_label = "Авто в дорозі" if status == "in_transit" else "Авто в наявності" if status == "in_stock" else "Авто з США"
-        return render_template(
-            "cars.html",
-            cars=cars,
-            status=status,
-            safe_photo=safe_photo,
-            seo_title=f"{status_label} | USAparts.top",
-            seo_description="Авто з США: перегляд фото, опису, VIN та статусу авто в наявності або в дорозі.",
-            canonical_url=public_url_for("cars_public", status=status) if status else public_url_for("cars_public"),
-            seo_noindex=False,
-        )
-    finally:
-        db.close()
 
 
-@app.route("/cars/<int:car_id>")
-def car_detail_public(car_id):
-    db = SessionLocal()
-    try:
-        car = db.get(Car, car_id)
-        if not car:
-            abort(404)
-        photos = parse_media_urls(car.image_urls)
-        video_url = youtube_embed_url(car.youtube_url)
-        car_title = compact_meta_text(car.brand, car.model, car.year, limit=90)
-        return render_template(
-            "car_detail.html",
-            car=car,
-            photos=photos,
-            video_url=video_url,
-            seo_title=f"{car_title} | USAparts.top",
-            seo_description=compact_meta_text(
-                car.brand,
-                car.model,
-                car.year,
-                car.vin,
-                "фото, опис, VIN трекінг та статус авто.",
-            ),
-            canonical_url=public_url_for("car_detail_public", car_id=car.id),
-            og_type="product",
-            og_image_url=absolute_public_url(photos[0]) if photos else "",
-            json_ld=build_car_product_schema(car, photos),
-        )
-    finally:
-        db.close()
 
 
 @app.route("/cart/add/<int:part_id>", methods=["POST"])
@@ -12753,141 +12386,12 @@ def print_part_barcodes(part_id):
         db.close()
 
 
-@app.route("/admin/cars")
-@admin_required
-def admin_cars():
-    db = SessionLocal()
-    try:
-        cars = db.query(Car).order_by(desc(Car.created_at)).all()
-        news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
-        return render_template("admin_cars.html", cars=cars, news=news, safe_photo=safe_photo)
-    finally:
-        db.close()
 
 
-@app.route("/admin/cars/<int:car_id>/update", methods=["POST"])
-@admin_required
-def update_car(car_id):
-    db = SessionLocal()
-    try:
-        car = db.get(Car, car_id)
-        if not car:
-            flash("Авто не знайдено", "error")
-            return redirect(url_for("admin_cars"))
-        car.brand = request.form.get("brand", car.brand).strip()
-        car.model = request.form.get("model", car.model).strip()
-        car.vin = request.form.get("vin", car.vin).strip()
-        car.year = int(request.form.get("year") or 0) if request.form.get("year") else None
-        car.mileage = int(request.form.get("mileage") or 0) if request.form.get("mileage") else None
-        car.status = request.form.get("status", car.status).strip() or "in_stock"
-        car.price_usd = float(request.form.get("price_usd", car.price_usd) or 0)
-        car.description = request.form.get("description", car.description).strip()
-        car.youtube_url = normalize_text(request.form.get("youtube_url", car.youtube_url).strip())
-
-        current_images = [
-            item for item in parse_media_urls(car.image_urls)
-            if item not in set(request.form.getlist("remove_image_urls"))
-        ]
-        current_images.extend(save_uploads(request.files.getlist("images"), f"car_gallery_{car.id}"))
-        car.image_urls = dump_media_urls(current_images)
-
-        flash_news(db, "cars", "Оновлено авто", f"{car.brand} {car.model} оновлено.", "info")
-        db.commit()
-        flash("Картку авто оновлено", "success")
-        return redirect(url_for("admin_cars"))
-    finally:
-        db.close()
 
 
-@app.route("/admin/cars/delete", methods=["POST"])
-@admin_required
-def delete_car():
-    db = SessionLocal()
-    try:
-        car_id = int(request.form.get("car_id") or 0)
-        confirm_text = (request.form.get("confirm_text") or "").strip().lower()
-        if confirm_text not in {"так", "tak", "с‚р°рє"}:
-            flash('Р”Р»СЏ РІРёРґР°Р»РµРЅРЅСЏ РїРѕС‚СЂС–Р±РЅРѕ РІРІРµСЃС‚Рё "С‚Р°Рє"', "error")
-            return redirect(url_for("admin_cars"))
-        car = db.get(Car, car_id)
-        if not car:
-            flash("РђРІС‚Рѕ РЅРµ Р·РЅР°Р№РґРµРЅРѕ", "error")
-            return redirect(url_for("admin_cars"))
-        car_name = " ".join(x for x in [car.brand, car.model] if x).strip() or car.vin or f"РђРІС‚Рѕ #{car.id}"
-        db.delete(car)
-        flash_news(db, "cars", "Р’РёРґР°Р»РµРЅРѕ Р°РІС‚Рѕ", f"{car_name} РІРёРґР°Р»РµРЅРѕ Р· РІРєР»Р°РґРєРё Р°РІС‚Рѕ.", "info")
-        db.commit()
-        flash(f"{car_name} РІРёРґР°Р»РµРЅРѕ", "success")
-    except ValueError:
-        flash("РћР±РµСЂС–С‚СЊ Р°РІС‚Рѕ РґР»СЏ РІРёРґР°Р»РµРЅРЅСЏ", "error")
-    except Exception as e:
-        db.rollback()
-        flash(f"РќРµ РІРґР°Р»РѕСЃСЏ РІРёРґР°Р»РёС‚Рё Р°РІС‚Рѕ: {e}", "error")
-    finally:
-        db.close()
-    return redirect(url_for("admin_cars"))
 
 
-@app.route("/admin/cars/wizard", methods=["GET", "POST"])
-@admin_required
-def car_wizard():
-    step = int(request.args.get("step", "1"))
-    car_draft = session.get("car_draft", {})
-    if request.method == "POST":
-        if step == 1:
-            car_draft["brand"] = request.form.get("brand", "").strip()
-            car_draft["model"] = request.form.get("model", "").strip()
-            car_draft["vin"] = request.form.get("vin", "").strip()
-            session["car_draft"] = car_draft
-            return redirect(url_for("car_wizard", step=2))
-        if step == 2:
-            car_draft["year"] = request.form.get("year", "").strip()
-            car_draft["mileage"] = request.form.get("mileage", "").strip()
-            car_draft["status"] = request.form.get("status", "in_stock").strip()
-            car_draft["price_usd"] = request.form.get("price_usd", "0").strip()
-            session["car_draft"] = car_draft
-            return redirect(url_for("car_wizard", step=3))
-        if step == 3:
-            car_draft["description"] = request.form.get("description", "").strip()
-            current_images = parse_media_urls(car_draft.get("image_urls", ""))
-            current_images.extend(save_uploads(request.files.getlist("images"), "car_showcase"))
-            single_image = request.files.get("image")
-            if single_image and single_image.filename:
-                current_images.append(save_upload(single_image, "car_showcase_single"))
-            car_draft["image_urls"] = dump_media_urls(current_images)
-            car_draft["youtube_url"] = normalize_text(request.form.get("youtube_url", "").strip())
-            session["car_draft"] = car_draft
-            return redirect(url_for("car_wizard", step=4))
-        if step == 4:
-            db = SessionLocal()
-            try:
-                car = Car(
-                    brand=car_draft.get("brand", ""),
-                    model=car_draft.get("model", ""),
-                    vin=car_draft.get("vin", ""),
-                    year=int(car_draft.get("year") or 0) if car_draft.get("year") else None,
-                    mileage=int(car_draft.get("mileage") or 0) if car_draft.get("mileage") else None,
-                    status=car_draft.get("status", "in_stock"),
-                    price_usd=float(car_draft.get("price_usd") or 0),
-                    description=car_draft.get("description", ""),
-                    image_urls=car_draft.get("image_urls", ""),
-                    youtube_url=car_draft.get("youtube_url", ""),
-                    created_at=now()
-                )
-                db.add(car)
-                flash_news(db, "cars", "Р”РѕРґР°РЅРѕ Р°РІС‚Рѕ", f"{car.brand} {car.model} РґРѕРґР°РЅРѕ РІ РєР°С‚Р°Р»РѕРі Р°РІС‚Рѕ.", "success")
-                db.commit()
-            finally:
-                db.close()
-            session.pop("car_draft", None)
-            flash("РђРІС‚Рѕ РґРѕРґР°РЅРѕ РґРѕ РєР°С‚Р°Р»РѕРіСѓ", "success")
-            return redirect(url_for("admin_cars"))
-    db = SessionLocal()
-    try:
-        news = db.query(NewsFeed).order_by(desc(NewsFeed.created_at)).limit(12).all()
-    finally:
-        db.close()
-    return render_template("car_wizard.html", step=step, car_draft=car_draft, news=news)
 
 
 

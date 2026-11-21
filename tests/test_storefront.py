@@ -173,7 +173,7 @@ class StorefrontTests(unittest.TestCase):
             self.assertNotIn("Ціна: $", html)
 
     def test_top_level_pages_have_heading(self):
-        for path in ["/cars", "/delivery-calculator"]:
+        for path in ["/catalog", "/delivery-payment", "/delivery-calculator"]:
             response = self.get(path)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(re.findall(r"<h1[ >]", response.text)), 1)

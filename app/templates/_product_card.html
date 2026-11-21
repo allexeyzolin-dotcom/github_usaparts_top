@@ -22,7 +22,7 @@
       <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent if part.warehouse else 0) }}</div>
       <div class="product-card-stock">В наявності · {{ part.qty }} шт.</div>
       <form method="post" action="{{ url_for('cart_add', part_id=part.id) }}">
-        <button class="btn primary full" type="submit">До кошика <span aria-hidden="true">↗</span></button>
+        <button class="btn primary full" type="submit">До кошика</button>
       </form>
     </div>
   </div>

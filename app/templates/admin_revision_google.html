@@ -1,0 +1,68 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='merchant-revision.css') }}?v=20261122-1">
+<section class="merchant-revision">
+  <div class="panel-header"><div><div class="muted">РЕВІЗІЯ / ІНТЕГРАЦІЇ</div><h1>Google Merchant</h1>
+    <p class="muted">Перевірені товари → автоматична черга → перевірка Google.</p></div>
+    <div class="button-row"><a class="btn ghost" href="{{ url_for('admin_inventory_revision') }}">← Ревізія</a><a class="btn ghost" href="{{ url_for('admin_api') }}">Доступ до API</a><a class="btn ghost" href="{{ url_for('admin_revision_google', state=state_filter, page=page) }}">Оновити статус</a></div></div>
+  {% if not config_ready %}<p class="helper-note error">Потрібно заповнити доступ до Google Merchant у налаштуваннях API.</p>{% endif %}
+  <div class="merchant-stats">
+    <a class="card" href="{{ url_for('admin_revision_google') }}"><strong>{{ total }}</strong><span>Карток у черзі</span></a>
+    <a class="card" href="{{ url_for('admin_revision_google', state='pending') }}"><strong>{{ counts.pending + counts.retry }}</strong><span>Очікують передачі</span></a>
+    <a class="card" href="{{ url_for('admin_revision_google', state='synced') }}"><strong>{{ counts.synced }}</strong><span>Передано API</span></a>
+    <a class="card merchant-good" href="{{ url_for('admin_revision_google', state='approved') }}"><strong>{{ google.approved }}</strong><span>Схвалено Google</span></a>
+    <a class="card merchant-warn" href="{{ url_for('admin_revision_google', state='blocked') }}"><strong>{{ counts.blocked }}</strong><span>Виправити дані</span></a>
+    <a class="card merchant-warn" href="{{ url_for('admin_revision_google', state='disapproved') }}"><strong>{{ google.disapproved }}</strong><span>Відхилено Google</span></a>
+  </div>
+  <div class="card merchant-settings"><div><h2>Автоматична передача</h2>
+    <p>{{ message }}</p>{% if import_message %}<p>{{ import_message }}</p>{% endif %}<p class="muted">{% if last_at %}Остання порція: {{ last_at }} UTC.{% endif %} {% if next_at %}Наступна: {{ next_at }} UTC.{% endif %}</p>
+    <p class="muted">Нові й змінені картки передаються порціями; продані товари отримують статус «Немає в наявності». Повне оновлення — кожні 14 днів. Отримання API не означає схвалення.</p></div>
+    <form method="post" class="merchant-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="settings">
+      <label class="choice"><input type="checkbox" name="enabled" value="1" {% if opt.enabled %}checked{% endif %}><strong>Автоматично з ревізії</strong></label>
+      <label>Товарів у порції<input name="batch" type="number" min="1" max="100" value="{{ opt.batch }}" required></label>
+      <label>Інтервал, секунд<input name="interval" type="number" min="60" max="86400" value="{{ opt.interval }}" required></label>
+      <button class="btn primary">Зберегти</button></form>
+    <div class="button-row"><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="run"><button class="btn ghost" {% if not config_ready %}disabled{% endif %}>Передати одну порцію</button></form>
+      <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="retry"><button class="btn ghost">Повторити після виправлень</button></form>
+      <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="import"><button class="btn ghost" {% if not config_ready %}disabled{% endif %}>Зіставити існуючі товари Google</button></form></div>
+  </div>
+  <details class="card merchant-mapping"><summary>Зіставлення всіх 22 колонок експорту</summary>
+    <div class="merchant-table-wrap"><table><thead><tr><th>Колонка Google</th><th>Джерело / правило передачі</th></tr></thead><tbody>
+      <tr><td>Назва</td><td>title: назва картки та OEM/MPN, до 150 символів</td></tr>
+      <tr><td>Ідентифікатор</td><td>offerId: збережений формат OEM. Конфлікти між картками блокуються.</td></tr>
+      <tr><td>Ціна</td><td>price: фактична ціна продажу на сайті, UAH; нульова ціна блокує нову публікацію</td></tr>
+      <tr><td>Стан</td><td>condition: NEW / USED відповідно до картки</td></tr>
+      <tr><td>Наявність</td><td>availability: фактичний залишок; OUT_OF_STOCK після продажу</td></tr>
+      <tr><td>Канал</td><td>Онлайн: тип API-джерела, не довільний атрибут товару</td></tr>
+      <tr><td>Мітка фіду</td><td>feedLabel: налаштування API, типово UA</td></tr>
+      <tr><td>Мова</td><td>contentLanguage: налаштування API, типово uk</td></tr>
+      <tr><td>MPN</td><td>mpn: номер виробника з картки; внутрішній штрихкод не передається як GTIN</td></tr>
+      <tr><td>Update type</td><td>Службовий результат Google; повна актуальна картка передається через productInputs:insert</td></tr>
+      <tr><td>Бренд</td><td>brand: справжній виробник; OEM і назва магазину не підставляються</td></tr>
+      <tr><td>Дата ціни зі знижкою</td><td>Лише за наявності фактичної акційної ціни. У ревізії такої ціни немає — дата не вигадується.</td></tr>
+      <tr><td>Додаткові зображення</td><td>additionalImageLinks: до 10 справних фото, власні HTTPS JPEG</td></tr>
+      <tr><td>Доставка (країна)</td><td>shipping: UA, Нова Пошта 300 грн, обробка 0–1 день, доставка 1–3 дні; відповідно до сторінки доставки</td></tr>
+      <tr><td>Категорія продуктів Google</td><td>googleProductCategory: 899 — запчастини для моторних транспортних засобів</td></tr>
+      <tr><td>Має ідентифікатор</td><td>identifierExists: true за наявності реальних brand + MPN</td></tr>
+      <tr><td>Опис</td><td>description: публічний опис картки, до 5000 символів</td></tr>
+      <tr><td>Посилання</td><td>link: канонічна публічна картка товару на сайті</td></tr>
+      <tr><td>Посилання на зображення</td><td>imageLink: справжній JPEG на usaparts.top/uploads/merchant/, без заглушок</td></tr>
+      <tr><td>Спеціальна мітка 0</td><td>customLabel0: «Перевірена наявність»; customLabel1: «Ревізія»</td></tr>
+      <tr><td>Тип продукту</td><td>productTypes: зрозуміла категорія «Автозапчастини &gt; …», не числовий код</td></tr>
+      <tr><td>Усі кліки</td><td>Аналітика Google, не поле для завантаження</td></tr>
+    </tbody></table></div>
+    <p class="muted">Фото менше 500×500 позначаються попередженням. Google запроваджує цей мінімум 31.01.2027. Автоматичне збільшення фото не застосовується.</p>
+  </details>
+  <div class="merchant-list">
+    {% for card in cards %}{% set j = card.job %}<article class="card merchant-item">
+      <div><strong>{{ j.offer_id }}</strong><h3>{{ j.title or 'Без назви' }}</h3><p class="muted">{% if j.revision_id > 0 %}Картка ревізії #{{ j.revision_id }}{% else %}Існуючий товар Google · #{{ j.part_id }}{% endif %} · {{ labels.get(j.state, j.state) }}{% if j.sent_at or j.product_name %} · {{ google_labels.get(j.google_state, j.google_state) }}{% endif %}</p></div>
+      <div>{% if j.error %}<p class="helper-note error">{{ j.error }}</p>{% endif %}{% if j.warning %}<p class="helper-note warn">{{ j.warning }}</p>{% endif %}
+        {% if j.status_error %}<p class="helper-note error">Перевірка статусу: {{ j.status_error }}</p>{% endif %}
+        {% for issue in card.issues %}<p class="helper-note {% if issue.severity == 'DISAPPROVED' %}error{% else %}warn{% endif %}"><strong>{{ issue.description or issue.code }}</strong> {{ issue.detail }} <span class="muted">{{ issue.attribute }}</span></p>{% endfor %}
+        {% if j.sent_at %}<small class="muted">Передано: {{ j.sent_at.strftime('%d.%m.%Y %H:%M') }} UTC</small>{% endif %}</div>
+      <a class="btn ghost" href="{{ url_for('admin_inventory_revision', edit=j.revision_id) if j.revision_id > 0 else url_for('admin_parts', q=j.offer_id) }}">Відкрити картку</a>
+    </article>{% else %}<div class="card"><p>У цьому списку поки немає товарів.</p></div>{% endfor %}
+  </div>
+  <nav class="button-row merchant-pagination" aria-label="Сторінки черги">{% if page > 1 %}<a class="btn ghost" href="{{ url_for('admin_revision_google', state=state_filter, page=page-1) }}">← Назад</a>{% endif %}<span>{{ page }} / {{ pages }}</span>{% if page < pages %}<a class="btn ghost" href="{{ url_for('admin_revision_google', state=state_filter, page=page+1) }}">Далі →</a>{% endif %}</nav>
+</section>
+{% endblock %}

@@ -13447,22 +13447,7 @@ def admin_api():
                     flash(f"Google Merchant API: {error}", "error")
                 return redirect(url_for("admin_api"))
             if action == "google_merchant_sync":
-                try:
-                    result = google_merchant_start_background_sync(
-                        db,
-                        request.form.get("sync_limit"),
-                        request.form.get("google_merchant_warehouse_id"),
-                    )
-                    flash_news(db, "api", "Google Merchant синхронізація", result["message"], "info")
-                    db.commit()
-                    flash(result["message"], "success" if result["started"] else "info")
-                except Exception as error:
-                    set_setting(db, "google_merchant_last_status", "error")
-                    set_setting(db, "google_merchant_last_message", str(error)[:1500])
-                    set_setting(db, "google_merchant_last_at", datetime.now().isoformat(timespec="seconds"))
-                    db.commit()
-                    flash(f"Google Merchant API: {error}", "error")
-                return redirect(url_for("admin_api"))
+                return redirect(url_for("admin_revision_google"))
             for key in [
                 "nova_poshta_api_key",
                 "telegram_bot_token",
@@ -13476,6 +13461,8 @@ def admin_api():
                 "google_merchant_developer_email",
                 "google_merchant_service_account_json",
             ]:
+                if key == "google_merchant_service_account_json" and not request.form.get(key, "").strip():
+                    continue
                 set_setting(db, key, request.form.get(key, "").strip())
             set_setting(db, "google_merchant_enabled", "1" if request.form.get("google_merchant_enabled") else "0")
             set_setting(db, "google_merchant_allow_placeholder_images", "1" if request.form.get("google_merchant_allow_placeholder_images") else "0")
@@ -15502,6 +15489,8 @@ transit_delivery_models = transit_delivery.install(sys.modules[__name__])
 from . import order_tracking
 order_tracking_models = order_tracking.install(sys.modules[__name__])
 
+from . import merchant_revision
+merchant_revision_model = merchant_revision.install(sys.modules[__name__])
 
 if __name__ == "__main__":
     from waitress import serve
@@ -15512,6 +15501,7 @@ if __name__ == "__main__":
     telegram_stock.start_worker()
     transit_delivery.start_worker()
     order_tracking.start_worker()
+    merchant_revision.start_worker()
     # Keep one process for background jobs and in-memory invalidation. Proxy
     # headers are handled by the existing external_request_* helpers above.
     serve(app, host="0.0.0.0", port=8080, threads=8,

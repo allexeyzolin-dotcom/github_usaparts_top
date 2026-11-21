@@ -36,7 +36,7 @@
       <input type="checkbox" name="google_merchant_enabled" value="1" {% if google_merchant_config.enabled %}checked{% endif %}>
       <span>
         <strong>Увімкнути синхронізацію товарів у Google Merchant</strong>
-        <span class="muted">Ручна синхронізація відправляє активні товари в наявності з цінами в UAH.</span>
+        <span class="muted">Автоматична передача порціями налаштовується в розділі «Ревізія → Google Merchant».</span>
       </span>
     </label>
 
@@ -58,37 +58,14 @@
         <input name="google_merchant_feed_label" value="{{ google_merchant_config.feed_label }}" placeholder="UA">
       </label>
       <label>
-        <span class="field-label">Ліміт ручної синхронізації</span>
-        <input name="google_merchant_sync_limit" type="number" min="1" max="5000" value="{{ google_merchant_config.sync_limit }}">
-        <span class="helper-note">Це ліміт одного запуску з сайту. Якщо Google повертає <strong>Product limit exceeded</strong>, потрібно звільнити місце в Merchant Center або запросити збільшення ліміту товарів у Google.</span>
-      </label>
-      <label>
-        <span class="field-label">Склад для синхронізації</span>
-        <select name="google_merchant_warehouse_id">
-          <option value="0" {% if not google_merchant_config.warehouse_id %}selected{% endif %}>Всі активні товари</option>
-          {% for warehouse in warehouses %}
-            <option value="{{ warehouse.id }}" {% if google_merchant_config.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
-          {% endfor %}
-        </select>
-        <span class="helper-note">Якщо вибрати склад, у Google Merchant підуть тільки активні товари цього складу.</span>
-      </label>
-      <label>
         <span class="field-label">Developer email</span>
         <input name="google_merchant_developer_email" type="email" value="{{ google_merchant_config.developer_email }}" placeholder="Ваш Google email для Merchant API">
       </label>
     </div>
 
-    <label class="choice">
-      <input type="checkbox" name="google_merchant_allow_placeholder_images" value="1" {% if google_merchant_config.allow_placeholder_images %}checked{% endif %}>
-      <span>
-        <strong>Дозволити тематичне фото-заглушку для товарів без фото</strong>
-        <span class="muted">Безпечніше вимкнути: Google Merchant може відхиляти товари без реального фото.</span>
-      </span>
-    </label>
-
     <label>
       <span class="field-label">Service account JSON</span>
-      <textarea name="google_merchant_service_account_json" rows="8" placeholder='Вставте JSON service account або шлях до JSON-файлу в контейнері'>{{ google_merchant_config.service_account_json }}</textarea>
+      <textarea name="google_merchant_service_account_json" rows="4" placeholder='{{ "Доступ збережено. Залиште порожнім, щоб зберегти його." if google_merchant_config.service_account_json else "Вставте JSON service account або шлях до файлу в контейнері" }}'></textarea>
     </label>
 
     <div class="helper-note">
@@ -123,20 +100,7 @@
         <input type="hidden" name="api_action" value="google_merchant_test">
         <button class="btn ghost" type="submit">Перевірити доступ</button>
       </form>
-      <form method="post">
-        <input type="hidden" name="api_action" value="google_merchant_sync">
-        <input type="hidden" name="sync_limit" value="{{ google_merchant_config.sync_limit }}">
-        <label class="field-label" for="google-merchant-sync-warehouse">Склад</label>
-        <select id="google-merchant-sync-warehouse" name="google_merchant_warehouse_id">
-          <option value="0" {% if not google_merchant_config.warehouse_id %}selected{% endif %}>Всі активні товари</option>
-          {% for warehouse in warehouses %}
-            <option value="{{ warehouse.id }}" {% if google_merchant_config.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn primary" type="submit" {% if not google_merchant_config.enabled or google_merchant_config.is_running %}disabled{% endif %}>
-          {% if google_merchant_config.is_running %}Синхронізація виконується{% else %}Відправити товари і ціни{% endif %}
-        </button>
-      </form>
+      <a class="btn primary" href="{{ url_for('admin_revision_google') }}">Автоматична передача з ревізії</a>
     </div>
   </div>
 

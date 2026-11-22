@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from flask import abort, jsonify, redirect, render_template, request, send_file, session, url_for
+from flask import abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func, text
 
 
@@ -202,6 +202,24 @@ def install(site):
             if request.method == "POST":
                 if not secrets.compare_digest(csrf.encode(), request.form.get("csrf_token", "").encode()):
                     abort(403)
+                if request.form.get("action") == "import":
+                    value = request.form.get("capture", "")
+                    if len(value.encode()) > MAX_BODY:
+                        abort(413)
+                    try:
+                        payload = validate_capture(json.loads(value))
+                        with LOCK:
+                            result, order = import_capture(db, payload)
+                    except json.JSONDecodeError:
+                        flash("Вставте коректний JSON картки замовлення.", "error")
+                        return redirect(url_for("admin_avtopro_orders"))
+                    except ValueError as exc:
+                        flash(str(exc), "error")
+                        return redirect(url_for("admin_avtopro_orders"))
+                    messages = {"created": "Замовлення Автопро додано", "updated": "Дані Автопро оновлено для звірки",
+                                "unchanged": "Цю картку Автопро вже передано"}
+                    flash(messages[result], "success")
+                    return redirect(order_location(order))
                 with LOCK:
                     if db.get_bind().dialect.name == "postgresql":
                         db.execute(text("SELECT pg_advisory_xact_lock(726576660014)"))

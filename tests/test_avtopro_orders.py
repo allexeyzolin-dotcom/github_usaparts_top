@@ -102,3 +102,18 @@ class AvtoproCaptureTests(unittest.TestCase):
         self.assertIn("group=new", result["orderUrl"])
         with self.db() as db:
             self.assertEqual(db.query(site.Order).one().status, "shipped")
+
+    def test_admin_can_replay_the_same_capture_without_pairing_an_extension(self):
+        sent = self.send()
+        self.login()
+        self.client.get(self.admin)
+        with self.client.session_transaction() as session:
+            csrf = session["avtopro_import_csrf"]
+        with self.db() as db:
+            data = site.avtopro_order_details(db, db.query(site.Order).all())[sent.json["orderId"]]["data"]
+        response = self.client.post(self.admin, data={"action": "import", "csrf_token": csrf,
+            "capture": json.dumps({**data, "currency": "UAH"})})
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("#order-", response.location)
+        with self.db() as db:
+            self.assertEqual(db.query(site.Order).count(), 1)

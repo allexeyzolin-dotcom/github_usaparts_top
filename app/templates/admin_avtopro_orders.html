@@ -24,6 +24,15 @@
   <p class="muted">Скопіюйте ключ у розширення. Ключ показується один раз.</p>
   {% endif %}
 </section>
+<details class="card stack" style="margin-top:18px">
+  <summary>Вставити зчитану картку</summary>
+  <form method="post" class="stack" style="margin-top:12px">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="action" value="import">
+    <label>JSON картки замовлення<textarea name="capture" rows="4" maxlength="73728" spellcheck="false" required></textarea></label>
+    <button class="btn ghost">Імпортувати картку</button>
+  </form>
+</details>
 <section class="card stack" style="margin-top:18px">
   <h3>Передані замовлення</h3>
   {% for record in records %}{% set order = record.data %}

@@ -346,7 +346,8 @@
             <strong>Автопро №{{ avto.orderId }} · {{ avto.status }}</strong>
             {% if avto.delivery %}<div>{{ avto.delivery }}</div>{% endif %}
             {% if avto.payment %}<div>{{ avto.payment }}</div>{% endif %}
-            {% if order.avtoproCapture.changed %}<div>У картці Автопро є зміни. Звірте їх перед видачею.</div>{% endif %}
+            {% if order.avtoproCapture.cancelled and order.status not in ('cancelled', 'done') %}<div>Автопро скасував замовлення. Звірте відправлення та резерв перед закриттям.</div>
+            {% elif order.avtoproCapture.changed and order.status != 'cancelled' %}<div>У картці Автопро є зміни. Звірте їх перед видачею.</div>{% endif %}
             <a href="{{ avto.sourceUrl }}" target="_blank" rel="noreferrer">Картка Автопро ↗</a>
             · <a href="{{ url_for('admin_avtopro_orders') }}">Дані імпорту</a>
           </div>

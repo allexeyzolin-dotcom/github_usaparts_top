@@ -3768,6 +3768,14 @@ def append_order_note(comment: str, note: str) -> str:
 
 
 def complete_issue_request(db, request_obj: PackingRequest):
+    order = None
+    if request_obj.source_order_id:
+        order = db.query(Order).filter_by(id=request_obj.source_order_id).with_for_update().one_or_none()
+        if order and order.status == "cancelled":
+            raise ValueError("order_closed")
+    request_obj = db.query(PackingRequest).filter_by(id=request_obj.id).populate_existing().with_for_update().one()
+    if request_obj.status == "deleted":
+        raise ValueError("order_closed")
     pending_items = [
         packing_item
         for packing_item in (request_obj.items or [])
@@ -3805,7 +3813,6 @@ def complete_issue_request(db, request_obj: PackingRequest):
     total_usd = sum(float(resolved["price_usd"]) * resolved["qty"] for resolved in resolved_items)
     is_manual_request = (request_obj.source_type or "manual") == "manual"
     note_text = "готово до пакування"
-    order = db.get(Order, request_obj.source_order_id) if request_obj.source_order_id else None
     stock_already_reserved = bool(order and order.stock_reserved)
 
     if is_manual_request or not stock_already_reserved:
@@ -14941,7 +14948,7 @@ def api_mobile_issue_list():
 def api_mobile_issue_scan(request_id):
     db = SessionLocal()
     try:
-        request_obj = db.get(PackingRequest, request_id)
+        request_obj = db.query(PackingRequest).filter_by(id=request_id).with_for_update().one_or_none()
         if not request_obj or request_obj.status == "deleted":
             return jsonify({"error": "request_not_found"}), 404
 
@@ -15015,6 +15022,8 @@ def api_mobile_issue_complete(request_id):
         except ValueError as exc:
             db.rollback()
             code = str(exc)
+            if code == "order_closed":
+                return jsonify({"error": code, "message": "Замовлення або заявку скасовано."}), 409
             if code == "nothing_scanned":
                 return jsonify({"error": "nothing_scanned", "message": "Спочатку відскануйте хоча б одну позицію."}), 400
             if code == "not_fully_scanned":

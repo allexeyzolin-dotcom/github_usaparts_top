@@ -23,6 +23,10 @@
   if (!buyerField) {
     return { error: "Не знайдено картку продавця з полем «ПІБ покупця»." };
   }
+  const status = read(document.querySelector("main .order-progressbar-status"));
+  const sourceUrl = `${location.origin}/orders/${orderId}/`;
+  const cancellation = new RegExp(`^(?:(?:замовлення|заказ)\\s+№?\\s*${orderId}\\s+)?(?:скасовано|отменено|отмен[ёе]н)(?: (?:покупцем|продавцем|системою|автоматично|покупателем|продавцом|системой|автоматически))?[.!]?$`, "i");
+  if (cancellation.test(status)) return { orderId, sourceUrl, status, statusOnly: true };
   const money = (text) => {
     const found = [...text.matchAll(/(\d[\d \u00a0\u202f]*(?:[.,]\d{1,2})?)\s*(?:грн|₴|UAH)/gi)];
     return found.length === 1 ? found[0][1].replace(/\s/g, "").replace(",", ".") : "";
@@ -46,13 +50,12 @@
 
   const totalField = valueFor(/^(?:Сума замовлення покупця|Сумма заказа покупателя)$/i);
   const totalUah = money(read(totalField?.querySelector(".nowrap")) || read(totalField));
-  const status = read(document.querySelector("main .order-progressbar-status"));
   if (!totalUah || !status) return { error: "Не знайдено статус або підсумкову суму у гривнях." };
 
   const buyer = read(buyerField.querySelector(".wrapper-name > div > span:first-child"));
   const visiblePhone = read(valueFor(/^Телефон$/i));
   const phone = /^\+?[0-9 ()-]{9,24}$/.test(visiblePhone) ? visiblePhone : "";
-  return { orderId, sourceUrl: `${location.origin}/orders/${orderId}/`, status, currency: "UAH", totalUah,
+  return { orderId, sourceUrl, status, currency: "UAH", totalUah,
     customer: buyer, phone,
     delivery: read(valueFor(/^(?:Умови доставки|Условия доставки)$/i)?.querySelector(".text-delivery")),
     payment: read(valueFor(/^(?:Спосіб оплати|Способ оплаты)$/i)), items };

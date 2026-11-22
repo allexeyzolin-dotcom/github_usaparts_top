@@ -22,6 +22,9 @@ HOSTS = {"avtopro.ua", "www.avtopro.ua", "avto.pro", "www.avto.pro"}
 LOCK = threading.Lock()
 MAX_BODY = 128 * 1024
 CENT = Decimal("0.01")
+FORM_MESSAGES = {"created": "Замовлення Автопро додано", "updated": "Дані Автопро оновлено для звірки",
+                 "unchanged": "Цю картку Автопро вже передано", "cancelled": "Замовлення Автопро скасовано й перенесено в історію",
+                 "return_review": "Автопро скасував замовлення. Звірте відправлення та резерв перед закриттям."}
 
 
 def sha(value):
@@ -44,6 +47,12 @@ def amount(value):
     return f"{Decimal(value):.2f}"
 
 
+def cancellation_notice(value, external_id):
+    prefix = rf"(?:(?:замовлення|заказ)\s+№?\s*{re.escape(external_id)}\s+)?"
+    terminal = r"(?:скасовано|отменено|отмен[ёе]н)(?: (?:покупцем|продавцем|системою|автоматично|покупателем|продавцом|системой|автоматически))?"
+    return bool(re.fullmatch(prefix + terminal + r"[.!]?", value.casefold()))
+
+
 def validate_capture(raw):
     if not isinstance(raw, dict):
         raise ValueError("Очікується картка одного замовлення")
@@ -54,6 +63,12 @@ def validate_capture(raw):
     if (url.scheme != "https" or url.netloc.lower() not in HOSTS
             or url.path.rstrip("/") != f"/orders/{order_id}"):
         raise ValueError("Адреса має вести до картки цього замовлення Автопро")
+    status = string_field(raw, "status", 200, required=True)
+    reference = {"orderId": order_id, "sourceUrl": f"https://{url.netloc.lower()}/orders/{order_id}/", "status": status}
+    if raw.get("statusOnly") is True:
+        if not cancellation_notice(status, order_id):
+            raise ValueError("Потрібен підтверджений статус скасування цього замовлення")
+        return reference
     lines = raw.get("items")
     if not isinstance(lines, list) or not 1 <= len(lines) <= 100:
         raise ValueError("Відкрийте повну картку з позиціями замовлення")
@@ -70,16 +85,15 @@ def validate_capture(raw):
     phone = string_field(raw, "phone", 64)
     if phone and not re.fullmatch(r"\+?[0-9 ()-]{9,24}", phone):
         raise ValueError("Телефон на картці показано не повністю")
-    return {"orderId": order_id, "sourceUrl": f"https://{url.netloc.lower()}/orders/{order_id}/",
-            "status": string_field(raw, "status", 200, required=True),
+    return {**reference,
             "customer": string_field(raw, "customer", 255), "phone": phone,
             "delivery": string_field(raw, "delivery", 500), "payment": string_field(raw, "payment", 200),
             "totalUah": amount(raw.get("totalUah")), "items": items}
 
 
-def initial_status(value):
+def initial_status(value, external_id):
     normalized = value.casefold()
-    if re.search(r"скасован|скасував|отмен[её]н", normalized):
+    if cancellation_notice(value, external_id):
         return "cancelled"
     if re.search(r"завершен|виконан|выполнен", normalized):
         return "done"
@@ -117,12 +131,36 @@ def install(site):
         captured_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     def match_existing(db, external_id):
-        return db.query(site.Order).filter_by(external_source=SOURCE, external_order_id=external_id).limit(2).all()
+        return db.query(site.Order).filter_by(external_source=SOURCE, external_order_id=external_id).with_for_update().limit(2).all()
 
     def order_location(order):
         group = "history" if site.order_group_for_status(order.status) == "history" else "new"
         return url_for("admin_orders", group=group,
                        selected=order.id, q=order.external_order_id, _anchor=f"order-{order.id}")
+
+    def apply_cancellation(db, order, status, source_was_shipped):
+        if order.status == "cancelled":
+            return "unchanged", False
+        if source_was_shipped or order.status not in site.order_tracking.UNSHIPPED or order.ttn:
+            return "return_review", False
+        requests = (db.query(site.PackingRequest).filter_by(source_order_id=order.id, source_type="order")
+                    .filter(site.PackingRequest.status != "deleted").order_by(site.PackingRequest.id)
+                    .with_for_update().all())
+        if any(pack.status in {"shipped", "applied"} for pack in requests):
+            return "return_review", False
+        if order.stock_reserved and (not order.items or any(not item.part_id for item in order.items)):
+            return "return_review", False
+        returned = site.release_order_inventory(db, order)
+        order.status = order.external_status = "cancelled"
+        order.cancel_reason = f"Автопро: {status}"
+        order.is_processing = False
+        order.updated_at = site.now()
+        for pack in requests:
+            pack.status = "deleted"
+            pack.updated_at = order.updated_at
+        site.flash_news(db, "orders", "Автопро скасував замовлення",
+                        f"Замовлення #{order.id} перенесено в історію. Звільнено резерв: {returned} шт.")
+        return "cancelled", bool(returned)
 
     def import_capture(db, payload):
         external_id = payload["orderId"]
@@ -133,13 +171,24 @@ def install(site):
         matches = match_existing(db, external_id)
         if len(matches) > 1:
             raise ValueError("У кабінеті вже є кілька карток із цим номером. Потрібна ручна звірка.")
-        body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        fingerprint = sha(body)
         order = matches[0] if matches else None
-        if order and snapshot and snapshot.order_id == order.id and snapshot.payload_hash == fingerprint:
-            return "unchanged", order
         if order is None and snapshot:
             raise ValueError("Це замовлення вже імпортувалося. Перевірте його історію в кабінеті.")
+        previous = json.loads(snapshot.payload_json) if snapshot else None
+        cancelled = cancellation_notice(payload["status"], external_id)
+        if order and previous and cancellation_notice(previous["status"], external_id) and not cancelled:
+            return "unchanged", order
+        if "items" not in payload:
+            if not order or not previous:
+                raise ValueError("Замовлення ще не імпортоване. Передайте повну картку Автопро.")
+            payload = {**previous, **payload}
+        source_was_shipped = bool(previous and (previous.get("sourceWasShipped") or
+            initial_status(previous["status"], external_id) in {"shipped", "done"}))
+        if source_was_shipped:
+            payload["sourceWasShipped"] = True
+        body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        fingerprint = sha(body)
+        duplicate = bool(order and snapshot and snapshot.order_id == order.id and snapshot.payload_hash == fingerprint)
 
         created = order is None
         old_empty_draft = bool(order and order.external_status == "email_review" and order.status == "new"
@@ -154,7 +203,9 @@ def install(site):
                 order = site.Order(external_source=SOURCE, external_order_id=external_id)
                 db.add(order)
             order.external_status = payload["status"]
-            order.status = initial_status(payload["status"])
+            order.status = initial_status(payload["status"], external_id)
+            if order.status == "cancelled":
+                order.cancel_reason = f"Автопро: {payload['status']}"
             order.customer_name = payload["customer"] or f"Автопро №{external_id}"
             order.phone = payload["phone"]
             order.total_usd = dollars(payload["totalUah"])
@@ -165,6 +216,14 @@ def install(site):
                 order.items.append(site.OrderItem(part_id=inventory_match(site, db, item),
                     part_number=item["partNumber"], name=item["name"], qty=item["qty"], price_usd=dollars(item["unitUah"])))
             db.flush()
+        result = "created" if created else "unchanged" if duplicate else "updated"
+        stock_changed = False
+        if cancelled and not created:
+            status_result, stock_changed = apply_cancellation(db, order, payload["status"], source_was_shipped)
+            if status_result != "unchanged":
+                result = status_result
+        if duplicate and result != "cancelled":
+            return result, order
         if not snapshot:
             snapshot = AvtoproOrderCapture(external_id=external_id, order_id=order.id,
                 imported_payload_hash=fingerprint if created or old_empty_draft else "")
@@ -172,7 +231,9 @@ def install(site):
         snapshot.payload_json, snapshot.payload_hash = body, fingerprint
         snapshot.captured_at = datetime.utcnow()
         db.commit()
-        return "created" if created else "updated", order
+        if stock_changed:
+            site.public_cache_clear()
+        return result, order
 
     @site.app.post("/api/integrations/avtopro/order")
     def receive_avtopro_order():
@@ -191,7 +252,8 @@ def install(site):
                     status, order = import_capture(db, payload)
             except ValueError as exc:
                 return jsonify(error=str(exc)), 422
-            return jsonify(result=status, orderId=order.id, orderUrl=site.absolute_public_url(order_location(order))), 201 if status == "created" else 200
+            return jsonify(result=status, message=FORM_MESSAGES[status], orderId=order.id,
+                           orderUrl=site.absolute_public_url(order_location(order))), 201 if status == "created" else 200
 
     @site.app.route("/admin/marketplaces/avtopro-orders", methods=["GET", "POST"])
     @site.admin_required
@@ -216,9 +278,7 @@ def install(site):
                     except ValueError as exc:
                         flash(str(exc), "error")
                         return redirect(url_for("admin_avtopro_orders"))
-                    messages = {"created": "Замовлення Автопро додано", "updated": "Дані Автопро оновлено для звірки",
-                                "unchanged": "Цю картку Автопро вже передано"}
-                    flash(messages[result], "success")
+                    flash(FORM_MESSAGES[result], "warn" if result == "return_review" else "success")
                     return redirect(order_location(order))
                 with LOCK:
                     if db.get_bind().dialect.name == "postgresql":
@@ -261,7 +321,7 @@ def install(site):
         for row in rows:
             data = json.loads(row.payload_json)
             captures[row.order_id] = {"data": data, "changed": row.payload_hash != row.imported_payload_hash,
-                                      "cancelled": initial_status(data["status"]) == "cancelled"}
+                                      "cancelled": cancellation_notice(data["status"], row.external_id)}
         return captures
 
     return order_details

@@ -19,6 +19,8 @@ services:
     image: ${WEB_IMAGE:-usa-auto-parts-site:vps-latest}
     build: .
     pull_policy: build
+    labels:
+      top.usaparts.avtopro-import.version: "1.1.0"
     restart: unless-stopped
     depends_on:
       db:

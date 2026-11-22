@@ -23,9 +23,10 @@ async function initialize() {
   if (!result || result.error) return feedback(result?.error || "Не вдалося зчитати картку.", true);
   captured = result;
   element("number").textContent = `Замовлення №${result.orderId}`;
-  element("summary").textContent = `${result.status} · ${result.totalUah} грн`;
+  element("summary").textContent = result.statusOnly ? result.status : `${result.status} · ${result.totalUah} грн`;
+  if (result.statusOnly) element("send").textContent = "Передати скасування";
   element("buyer").textContent = [result.customer, result.phone, result.delivery, result.payment].filter(Boolean).join(" · ");
-  for (const item of result.items) {
+  for (const item of result.items || []) {
     const li = document.createElement("li");
     li.textContent = `${item.partNumber} · ${item.name} · ${item.qty} шт. × ${item.unitUah} грн`;
     element("items").append(li);
@@ -68,7 +69,7 @@ element("send").addEventListener("click", async () => {
     const url = new URL(result.orderUrl);
     if (url.origin !== base || url.pathname !== "/admin/orders") throw new Error("Некоректна відповідь кабінету.");
     const messages = { created: "Замовлення додано у видачу.", updated: "Дані Автопро оновлено для звірки.", unchanged: "Цю картку вже передано." };
-    feedback(messages[result.result] || "Передачу завершено.");
+    feedback(result.message || messages[result.result] || "Передачу завершено.", result.result === "return_review");
     element("order").href = url.href;
     element("order").hidden = false;
   } catch (error) {

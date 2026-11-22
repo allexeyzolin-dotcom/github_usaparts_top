@@ -1,0 +1,39 @@
+{% extends 'base_admin.html' %}
+{% block admin_content %}
+<div class="panel-header">
+  <div><h2>Імпорт замовлень Автопро</h2><p class="muted">Передавання відкритої картки продажу в USAparts.top.</p></div>
+  <div class="button-row">
+    <a class="btn ghost" href="{{ url_for('admin_marketplaces', tab='avtopro') }}">← Автопро</a>
+    <a class="btn ghost" href="{{ url_for('admin_orders') }}">Замовлення / Видача</a>
+  </div>
+</div>
+<section class="card stack">
+  <h3>Підключення Chrome</h3>
+  <ol>
+    <li>Завантажте й розпакуйте розширення. Відкрийте <code>chrome://extensions</code>, увімкніть режим розробника та виберіть папку <code>usaparts-avtopro</code> через «Завантажити розпаковане розширення».</li>
+    <li>Створіть ключ і збережіть його в розширенні.</li>
+    <li>У розділі «Продаж» відкрийте замовлення, натисніть розширення, звірте дані та натисніть «Передати замовлення».</li>
+  </ol>
+  <div class="button-row">
+    <a class="btn primary" href="{{ url_for('download_avtopro_extension') }}">Завантажити розширення Chrome</a>
+    <a class="btn ghost" target="_blank" rel="noreferrer" href="https://avtopro.ua/orders/">Відкрити продажі Автопро ↗</a>
+    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="btn ghost">{{ 'Замінити ключ імпорту' if key_set else 'Створити ключ імпорту' }}</button></form>
+  </div>
+  {% if token %}
+  <label>Ключ імпорту<input readonly value="{{ token }}" autocomplete="off" spellcheck="false"></label>
+  <p class="muted">Скопіюйте ключ у розширення. Ключ показується один раз.</p>
+  {% endif %}
+</section>
+<section class="card stack" style="margin-top:18px">
+  <h3>Передані замовлення</h3>
+  {% for record in records %}{% set order = record.data %}
+  <details class="card inner-card">
+    <summary><strong>№{{ order.orderId }} · {{ order.totalUah }} грн</strong> · {{ order.status }}{% if record.changed %} <span class="badge warn">Зміни для звірки</span>{% endif %} <span class="muted">{{ record.captured_at|mp_time }}</span></summary>
+    <p>{{ order.customer }}{% if order.phone %} · {{ order.phone }}{% endif %}</p>
+    {% if order.delivery or order.payment %}<p>{{ order.delivery }}{% if order.payment %} · {{ order.payment }}{% endif %}</p>{% endif %}
+    <ul>{% for item in order['items'] %}<li>{{ item.partNumber }} · {{ item.name }} · {{ item.qty }} шт. × {{ item.unitUah }} грн</li>{% endfor %}</ul>
+    <div class="button-row"><a href="{{ order.sourceUrl }}" target="_blank" rel="noreferrer">Картка Автопро ↗</a>{% if record.order_url %}<a href="{{ record.order_url }}">Перейти до видачі</a>{% endif %}</div>
+  </details>
+  {% else %}<p class="muted">Передані картки з’являться тут після першого імпорту.</p>{% endfor %}
+</section>
+{% endblock %}

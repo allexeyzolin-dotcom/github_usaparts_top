@@ -5216,8 +5216,8 @@ def find_part_for_order_item(db, item: OrderItem):
         part = db.get(Part, item.part_id)
         if part:
             return part
-    if item.order and item.order.external_source == "prom":
-        return None  # Prom lines require an explicit, reviewed product mapping.
+    if item.order and item.order.external_source in {"prom", "autopro"}:
+        return None  # Marketplace lines require an explicit stock match.
     part_number = (item.part_number or "").strip()
     if not part_number:
         return None
@@ -12329,15 +12329,16 @@ def admin_orders():
         orders = db.query(Order).order_by(desc(Order.created_at)).all()
         order_tracking.prime_cache(db, orders)
         prom_stock = marketplaces.prom_order_stock_details(db, orders)
-        avtopro_notices = avtopro_order_notices(db, orders)
+        avtopro_details = avtopro_order_details(db, orders)
         order_cards = [serialize_admin_order(db, order) for order in orders]
         for order_card in order_cards:
-            notices = avtopro_notices.get(order_card["id"], set())
-            order_card["avtoproCancelledNotice"] = "cancelled" in notices
-            order_card["avtoproPaidNotice"] = "paid" in notices
-            order_card["avtoproReview"] = bool(notices and order_card["status"] == "new" and not order_card["items"])
-            if order_card["avtoproReview"] or (order_card["avtoproCancelledNotice"] and order_card["status"] not in {"done", "cancelled"}):
-                order_card["hasIssue"] = True
+            capture = avtopro_details.get(order_card["id"])
+            if capture:
+                order_card["avtoproCapture"] = capture
+                review = capture["changed"] or any(not item["partId"] for item in order_card["items"])
+                order_card["avtoproReview"] = review
+                if review and order_card["group"] != "history":
+                    order_card["hasIssue"] = True
             detail = prom_stock.get(order_card["id"])
             if detail:
                 order_card["promStock"] = detail
@@ -12469,6 +12470,14 @@ def admin_order_send_to_packing(order_id):
         if existing_request:
             flash("Це замовлення вже передано в додаток на збірку", "error")
             return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
+        if order.external_source == "autopro":
+            capture = avtopro_order_details(db, [order]).get(order.id, {})
+            if capture.get("cancelled"):
+                flash("Автопро позначив замовлення скасованим. Звірте статус перед видачею.", "error")
+                return redirect(url_for("admin_orders", selected=order.id, q=order.external_order_id))
+            if any(not item.part_id for item in order.items):
+                flash("Зіставте позиції Автопро зі складом через редагування замовлення.", "error")
+                return redirect(url_for("admin_orders", selected=order.id, q=order.external_order_id))
         items_payload = []
         for item in order.items:
             items_payload.append({
@@ -15410,8 +15419,8 @@ transit_delivery_models = transit_delivery.install(sys.modules[__name__])
 from . import order_tracking
 order_tracking_models = order_tracking.install(sys.modules[__name__])
 
-from . import avtopro_mail
-avtopro_order_notices = avtopro_mail.install(sys.modules[__name__])
+from . import avtopro_orders
+avtopro_order_details = avtopro_orders.install(sys.modules[__name__])
 
 from . import merchant_revision
 merchant_revision_model = merchant_revision.install(sys.modules[__name__])

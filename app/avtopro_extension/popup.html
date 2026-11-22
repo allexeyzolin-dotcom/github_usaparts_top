@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Імпорт Автопро</title><link rel="stylesheet" href="popup.css"><script defer src="popup.js"></script></head>
+<body>
+  <header><a href="https://usaparts.top/admin/marketplaces/avtopro-orders" target="_blank" rel="noopener">USAparts.top</a><h1>Імпорт Автопро</h1></header>
+  <p id="feedback" role="status" aria-live="polite">Зчитую відкриту картку…</p>
+  <section id="preview" hidden>
+    <h2 id="number"></h2>
+    <p id="summary"></p>
+    <p id="buyer"></p>
+    <ul id="items"></ul>
+    <button id="send" type="button" disabled>Передати замовлення</button>
+    <a id="order" href="https://usaparts.top/admin/orders" target="_blank" rel="noopener" hidden>Відкрити у видачі ↗</a>
+  </section>
+  <details id="settings">
+    <summary>Ключ підключення</summary>
+    <form id="key-form">
+      <label for="key">Ключ із кабінету USAparts.top</label>
+      <input id="key" type="password" autocomplete="off" spellcheck="false" required>
+      <button type="submit">Зберегти ключ</button>
+    </form>
+  </details>
+</body>
+</html>

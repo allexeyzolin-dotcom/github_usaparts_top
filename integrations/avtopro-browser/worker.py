@@ -30,6 +30,8 @@ ORDER_PATH = re.compile(r"/orders/([0-9]{3,20})/?")
 KEY_FILE = Path("/run/secrets/site-key")
 CAPTURE = Path(__file__).with_name("capture.js")
 DATA = Path("/data")
+LOGIN_ORIGIN = "https://avtopro.ua"
+SALES_TAB = re.compile(r"^\s*(?:Продаж|Продажи)(?:\s|$)", re.I)
 RESULTS = {"created", "updated", "unchanged", "cancelled", "return_review"}
 LOG = logging.getLogger("avtopro")
 LIST_SELECTOR = '.number a[href*="/orders/"]'
@@ -45,7 +47,7 @@ class Pause(Exception):
 
 
 class NeedsLogin(Pause):
-    """The Avto.pro session needs manual confirmation."""
+    """The seller's browser session has expired."""
 
 
 class RetryLater(Exception):
@@ -71,6 +73,16 @@ def order_id(url):
     return None
 
 
+def credentials():
+    try:
+        values = json.loads((DATA / "credentials.json").read_text(encoding="utf-8"))
+        if isinstance(values, dict):
+            return values
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
 class SiteClient:
     def __init__(self):
         origin = urlsplit(os.getenv("USAPARTS_ORIGIN", "https://usaparts.top"))
@@ -82,11 +94,10 @@ class SiteClient:
         self.reported_session = None
 
     def request(self, method, path, payload=None):
-        try:
+        key = credentials().get("site_key", "")
+        if not key and KEY_FILE.is_file():
             key = KEY_FILE.read_text().strip()
-        except OSError:
-            raise Pause("Потрібен доступний файл ключа USAparts.top") from None
-        if not re.fullmatch(r"[A-Za-z0-9_-]{43}", key):
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", key):
             raise Pause("Встановіть чинний ключ імпорту USAparts.top")
         connection = http.client.HTTPSConnection(self.host, self.port, timeout=15)
         try:
@@ -263,9 +274,74 @@ def read_only(route):
 
 
 def needs_login(page):
-    return (re.search(r"/(?:login|signin|auth|captcha)(?:/|$)", urlsplit(page.url).path, re.I)
+    return (re.search(r"/(?:login|signin|auth|captcha|unauthorized)(?:/|$)", urlsplit(page.url).path, re.I)
             or page.locator('input[type="password"]:visible, iframe[src*="captcha"]:visible, '
                             'iframe[src*="challenges.cloudflare.com"]:visible').count())
+
+
+def login_challenge(page):
+    return page.locator('input[autocomplete="one-time-code"]:visible, iframe[src*="challenges.cloudflare.com"]:visible, '
+                        'iframe[title*="captcha" i]:visible, input[name*="captcha" i]:visible').count()
+
+
+def automatic_login(browser):
+    values = credentials()
+    email, password = values.get("email"), values.get("password")
+    if not isinstance(email, str) or not email or not isinstance(password, str) or not password:
+        raise Pause("Налаштуйте дані входу Avto.pro в консолі контейнера")
+    page = browser.new_page()
+    permitted_submit = False
+
+    def allow_login_request(route):
+        request = route.request
+        url = urlsplit(request.url)
+        same_origin = f"{url.scheme}://{url.netloc.lower()}" == LOGIN_ORIGIN
+        query = {name.casefold() for name in parse_qs(url.query, keep_blank_values=True)}
+        if (request.method not in {"GET", "HEAD"} and not (permitted_submit and same_origin and request.method == "POST")
+                or request.is_navigation_request() and request.frame == page.main_frame and not same_origin
+                or query.intersection({"login", "password", "email", "passwd"})):
+            route.abort()
+        else:
+            route.fallback()
+
+    page.route("**/*", allow_login_request)
+    page.route_web_socket("**/*", lambda socket: socket.close())
+    try:
+        response = page.goto(ORDERS, wait_until="domcontentloaded", timeout=20_000)
+        if response and response.status in {429, 500, 502, 503, 504}:
+            raise RetryLater(f"Вхід Avto.pro тимчасово недоступний (HTTP {response.status})")
+        if login_challenge(page) or (response and response.status == 403):
+            raise Pause("Avto.pro запитав додаткове підтвердження входу")
+        if page.locator(".pro-navigation__link--active").filter(has_text=SALES_TAB).first.is_visible():
+            return
+        parsed = urlsplit(page.url)
+        if f"{parsed.scheme}://{parsed.netloc.lower()}" != LOGIN_ORIGIN:
+            raise Pause("Avto.pro перенаправив із дозволеної сторінки входу")
+        user_field = page.locator('input[name="Login"]:visible')
+        password_field = page.locator('input[name="Password"][type="password"]:visible')
+        form = page.locator("form").filter(has=user_field).filter(has=password_field)
+        submit = form.get_by_role("button", name=re.compile(r"^(?:Увійти|Войти)$", re.I))
+        if form.count() != 1 or submit.count() != 1 or not submit.is_visible():
+            raise Pause("Штатну форму входу Avto.pro не розпізнано")
+        user_field.fill(email)
+        password_field.fill(password)
+        permitted_submit = True
+        submit.click(timeout=8_000)
+        await_sales = page.locator(".pro-navigation__link--active").filter(has_text=SALES_TAB).first
+        try:
+            await_sales.wait_for(state="visible", timeout=12_000)
+        except BrowserTimeout:
+            if login_challenge(page):
+                raise Pause("Avto.pro запитав CAPTCHA або одноразовий код") from None
+            # Some sign-in forms close after success without restoring the requested page.
+            if password_field.is_visible():
+                raise Pause("Avto.pro відхилив вхід або запросив додаткове підтвердження") from None
+        permitted_submit = False
+        sales_rows(page)
+    except BrowserError:
+        raise Pause("Штатний вхід Avto.pro не підтверджено") from None
+    finally:
+        page.close()
 
 
 def open_page(page, url, *, card=False):
@@ -293,7 +369,7 @@ def open_page(page, url, *, card=False):
 def sales_rows(page):
     open_page(page, ORDERS)
     try:
-        page.locator(".pro-navigation__link--active").filter(has_text=re.compile(r"^\s*(?:Продаж|Продажи)(?:\s|$)", re.I)) \
+        page.locator(".pro-navigation__link--active").filter(has_text=SALES_TAB) \
             .first.wait_for(state="visible", timeout=10_000)
     except BrowserTimeout:
         if needs_login(page):
@@ -398,10 +474,24 @@ def run(browser, console, client, capture, interval, batch):
                 console.update(version, "Перевірку завершено", counts)
                 if mode == "preview":
                     console.set_mode("paused", "Попередню перевірку завершено", expected=version)
+            except NeedsLogin:
+                if console.current(version):
+                    try:
+                        automatic_login(browser)
+                    except Pause as exc:
+                        console.set_mode("paused", str(exc), expected=version)
+                        if mode == "sync":
+                            client.report_session("login_required")
+                    except RetryLater as exc:
+                        if mode == "preview":
+                            console.set_mode("paused", str(exc), expected=version)
+                        else:
+                            console.update(version, str(exc))
+                    else:
+                        console.update(version, "Сесію Avto.pro відновлено. Продовжую опитування")
+                        console.wake.set()
             except Pause as exc:
                 console.set_mode("paused", str(exc), expected=version)
-                if isinstance(exc, NeedsLogin) and mode == "sync" and not console.stop.is_set():
-                    client.report_session("login_required")
             except (RetryLater, BrowserError) as exc:
                 message = str(exc) if isinstance(exc, RetryLater) else "Навігація Avto.pro перервалася"
                 if mode == "preview":
@@ -415,7 +505,7 @@ def run(browser, console, client, capture, interval, batch):
 
 def launch_browser(playwright, profile):
     return playwright.chromium.launch_persistent_context(
-        profile, executable_path="/usr/bin/chromium", headless=False,
+        profile, executable_path="/usr/bin/chromium", headless=os.getenv("AVTOPRO_HEADLESS") == "1",
         chromium_sandbox=True, args=["--disable-setuid-sandbox", "--no-first-run", "--noerrdialogs"],
         handle_sigint=False, handle_sigterm=False, handle_sighup=False,
         service_workers="block", accept_downloads=False, no_viewport=True,

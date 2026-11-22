@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: integrations/avtopro-browser/Dockerfile
+    labels:
+      top.usaparts.avtopro-browser.version: "1.3.0"
     restart: unless-stopped
     init: true
     cpus: 0.85
@@ -16,16 +18,12 @@ services:
       - seccomp:./integrations/avtopro-browser/seccomp.json
     stop_grace_period: 45s
     environment:
+      AVTOPRO_HEADLESS: "1"
       AVTOPRO_INTERVAL_SECONDS: ${AVTOPRO_INTERVAL_SECONDS:-300}
       AVTOPRO_BATCH_SIZE: ${AVTOPRO_BATCH_SIZE:-10}
       USAPARTS_ORIGIN: ${USAPARTS_ORIGIN:-https://usaparts.top}
-    secrets:
-      - console-auth
-      - site-key
     volumes:
       - browser-profile:/data
-    networks:
-      - proxy_default
     healthcheck:
       test: [CMD, curl, -fsS, --max-time, "4", "http://127.0.0.1:8090/health"]
       interval: 30s
@@ -40,13 +38,3 @@ services:
 
 volumes:
   browser-profile:
-
-secrets:
-  console-auth:
-    file: ${AVTOPRO_SECRET_DIR:-/opt/usaparts/avtopro}/console.htpasswd
-  site-key:
-    file: ${AVTOPRO_SECRET_DIR:-/opt/usaparts/avtopro}/site.key
-
-networks:
-  proxy_default:
-    external: true

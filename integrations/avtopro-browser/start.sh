@@ -2,6 +2,10 @@
 set -euo pipefail
 umask 077
 
+if [[ "${AVTOPRO_HEADLESS:-0}" == "1" ]]; then
+    exec python worker.py
+fi
+
 test -s /run/secrets/console-auth
 pids=()
 worker=""

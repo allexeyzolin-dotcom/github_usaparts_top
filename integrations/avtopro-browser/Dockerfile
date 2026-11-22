@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        > /etc/chromium/policies/managed/avtopro.json
 
 WORKDIR /opt/avtopro
-COPY integrations/avtopro-browser/start.sh integrations/avtopro-browser/nginx.conf integrations/avtopro-browser/worker.py ./
+COPY integrations/avtopro-browser/start.sh integrations/avtopro-browser/nginx.conf integrations/avtopro-browser/worker.py integrations/avtopro-browser/configure.py ./
 COPY app/avtopro_extension/capture.js ./
 COPY app/avtopro_status.py ./
 ENV PYTHONUNBUFFERED=1 DISPLAY=:99

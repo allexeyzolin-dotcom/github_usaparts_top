@@ -10,11 +10,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app import app as site
-from app.avtopro_orders import TOKEN_KEY
+from app.avtopro_orders import SERVER_TOKEN_KEY, TOKEN_KEY
 
 
 class AvtoproCaptureTests(unittest.TestCase):
     token = "A" * 43
+    daemon_token = "B" * 43
     api = "/api/integrations/avtopro/order"
     admin = "/admin/marketplaces/avtopro-orders"
 
@@ -29,6 +30,7 @@ class AvtoproCaptureTests(unittest.TestCase):
         self.client = site.app.test_client()
         with self.db.begin() as db:
             site.set_setting(db, TOKEN_KEY, hashlib.sha256(self.token.encode()).hexdigest())
+            site.set_setting(db, SERVER_TOKEN_KEY, hashlib.sha256(self.daemon_token.encode()).hexdigest())
             warehouse = site.Warehouse(name="Тестовий склад")
             db.add(warehouse)
             db.flush()
@@ -43,7 +45,8 @@ class AvtoproCaptureTests(unittest.TestCase):
                    "currency": "UAH", "status": "Замовлення формується", "totalUah": "839.55",
                    "delivery": "Самовивіз", "payment": "При отриманні", "phone": "",
                    "items": [{"partNumber": "01234AB", "brand": "VAG", "name": "Ручка дверей", "qty": 2, "unitUah": "419.77"}]}
-        return self.client.post(self.api + query, json={**payload, **updates}, headers={"Authorization": f"Bearer {self.token}"})
+        key = self.daemon_token if "sync_draft=1" in query else self.token
+        return self.client.post(self.api + query, json={**payload, **updates}, headers={"Authorization": f"Bearer {key}"})
 
     def test_first_capture_preserves_price_matches_by_brand_and_does_not_reserve(self):
         response = self.send()
@@ -145,7 +148,7 @@ class AvtoproCaptureTests(unittest.TestCase):
 
     def test_browser_updates_unedited_draft_and_preserves_edited_fields(self):
         query = "?sync_draft=1"
-        order_id = self.send(query).json["orderId"]
+        order_id = self.send().json["orderId"]
         data = {"totalUah": "850.00", "delivery": "Нова пошта, відділення 4",
                 "items": [{"partNumber": "01234AB", "name": "Ручка дверей", "brand": "VAG", "qty": 1, "unitUah": "850.00"}]}
         self.assertEqual(self.send(query, **data).json["result"], "updated")
@@ -166,8 +169,11 @@ class AvtoproCaptureTests(unittest.TestCase):
     def test_watch_ids_and_session_alerts_require_token(self):
         watch = self.api + "s"
         session = self.api.rsplit("/", 1)[0] + "/session"
-        headers = {"Authorization": f"Bearer {self.token}"}
+        headers = {"Authorization": f"Bearer {self.daemon_token}"}
         self.assertEqual(self.client.get(watch).status_code, 401)
+        self.assertEqual(self.client.get(watch, headers={"Authorization": f"Bearer {self.token}"}).status_code, 401)
+        self.assertEqual(self.client.post(self.api + "?sync_draft=1", json={},
+                                          headers={"Authorization": f"Bearer {self.token}"}).status_code, 401)
         self.assertEqual(self.client.post(session, json={"state": "login_required"}).status_code, 401)
         self.assertEqual(self.send("?existing_only=1").status_code, 422)
         self.send()
@@ -188,7 +194,7 @@ class AvtoproCaptureTests(unittest.TestCase):
         return self.client.post(self.api + "?sync_draft=1&existing_only=1", json={
             "orderId": "12345678", "sourceUrl": "https://avtopro.ua/orders/12345678/",
             "status": "Замовлення очікує доставки або отримання", "statusOnly": True, **fields,
-        }, headers={"Authorization": f"Bearer {self.token}"})
+        }, headers={"Authorization": f"Bearer {self.daemon_token}"})
 
     def test_browser_discovers_only_new_sales_and_partial_updates_cannot_create(self):
         for status in ("Чекає отримання", "Завершено", "Скасовано покупцем", "Статус невідомий"):
@@ -227,6 +233,37 @@ class AvtoproCaptureTests(unittest.TestCase):
             order = db.get(site.Order, order_id)
             self.assertEqual((order.status, order.ttn), ("new", "20400000000002"))
             self.assertTrue(site.avtopro_order_details(db, [order])[order_id]["waybillConflict"])
+
+    def test_automatic_sale_reserves_once_and_cancellation_restores_once(self):
+        query = "?sync_draft=1"
+        result = self.send(query)
+        self.assertEqual(result.status_code, 201)
+        self.assertEqual(self.send(query).json["result"], "unchanged")
+        with self.db() as db:
+            order = db.get(site.Order, result.json["orderId"])
+            self.assertTrue(order.stock_reserved)
+            self.assertEqual(db.query(site.Part).one().qty, 1)
+        self.assertEqual(self.update_tracking(status="Скасовано покупцем").json["result"], "cancelled")
+        self.assertEqual(self.update_tracking(status="Скасовано покупцем").json["result"], "unchanged")
+        with self.db() as db:
+            self.assertEqual(db.query(site.Part).one().qty, 3)
+            self.assertFalse(db.get(site.Order, result.json["orderId"]).stock_reserved)
+
+    def test_shortage_keeps_all_stock_then_retries_pending_sale(self):
+        items = [{"partNumber": "01234AB", "brand": "VAG", "name": "Ручка", "qty": 2, "unitUah": "50.00"}] * 2
+        order_id = self.send("?sync_draft=1", items=items).json["orderId"]
+        with self.db.begin() as db:
+            order = db.get(site.Order, order_id)
+            self.assertFalse(order.stock_reserved)
+            self.assertEqual(db.query(site.Part).one().qty, 3)
+            self.assertEqual(site.avtopro_order_details(db, [order])[order_id]["stockIssue"], "Недостатній залишок")
+            db.query(site.Part).one().qty = 4
+        self.assertEqual(self.update_tracking(status="Замовлення формується").json["result"], "updated")
+        with self.db() as db:
+            order = db.get(site.Order, order_id)
+            self.assertTrue(order.stock_reserved)
+            self.assertEqual(db.query(site.Part).one().qty, 0)
+            self.assertFalse(site.avtopro_order_details(db, [order])[order_id]["stockIssue"])
 
     def test_admin_can_replay_the_same_capture_without_pairing_an_extension(self):
         sent = self.send()

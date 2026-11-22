@@ -21,6 +21,7 @@ from .avtopro_status import is_new_sale
 
 SOURCE = "autopro"
 TOKEN_KEY = "avtopro_browser_token_hash"
+SERVER_TOKEN_KEY = "avtopro_daemon_token_hash"
 SESSION_KEY = "avtopro_browser_session"
 HOSTS = {"avtopro.ua", "www.avtopro.ua", "avto.pro", "www.avto.pro"}
 LOCK = threading.Lock()
@@ -117,7 +118,7 @@ def initial_status(value, external_id):
 
 
 def inventory_match(site, db, item):
-    matches = (db.query(site.Part).filter(site.Part.is_deleted.is_(False), site.Part.in_stock.is_(True), site.Part.qty >= item["qty"],
+    matches = (db.query(site.Part).filter(site.Part.is_deleted.is_(False),
                func.upper(site.Part.part_number) == item["partNumber"].upper()).all())
     if item["brand"]:
         brand = item["brand"].casefold()
@@ -236,7 +237,8 @@ def install(site):
         if update_status and order.external_status != payload["status"]:
             order.external_status = payload["status"]
             changed = True
-        if update_status and not conflict and completion_notice(payload["status"], order.external_order_id):
+        if (update_status and not conflict and not (payload.get("stockIssue") and not order.stock_reserved)
+                and completion_notice(payload["status"], order.external_order_id)):
             pack = site.latest_packing_request_for_order(db, order.id)
             if order.status in {"new", "shipped"} and (not pack or pack.status in {"shipped", "applied"}):
                 order.status = "done"
@@ -271,6 +273,8 @@ def install(site):
             if not order or not previous:
                 raise ValueError("Замовлення ще не імпортоване. Передайте повну картку Автопро.")
             payload = {**previous, **payload}
+        if previous and previous.get("stockIssue"):
+            payload["stockIssue"] = previous["stockIssue"]
         source_was_shipped = bool(previous and (previous.get("sourceWasShipped") or
             initial_status(previous["status"], external_id) in {"shipped", "done"}))
         if source_was_shipped or payload.get("waybill") or initial_status(payload["status"], external_id) in {"shipped", "done"}:
@@ -297,6 +301,34 @@ def install(site):
         elif sync_draft and not status_only and not cancelled and not duplicate and can_refresh_draft(db, order, snapshot, previous, payload):
             apply_capture_fields(db, order, payload, replace_items=payload["items"] != previous["items"])
             refreshed = True
+        stock_changed = False
+        issue_before = payload.get("stockIssue", "")
+        new_inventory_sale = sync_draft and created
+        may_retry_stock = (bool(issue_before) and sync_draft and not cancelled and not source_was_shipped
+                           and not payload.get("sourceWasShipped") and order.status in site.order_tracking.UNSHIPPED
+                           and not order.ttn and not site.latest_packing_request_for_order(db, order.id))
+        if not order.stock_reserved and (new_inventory_sale or may_retry_stock):
+            try:
+                with db.begin_nested():
+                    for item, source in zip(order.items, payload["items"]):
+                        if (not item.part_id and item.part_number == source["partNumber"]
+                                and item.name == source["name"] and item.qty == source["qty"]):
+                            item.part_id = inventory_match(site, db, source)
+                    db.flush()
+                    stock_changed = bool(site.reserve_order_inventory(db, order))
+            except ValueError as exc:
+                reason = str(exc)
+                payload["stockIssue"] = ("Недостатній залишок" if reason.startswith("not_enough:")
+                                         else "Потрібне однозначне зіставлення позицій зі складом")
+                if not issue_before:
+                    site.flash_news(db, "orders", "Автопро потребує звірки залишків",
+                                    f"Замовлення #{order.id}. {payload['stockIssue']}.", severity="warning")
+        if order.stock_reserved:
+            payload.pop("stockIssue", None)
+        issue_changed = issue_before != payload.get("stockIssue", "")
+        if issue_changed:
+            body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            fingerprint = sha(body)
         tracking_changed = False
         if not cancelled:
             tracking_changed = apply_tracking(db, order, payload, update_status=sync_draft)
@@ -304,21 +336,20 @@ def install(site):
                     and not waybill_conflict(order, payload)
                     and (not completion_notice(payload["status"], external_id) or order.status == "done")):
                 refreshed = True
-        result = "created" if created else "unchanged" if duplicate and not tracking_changed else "updated"
-        stock_changed = False
+        result = "created" if created else "unchanged" if duplicate and not (tracking_changed or issue_changed) else "updated"
         if cancelled and not created:
             status_result, stock_changed = apply_cancellation(db, order, payload["status"],
                                                               source_was_shipped or bool(payload.get("waybill")))
             if status_result != "unchanged":
                 result = status_result
-        if duplicate and result != "cancelled" and not tracking_changed:
+        if duplicate and result != "cancelled" and not (tracking_changed or issue_changed or stock_changed):
             return result, order
         if not snapshot:
             snapshot = AvtoproOrderCapture(external_id=external_id, order_id=order.id, imported_payload_hash="")
             db.add(snapshot)
         elif snapshot.order_id != order.id:
             snapshot.order_id = order.id
-        if refreshed:
+        if refreshed or (issue_changed and duplicate and snapshot.imported_payload_hash == snapshot.payload_hash):
             snapshot.imported_payload_hash = fingerprint
         snapshot.payload_json, snapshot.payload_hash = body, fingerprint
         snapshot.captured_at = datetime.utcnow()
@@ -327,11 +358,11 @@ def install(site):
             site.public_cache_clear()
         return result, order
 
-    def valid_key(db):
+    def valid_key(db, key_name=TOKEN_KEY):
         header = request.headers.get("Authorization", "")
         if not re.fullmatch(r"Bearer [A-Za-z0-9_-]{43}", header):
             return False
-        expected = db.query(site.ApiSetting).filter_by(setting_key=TOKEN_KEY).one_or_none()
+        expected = db.query(site.ApiSetting).filter_by(setting_key=key_name).one_or_none()
         return expected is not None and secrets.compare_digest(sha(header[7:]), expected.setting_value)
 
     @site.app.post("/api/integrations/avtopro/session")
@@ -339,7 +370,7 @@ def install(site):
         if not request.is_json or request.content_length is None or request.content_length > 256:
             return jsonify(error="Некоректний формат"), 400
         with site.SessionLocal() as db:
-            if not valid_key(db):
+            if not valid_key(db, SERVER_TOKEN_KEY):
                 return jsonify(error="Ключ імпорту недійсний"), 401
             payload = request.get_json(silent=True)
             state = payload.get("state") if isinstance(payload, dict) else None
@@ -363,7 +394,7 @@ def install(site):
         cursor = request.args.get("after", "")
         seen = request.args.get("seen")
         with site.SessionLocal() as db:
-            if not valid_key(db):
+            if not valid_key(db, SERVER_TOKEN_KEY):
                 return jsonify(error="Ключ імпорту недійсний"), 401
             if cursor and not re.fullmatch(r"[0-9]{3,20}", cursor):
                 return jsonify(error="Некоректний номер замовлення"), 400
@@ -388,12 +419,12 @@ def install(site):
     def receive_avtopro_order():
         if not request.is_json or request.content_length is None or request.content_length > MAX_BODY:
             return jsonify(error="Некоректний розмір або формат картки"), 400
+        sync_draft = request.args.get("sync_draft") == "1"
         with site.SessionLocal() as db:
-            if not valid_key(db):
-                return jsonify(error="Ключ імпорту недійсний. Перевірте налаштування розширення."), 401
+            if not valid_key(db, SERVER_TOKEN_KEY if sync_draft else TOKEN_KEY):
+                return jsonify(error="Ключ імпорту недійсний. Перевірте ключ підключення."), 401
             try:
                 existing_only = request.args.get("existing_only") == "1"
-                sync_draft = request.args.get("sync_draft") == "1"
                 payload = validate_capture(request.get_json(silent=True), allow_status_update=existing_only and sync_draft)
                 with LOCK:
                     status, order = import_capture(db, payload, existing_only=existing_only, sync_draft=sync_draft)
@@ -407,6 +438,7 @@ def install(site):
     def admin_avtopro_orders():
         csrf = session.setdefault("avtopro_import_csrf", secrets.token_urlsafe(32))
         token = ""
+        server_key = False
         with site.SessionLocal() as db:
             if request.method == "POST":
                 if not secrets.compare_digest(csrf.encode(), request.form.get("csrf_token", "").encode()):
@@ -431,7 +463,8 @@ def install(site):
                     if db.get_bind().dialect.name == "postgresql":
                         db.execute(text("SELECT pg_advisory_xact_lock(726576660014)"))
                     token = secrets.token_urlsafe(32)
-                    site.set_setting(db, TOKEN_KEY, sha(token))
+                    server_key = request.form.get("action") == "server_key"
+                    site.set_setting(db, SERVER_TOKEN_KEY if server_key else TOKEN_KEY, sha(token))
                     db.commit()
             captures = (db.query(AvtoproOrderCapture, site.Order).outerjoin(site.Order, AvtoproOrderCapture.order_id == site.Order.id)
                         .order_by(AvtoproOrderCapture.captured_at.desc()).limit(50).all())
@@ -439,7 +472,9 @@ def install(site):
                         "changed": capture.payload_hash != capture.imported_payload_hash,
                         "captured_at": capture.captured_at, "data": json.loads(capture.payload_json)} for capture, order in captures]
             response = site.app.make_response(render_template("admin_avtopro_orders.html", csrf=csrf, token=token,
-                records=records, key_set=db.query(site.ApiSetting.id).filter_by(setting_key=TOKEN_KEY).first() is not None))
+                server_key=server_key, records=records,
+                key_set=db.query(site.ApiSetting.id).filter_by(setting_key=TOKEN_KEY).first() is not None,
+                server_key_set=db.query(site.ApiSetting.id).filter_by(setting_key=SERVER_TOKEN_KEY).first() is not None))
             response.headers.update({"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
             return response
 
@@ -468,8 +503,10 @@ def install(site):
         orders_by_id = {order.id: order for order in orders}
         for row in rows:
             data = json.loads(row.payload_json)
+            order = orders_by_id[row.order_id]
             captures[row.order_id] = {"data": data, "changed": row.payload_hash != row.imported_payload_hash,
-                                      "waybillConflict": waybill_conflict(orders_by_id[row.order_id], data),
+                                      "stockIssue": data.get("stockIssue", "") if not order.stock_reserved and order.status != "cancelled" else "",
+                                      "waybillConflict": waybill_conflict(order, data),
                                       "cancelled": cancellation_notice(data["status"], row.external_id)}
         return captures
 

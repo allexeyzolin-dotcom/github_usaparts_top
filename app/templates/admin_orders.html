@@ -344,6 +344,7 @@
           {% if order.avtoproCapture %}{% set avto = order.avtoproCapture.data %}
           <div class="helper-note {{ 'warn' if order.avtoproReview else '' }}">
             <strong>Автопро №{{ avto.orderId }} · {{ avto.status }}</strong>
+            {% if order.avtoproCapture.stockIssue %}<div>{{ order.avtoproCapture.stockIssue }}. Списання очікує звірки.</div>{% endif %}
             {% if avto.delivery %}<div>{{ avto.delivery }}</div>{% endif %}
             {% if avto.waybill %}<div>ТТН Автопро · {{ avto.waybill }}{% if order.avtoproCapture.waybillConflict %} · Звірте з ТТН у цій картці{% endif %}</div>{% endif %}
             {% if avto.payment %}<div>{{ avto.payment }}</div>{% endif %}

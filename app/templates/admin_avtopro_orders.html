@@ -20,9 +20,21 @@
     <a class="btn ghost" target="_blank" rel="noreferrer" href="https://avtopro.ua/orders/">Відкрити продажі Автопро ↗</a>
     <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="btn ghost">{{ 'Замінити ключ імпорту' if key_set else 'Створити ключ імпорту' }}</button></form>
   </div>
-  {% if token %}
+  {% if token and not server_key %}
   <label>Ключ імпорту<input readonly value="{{ token }}" autocomplete="off" spellcheck="false"></label>
   <p class="muted">Скопіюйте ключ у розширення. Ключ показується один раз.</p>
+  {% endif %}
+</section>
+<section class="card stack" style="margin-top:18px">
+  <h3>Серверне підключення</h3>
+  <p class="muted">Ключ для контейнера Avto.pro дозволяє імпорт продажів і списання доступного залишку.</p>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="btn ghost" name="action" value="server_key">{{ 'Замінити ключ сервісу' if server_key_set else 'Створити ключ сервісу' }}</button>
+  </form>
+  {% if token and server_key %}
+  <label>Ключ сервісу<input readonly value="{{ token }}" autocomplete="off" spellcheck="false"></label>
+  <p class="muted">Скопіюйте ключ у консоль контейнера. Ключ показується один раз.</p>
   {% endif %}
 </section>
 <details class="card stack" style="margin-top:18px">

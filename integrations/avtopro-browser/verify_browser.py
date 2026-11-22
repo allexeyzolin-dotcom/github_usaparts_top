@@ -4,11 +4,12 @@ import sys
 import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
+from unittest.mock import patch
 
 from playwright.sync_api import sync_playwright
 
-from worker import CAPTURE, Console, cycle, launch_browser, read_only, run, sales_rows
+from worker import CAPTURE, Console, Pause, automatic_login, cycle, launch_browser, read_only, run, sales_rows
 
 
 LIST = """
@@ -61,6 +62,22 @@ TRACKING = """
 </div>
 </main>
 """
+LOGIN = """
+<form>
+  <input name="Login" placeholder="Email">
+  <input type="password" name="Password" placeholder="Пароль">
+  <button type="submit">Увійти</button>
+</form>
+<script>
+document.querySelector("form").onsubmit = async (event) => {
+  event.preventDefault();
+  const response = await fetch("/fixture-auth/", {
+    method: "POST", body: new URLSearchParams(new FormData(event.target))
+  });
+  if (response.ok) location.reload();
+}
+</script>
+"""
 
 
 class TestDestination:
@@ -89,14 +106,21 @@ class TestDestination:
 def fixture(route):
     request = route.request
     url = urlsplit(request.url)
-    if url.hostname != "avtopro.ua" or request.method != "GET":
+    if url.hostname != "avtopro.ua":
+        route.abort()
+        return
+    if url.path == "/fixture-auth/" and request.method == "POST":
+        assert parse_qs(request.post_data) == {"Login": ["seller@example.invalid"], "Password": ["fixture-only"]}
+        route.fulfill(headers={"Set-Cookie": "fixture=yes; Path=/; HttpOnly; Secure; Max-Age=86400"})
+        return
+    if request.method != "GET":
         route.abort()
         return
     if url.path == "/fixture-login/":
         route.fulfill(body="Signed in", headers={"Set-Cookie": "fixture=yes; Path=/; HttpOnly; Secure; Max-Age=86400"})
         return
     if "fixture=yes" not in request.all_headers().get("cookie", ""):
-        route.fulfill(status=401, body='<input type="password">', content_type="text/html")
+        route.fulfill(status=401, body=LOGIN, content_type="text/html; charset=utf-8")
         return
     assert url.path not in {"/orders/10003/", "/orders/10004/"}, "Untracked past sale was opened"
     pages = {"/orders/": LIST, "/orders/10001/": CANCELLED, "/orders/10002/": CARD, "/orders/10005/": TRACKING}
@@ -130,6 +154,22 @@ def main(phase):
                 assert card["items"] == [{"partNumber": "TEST-123", "brand": "VAG", "name": "Тестова деталь",
                                          "qty": 2, "unitUah": "600"}], card["items"]
                 assert page.evaluate("fetch(location.href, {method:'POST'}).then(() => false, () => true)")
+                browser.clear_cookies()
+                with patch("worker.credentials", return_value={"email": "seller@example.invalid", "password": "fixture-only"}):
+                    automatic_login(browser)
+                    assert sales_rows(page)[0][0] == "10002"
+                    browser.clear_cookies()
+                    challenge_url = "**/orders/"
+                    browser.route(challenge_url, lambda route: route.fulfill(
+                        status=403, body='<input autocomplete="one-time-code">', content_type="text/html"))
+                    try:
+                        automatic_login(browser)
+                    except Pause as exc:
+                        assert "підтвердження" in str(exc)
+                    else:
+                        raise AssertionError("Login challenge was not stopped")
+                    finally:
+                        browser.unroute(challenge_url)
                 browser.clear_cookies()
                 with TemporaryDirectory() as temporary:
                     console = Console(Path(temporary))

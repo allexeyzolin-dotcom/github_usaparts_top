@@ -18,6 +18,28 @@ class StorageLocationTests(unittest.TestCase):
     save = revision_tests.InventoryRevisionTests.save
     snapshot_main = revision_tests.InventoryRevisionTests.snapshot_main
 
+    def test_storage_location_is_private_to_cabinet(self):
+        location = "INTERNAL-SHELF-476"
+        with self.sessions.begin() as db:
+            part = db.get(site.Part, 1)
+            part.storage_location = location
+            detail_url = f"/part/{part.id}/{site.part_seo_slug(part)}"
+
+        site.public_cache_clear()
+        self.addCleanup(site.public_cache_clear)
+        for path in ("/", "/catalog", detail_url):
+            with self.subTest(path=path):
+                response = self.client.get(path, headers={"User-Agent": "Googlebot (regression test)"})
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("06G-127-028H", response.text)
+                self.assertNotIn("Місце на складі", response.text)
+                self.assertNotIn(location, response.text)
+
+        self.login()
+        response = self.client.get("/admin/parts")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(location, response.text)
+
     def test_revision_search_returns_one_master_card_not_warehouse_copies(self):
         self.login()
         with self.sessions.begin() as db:

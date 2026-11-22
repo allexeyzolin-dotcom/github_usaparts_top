@@ -1,7 +1,6 @@
 {% set photo = public_part_photo(part) %}
 {% set gallery = storefront_part_gallery_urls(part) %}
 {% set catalog_photo = part_catalog_photo(part) %}
-{% from '_location_badge.html' import location_badge %}
 <article class="showcase-card">
   <a class="product-card-media" href="{{ part_detail_url(part) }}" aria-label="{{ part_seo_name(part) }}">
     <span class="product-card-badge">{{ part_condition_label(part) }}</span>
@@ -17,7 +16,6 @@
     <h3><a class="product-title-link" href="{{ part_detail_url(part) }}">{{ clean_text(part.name) or part.part_number }}</a></h3>
     {% if part.revision_publication %}<span class="stock-pill ok">Перевірена наявність</span>{% endif %}
     {% if part.brand %}<div class="product-card-brand">{{ clean_text(part.brand) }}</div>{% endif %}
-    {{ location_badge(part.storage_location) }}
     <div class="product-card-bottom">
       <div class="price-row">{{ display_public_price_uah(part.price_usd, part.warehouse.markup_percent if part.warehouse else 0) }}</div>
       <div class="product-card-stock">В наявності · {{ part.qty }} шт.</div>

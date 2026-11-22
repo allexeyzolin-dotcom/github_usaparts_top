@@ -904,17 +904,7 @@ def install(app, site):
                     raw = json.loads(state.payload_json)
                     order_rows.append({"state": state, "order": db.get(site.Order, state.order_id),
                         "items": raw.get("products", []), "label": raw.get("status_name") or state.status})
-            feeds = []
-            if tab == "avtopro":
-                for warehouse in db.query(site.Warehouse).order_by(site.Warehouse.name).all():
-                    key = db.query(site.ApiSetting).filter_by(setting_key=site.avtopro_feed_setting(warehouse.id)).one_or_none()
-                    private_key = key.setting_value if key else ""
-                    count, qty = db.query(func.count(site.Part.id), func.sum(site.Part.qty)).filter(
-                        site.Part.warehouse_id == warehouse.id, site.Part.is_deleted == False,
-                        site.Part.in_stock == True, site.Part.qty > 0).one()
-                    feeds.append({"warehouse": warehouse, "positions": count, "qty": qty or 0,
-                        "url": site.absolute_public_url(url_for("avtopro_price_feed", warehouse_id=warehouse.id,
-                                                               token=private_key)) if private_key else ""})
+            feeds = site.avtopro_feeds(db) if tab == "avtopro" else []
             return render_template("admin_marketplaces.html", tab=tab, csrf_token=form_token, config=config,
                 preview=bool(site.app.config.get("MARKETPLACE_PREVIEW")),
                 telegram_configured=bool(telegram["bot_token"] and telegram["chat_id"]),

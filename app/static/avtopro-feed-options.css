@@ -1,0 +1,31 @@
+.feed-preferences {
+  display: grid;
+  gap: 16px;
+  padding-top: 18px;
+  margin-top: 20px;
+  border-top: 1px solid #e3e7ec;
+}
+.feed-preferences label { margin: 0; color: #515b68; font-size: 12px; }
+.feed-photo-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+}
+.feed-photo-switch strong { display: block; font-size: 12px; font-weight: 600; }
+.feed-photo-switch small { display: block; margin-top: 4px; color: #7c8694; font-size: 11px; }
+.feed-photo-switch input { position: absolute; opacity: 0; right: 0; width: 40px; height: 24px; }
+.feed-photo-switch i { width: 40px; height: 24px; flex-shrink: 0; border-radius: 24px; background: #d5dce4; pointer-events: none; }
+.feed-photo-switch i::after { content: ''; display: block; margin: 3px; width: 18px; height: 18px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #0002; }
+.feed-photo-switch input:checked + i { background: #304d43; }
+.feed-photo-switch input:checked + i::after { transform: translateX(16px); }
+.feed-photo-switch input:focus-visible + i { outline: 2px solid #3b6b9e; outline-offset: 3px; }
+.feed-photo-switch:has(input:checked) .feed-photo-off,
+.feed-photo-switch:has(input:not(:checked)) .feed-photo-on { display: none; }
+.feed-markup { display: grid; gap: 7px; }
+.feed-preferences .feed-markup input { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #d9e0e8; border-radius: 8px; background: #fff; color: #273342; font: inherit; }
+.feed-save { justify-self: start; border: 1px solid #d9e0e8; border-radius: 8px; padding: 10px 14px; background: #f3f5f8; color: #364457; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.feed-save:hover { background: #e9eef3; }
+.mp-feed-all { border-color: #d5bf70; }

@@ -1,5 +1,5 @@
 import csv
-from .avtopro_feed import build_price_csv, FeedError
+from .avtopro_feed import build_price_csv, parse_markup, FeedError
 import gzip
 import hashlib
 import io
@@ -15324,6 +15324,32 @@ def avtopro_feed_setting(warehouse_id):
     return f"avtopro_feed_token:{warehouse_id}"
 
 
+def avtopro_feed_options(settings, warehouse_id):
+    value = settings.get(f"avtopro_feed_options:{warehouse_id}", "")
+    return json.loads(value) if value else {"include_photos": True, "markup_percent": "0.00"}
+
+
+def avtopro_feeds(db):
+    settings = get_api_settings_map(db)
+    stock_rows = db.query(Part.warehouse_id, func.count(Part.id), func.sum(Part.qty)).filter(
+        Part.is_deleted == False, Part.in_stock == True, Part.qty > 0
+    ).group_by(Part.warehouse_id).all()
+    stock = {identifier: (int(count), int(quantity or 0)) for identifier, count, quantity in stock_rows}
+    scopes = [(0, "Усі актуальні товари")] + [
+        (w.id, w.name) for w in db.query(Warehouse).order_by(Warehouse.name, Warehouse.id).all()]
+    feeds = []
+    for warehouse_id, name in scopes:
+        token = settings.get(avtopro_feed_setting(warehouse_id), "")
+        positions, quantity = stock.get(warehouse_id, (0, 0)) if warehouse_id else (
+            sum(row[0] for row in stock.values()), sum(row[1] for row in stock.values()))
+        feeds.append({"id": warehouse_id, "name": name, "all_stock": warehouse_id == 0,
+                      "positions": positions, "quantity": quantity,
+                      "options": avtopro_feed_options(settings, warehouse_id),
+                      "url": absolute_public_url(url_for("avtopro_price_feed", warehouse_id=warehouse_id,
+                                                          token=token)) if token else ""})
+    return feeds
+
+
 @app.route("/admin/avtopro-feeds", methods=["GET", "POST"])
 @admin_required
 def admin_avtopro_feeds():
@@ -15331,37 +15357,36 @@ def admin_avtopro_feeds():
     db = SessionLocal()
     try:
         if request.method == "POST":
-            if not secrets.compare_digest(form_token, request.form.get("csrf_token", "")):
+            if not secrets.compare_digest(form_token.encode(), request.form.get("csrf_token", "").encode()):
                 abort(403)
             warehouse_id = request.form.get("warehouse_id", type=int)
-            if not warehouse_id or not db.get(Warehouse, warehouse_id):
+            if warehouse_id is None or (warehouse_id != 0 and not db.get(Warehouse, warehouse_id)):
                 abort(404)
             action = request.form.get("action")
-            if action not in {"enable", "disable"}:
+            if action not in {"enable", "disable", "preferences"}:
                 abort(400)
+            destination = url_for("admin_marketplaces", tab="avtopro") if request.form.get("return_to") == "marketplaces" else url_for("admin_avtopro_feeds")
+            if action == "preferences":
+                try:
+                    markup = parse_markup(request.form.get("markup_percent", ""))
+                except FeedError as error:
+                    flash(str(error), "error")
+                    return redirect(destination)
+                set_setting(db, f"avtopro_feed_options:{warehouse_id}", json.dumps({
+                    "include_photos": request.form.get("include_photos") == "1", "markup_percent": format(markup, ".2f")}))
             key = avtopro_feed_setting(warehouse_id)
             setting = db.query(ApiSetting).filter(ApiSetting.setting_key == key).one_or_none()
             if action == "enable":
                 # Repeated clicks keep the existing URL, so scheduled downloads keep working.
                 if not setting or not setting.setting_value:
                     set_setting(db, key, secrets.token_urlsafe(32))
-            elif setting:
+            elif action == "disable" and setting:
                 setting.setting_value = ""
                 setting.updated_at = now()
             db.commit()
-            return redirect(url_for("admin_avtopro_feeds"))
-        settings = get_api_settings_map(db)
-        stock_rows = db.query(Part.warehouse_id, func.count(Part.id), func.sum(Part.qty)).filter(
-            Part.is_deleted == False, Part.in_stock == True, Part.qty > 0
-        ).group_by(Part.warehouse_id).all()
-        stock = {identifier: (int(count), int(quantity or 0)) for identifier, count, quantity in stock_rows}
-        feeds = []
-        for warehouse in db.query(Warehouse).order_by(Warehouse.name, Warehouse.id).all():
-            token = settings.get(avtopro_feed_setting(warehouse.id), "")
-            feed_url = absolute_public_url(url_for("avtopro_price_feed", warehouse_id=warehouse.id, token=token)) if token else ""
-            positions, quantity = stock.get(warehouse.id, (0, 0))
-            feeds.append({"warehouse": warehouse, "url": feed_url, "positions": positions, "quantity": quantity})
-        response = Response(render_template("admin_avtopro_feeds.html", feeds=feeds, form_token=form_token))
+            flash("Налаштування прайсу збережено." if action == "preferences" else "Посилання створено." if action == "enable" else "Посилання вимкнено.", "success")
+            return redirect(destination)
+        response = Response(render_template("admin_avtopro_feeds.html", feeds=avtopro_feeds(db), form_token=form_token))
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
@@ -15376,23 +15401,29 @@ def avtopro_price_feed(warehouse_id, token):
         setting = db.query(ApiSetting).filter(ApiSetting.setting_key == avtopro_feed_setting(warehouse_id)).one_or_none()
         if not setting or not setting.setting_value or not secrets.compare_digest(setting.setting_value, token):
             abort(404)
-        if not db.get(Warehouse, warehouse_id):
+        if warehouse_id != 0 and not db.get(Warehouse, warehouse_id):
             abort(404)
-        parts = db.query(Part).filter(Part.warehouse_id == warehouse_id).order_by(Part.id).all()
+        query = db.query(Part).filter(Part.is_deleted == False, Part.in_stock == True, Part.qty > 0)
+        if warehouse_id:
+            query = query.filter(Part.warehouse_id == warehouse_id)
+        parts = query.order_by(Part.id).all()
+        options = avtopro_feed_options(get_api_settings_map(db), warehouse_id)
         # Preserve each warehouse record's manufacturer and base USD price.
         # Private description/stock notes never belong in a downloadable price file.
         records = [{"brand": p.brand_export or p.brand, "code": p.part_number_export or p.part_number,
                     "price": p.price_usd, "qty": int(p.qty or 0), "in_stock": p.in_stock,
                     "deleted": p.is_deleted, "used": p.avtopro_flag_1,
                     "restored": p.avtopro_flag_2, "name": p.name,
-                    "photos": [absolute_public_url(url) for url in parse_media_urls(p.photo_urls)]} for p in parts]
+                    "photos": [absolute_public_url(url) for url in parse_media_urls(p.photo_urls)]
+                              if options["include_photos"] else []} for p in parts]
         try:
-            payload, count = build_price_csv(records)
+            payload, count = build_price_csv(records, **options, price_policy="highest" if warehouse_id == 0 else "strict")
         except FeedError as error:
             response = Response(str(error), status=503, content_type="text/plain; charset=utf-8")
         else:
             response = Response(payload, content_type="text/csv; charset=utf-8")
-            response.headers["Content-Disposition"] = f'attachment; filename="avtopro-warehouse-{warehouse_id}.csv"'
+            filename = f"avtopro-warehouse-{warehouse_id}.csv" if warehouse_id else "avtopro-all-stock.csv"
+            response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
             response.headers["X-Product-Count"] = str(count)
             response.set_etag(hashlib.sha256(payload).hexdigest())
         response.headers["Cache-Control"] = "no-store"

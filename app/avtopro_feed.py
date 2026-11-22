@@ -16,7 +16,18 @@ DOWNLOAD_COLUMNS = ('Виробник', 'Код', 'Ціна', 'Кількіст�
                     'Реставрація', 'Фото', 'Вага, кг', 'Глибина, см', 'Ширина, см', 'Висота, см')
 
 
-def _price_rows(records):
+def parse_markup(value):
+    try:
+        markup = Decimal(str(value).strip().replace(',', '.'))
+        if not markup.is_finite() or not 0 <= markup <= 10000 or markup != markup.quantize(Decimal('0.01')):
+            raise InvalidOperation
+    except (InvalidOperation, ValueError):
+        raise FeedError('Вкажіть націнку від 0 до 10000 % із точністю до сотих.') from None
+    return markup
+
+
+def _price_rows(records, *, include_photos=True, markup_percent=0, price_policy='strict'):
+    multiplier = 1 + parse_markup(markup_percent) / 100
     groups = {}
     for item in records:
         if item['deleted'] or not item['in_stock'] or item['qty'] <= 0:
@@ -32,7 +43,7 @@ def _price_rows(records):
             price = Decimal(str(item['price']))
             if not price.is_finite() or price <= 0:
                 raise InvalidOperation
-            price = price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            price = (price * multiplier).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             if price <= 0:
                 raise InvalidOperation
         except (InvalidOperation, ValueError):
@@ -40,10 +51,12 @@ def _price_rows(records):
         used, restored = marked(item.get('used')), marked(item.get('restored'))
         key = (brand.casefold(), code.casefold(), used, restored)
         description = str(item.get('name') or '').replace('\r', ' ').replace('\n', ' ')
-        photos = list(dict.fromkeys(item.get('photos') or []))
+        photos = list(dict.fromkeys(item.get('photos') or [])) if include_photos else []
         if key in groups:
             row = groups[key]
-            if row[2] != format(price, '.2f'):
+            if price_policy == 'highest':
+                row[2] = format(max(Decimal(row[2]), price), '.2f')
+            elif row[2] != format(price, '.2f'):
                 raise FeedError(f'Різні ціни для однакового товару {brand} {code}.')
             row[3] += item['qty']
             row[7] = list(dict.fromkeys(row[7] + photos))
@@ -55,11 +68,13 @@ def _price_rows(records):
     return [groups[key] for key in sorted(groups)]
 
 
-def build_price_csv(records):
-    rows = _price_rows(records)
+def build_price_csv(records, *, include_photos=True, markup_percent=0, price_policy='strict'):
+    rows = _price_rows(records, include_photos=include_photos, markup_percent=markup_percent, price_policy=price_policy)
     output = io.StringIO(newline='')
     writer = csv.writer(output, delimiter=';', lineterminator='\r\n')
     for row in rows:
+        if 'фото за запитом!' not in row[6].casefold():
+            row[6] = f'{row[6]} фото за запитом!'.strip()
         writer.writerow(row[:7] + [';'.join(row[7])])
     return output.getvalue().encode('utf-8-sig'), len(rows)
 

@@ -50,12 +50,12 @@ class AvtoproFeedTests(unittest.TestCase):
             record = db.query(site.ApiSetting).filter_by(setting_key=site.avtopro_feed_setting(warehouse)).one_or_none()
             return record.setting_value if record else ''
 
-    def change(self, action='enable', warehouse=1):
+    def change(self, action='enable', warehouse=1, **values):
         self.login()
         self.assertEqual(self.client.get('/admin/avtopro-feeds').status_code, 200)
         with self.client.session_transaction() as state:
             csrf = state['avtopro_feed_form_token']
-        return self.client.post('/admin/avtopro-feeds', data={'action': action, 'warehouse_id': warehouse, 'csrf_token': csrf})
+        return self.client.post('/admin/avtopro-feeds', data={'action': action, 'warehouse_id': warehouse, 'csrf_token': csrf, **values})
 
     def feed(self, warehouse=1, token=None):
         return self.client.get(f'/feeds/avtopro/{warehouse}/{token or self.token(warehouse)}/prices.csv')
@@ -76,7 +76,7 @@ class AvtoproFeedTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         new = next(row for row in rows if row[1] == '00123')
         self.assertEqual(new[:6], ['VAG', '00123', '12.35', '5', '', ''])
-        self.assertEqual(new[6], 'Трубка; "нова"')
+        self.assertEqual(new[6], 'Трубка; "нова" фото за запитом!')
         self.assertEqual(new[7], 'https://example.com/a.jpg;https://example.com/b.jpg')
         self.assertEqual(next(row for row in rows if row[1] == 'USED')[4], '1')
         for private in ['PRIVATE STOCK NOTE', 'OTHER', 'DELETED', 'SOLD', 'UNAVAILABLE']:
@@ -134,6 +134,63 @@ class AvtoproFeedTests(unittest.TestCase):
         self.assertIn(self.token(), response.text)
         self.assertIn('Порожній прайс не видається', response.text)
         self.assertEqual(response.headers['Referrer-Policy'], 'no-referrer')
+
+    def test_all_stock_merges_quantities_at_highest_price(self):
+        with self.sessions.begin() as db:
+            db.add(site.Part(id=8, warehouse_id=2, brand='vag', part_number='00123',
+                             name='Інша назва', qty=7, in_stock=True, price_usd=Decimal('15.00')))
+        self.change(warehouse=0)
+        rows = list(csv.reader(io.StringIO(self.feed(0).data.decode('utf-8-sig')), delimiter=';'))
+        self.assertEqual(len(rows), 3)
+        merged = next(row for row in rows if row[1] == '00123')
+        self.assertEqual(merged[2:4], ['15.00', '12'])
+        self.assertEqual(next(row for row in rows if row[1] == 'OTHER')[3], '8')
+        self.assertTrue(all('фото за запитом!' in row[6] for row in rows))
+        self.assertEqual(self.feed(1, token=self.token(0)).status_code, 404)
+        self.change('preferences', warehouse=0, markup_percent='12.50', include_photos='1')
+        marked_rows = list(csv.reader(io.StringIO(self.feed(0).data.decode('utf-8-sig')), delimiter=';'))
+        self.assertEqual(next(row for row in marked_rows if row[1] == '00123')[2], '16.88')
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.Part, 8).price_usd, Decimal('15.00'))
+            self.assertEqual(db.get(site.Part, 8).qty, 7)
+
+    def test_settings_persist_without_changing_token_or_other_feeds(self):
+        self.change()
+        self.change(warehouse=0)
+        token = self.token()
+        self.change('preferences', markup_percent='12,50', return_to='marketplaces')
+        response = self.feed()
+        rows = list(csv.reader(io.StringIO(response.data.decode('utf-8-sig')), delimiter=';'))
+        self.assertEqual(next(row for row in rows if row[1] == '00123')[2], '13.89')
+        self.assertTrue(all(row[7] == '' for row in rows))
+        self.assertEqual(token, self.token())
+        self.assertIn(b'12.35;5;', self.feed(0).data)
+        self.change('preferences', markup_percent='0', include_photos='1')
+        self.assertIn(b'https://example.com/a.jpg', self.feed().data)
+        self.assertIn(b'12.35;5;', self.feed().data)
+        page = self.client.get('/admin/marketplaces?tab=avtopro')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('Усі актуальні товари', page.text)
+        self.assertIn('name="markup_percent"', page.text)
+        self.assertIn('role="switch"', page.text)
+
+    def test_invalid_markup_and_csrf_leave_export_unchanged(self):
+        self.change()
+        before = self.feed().data
+        for value in ['-1', 'NaN', 'Infinity', '1.001', '10001', '', 'bad']:
+            self.change('preferences', markup_percent=value)
+            self.assertEqual(self.feed().data, before)
+        rejected = self.client.post('/admin/avtopro-feeds', data={
+            'action': 'preferences', 'warehouse_id': 1, 'markup_percent': '30', 'csrf_token': 'невірний'})
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(self.feed().data, before)
+
+    def test_description_suffix_is_not_repeated(self):
+        with self.sessions.begin() as db:
+            db.get(site.Part, 1).name = 'Трубка фото за запитом!'
+        self.change()
+        rows = list(csv.reader(io.StringIO(self.feed().data.decode('utf-8-sig')), delimiter=';'))
+        self.assertEqual(next(row for row in rows if row[1] == '00123')[6], 'Трубка фото за запитом!')
 
 
 if __name__ == '__main__':

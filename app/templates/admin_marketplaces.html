@@ -1,6 +1,7 @@
 {% extends 'base_admin.html' %}
 {% block admin_content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='marketplaces.css') }}?v={{ marketplace_asset_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='avtopro-feed-options.css') }}?v=20261122">
 {% macro action_fields(action) %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="{{ action }}">{% endmacro %}
 <div class="mp" data-busy="{{ '1' if last_run and last_run.status == 'running' else '0' }}">
   {% if preview %}<div class="mp-callout"><strong>Локальний перегляд дизайну · демонстраційні дані</strong><span>Цей перегляд не змінює товари чи замовлення у вашому магазині.</span></div>{% endif %}
@@ -56,7 +57,35 @@
       <p>Автопро перевіряє прайси складів щогодини. Посилання для кожного складу доступні нижче.</p>
     </section>
   </div>
-  <div class="mp-section-head"><h2>Прайси ваших складів</h2><a href="{{ url_for('admin_avtopro_feeds') }}">Інструкція та колонки CSV ↗</a></div><div class="mp-feed-grid">{% for feed in feeds %}<article class="mp-card"><div class="mp-channel-top"><span class="mp-feed-icon">▤</span><span class="mp-pill {{ 'green' if feed.url else 'gray' }}">{{ 'Посилання готове' if feed.url else 'Не створено' }}</span></div><h3>{{ feed.warehouse.name }}</h3><p class="mp-muted">{{ feed.positions }} позицій · {{ feed.qty }} шт.</p>{% if feed.url %}<label class="mp-feed-label">Посилання для Автопро<input readonly value="{{ feed.url }}" onclick="this.select()" aria-label="Прайс {{ feed.warehouse.name }}"></label><div class="mp-feed-actions"><a class="mp-small-btn" href="{{ feed.url }}" rel="noreferrer">Завантажити CSV ↓</a><form action="{{ url_for('admin_avtopro_feeds') }}" method="post"><input type="hidden" name="csrf_token" value="{{ feed_token }}"><input type="hidden" name="warehouse_id" value="{{ feed.warehouse.id }}"><button class="mp-small-btn muted" name="action" value="disable">Вимкнути</button></form></div>{% else %}<p class="mp-muted">Створіть посилання та додайте його в автооновлення відповідного складу Автопро.</p><form action="{{ url_for('admin_avtopro_feeds') }}" method="post"><input type="hidden" name="csrf_token" value="{{ feed_token }}"><input type="hidden" name="warehouse_id" value="{{ feed.warehouse.id }}"><button class="mp-btn light" name="action" value="enable">Створити посилання <span>↗</span></button></form>{% endif %}</article>{% endfor %}</div><p class="mp-fine-print">Продаж останньої одиниці та зняття відсутніх у прайсі позицій ще потребують перевірки на Автопро. Порожній прайс не видається; останню позицію знімайте вручну.</p>
+  <div class="mp-section-head"><h2>Прайси ваших складів</h2><a href="{{ url_for('admin_avtopro_feeds') }}">Інструкція та колонки CSV ↗</a></div>
+  <p class="mp-muted">Актуальні товари з залишком понад нуль. Ціна у прайсі дорівнює базовій USD-ціні з указаною націнкою. До описів додається «фото за запитом!».</p>
+  <div class="mp-feed-grid">
+    {% for feed in feeds %}
+    <article class="mp-card {{ 'mp-feed-all' if feed.all_stock else '' }}" aria-label="{{ feed.name }}">
+      <div class="mp-channel-top"><span class="mp-feed-icon">▤</span><span class="mp-pill {{ 'green' if feed.url else 'gray' }}">{{ 'Посилання готове' if feed.url else 'Не створено' }}</span></div>
+      <h3>{{ feed.name }}</h3>
+      <p class="mp-muted">{{ feed.positions }} складських позицій · {{ feed.quantity }} шт.</p>
+      {% if feed.all_stock %}<p class="mp-muted">Усі склади в одному файлі. Кількість однакових товарів об’єднується, ціна береться найвища.</p>{% endif %}
+      {% if feed.url %}
+      <label class="mp-feed-label">Посилання для Автопро<input readonly value="{{ feed.url }}" onclick="this.select()" aria-label="Прайс {{ feed.name }}"></label>
+      <div class="mp-feed-actions">
+        <a class="mp-small-btn" href="{{ feed.url }}" rel="noreferrer">Завантажити CSV ↓</a>
+        <form action="{{ url_for('admin_avtopro_feeds') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ feed_token }}"><input type="hidden" name="warehouse_id" value="{{ feed.id }}"><input type="hidden" name="return_to" value="marketplaces">
+          <button class="mp-small-btn muted" name="action" value="disable">Вимкнути</button>
+        </form>
+      </div>
+      {% else %}
+      <form action="{{ url_for('admin_avtopro_feeds') }}" method="post">
+        <input type="hidden" name="csrf_token" value="{{ feed_token }}"><input type="hidden" name="warehouse_id" value="{{ feed.id }}"><input type="hidden" name="return_to" value="marketplaces">
+        <button class="mp-btn light" name="action" value="enable">Створити посилання <span>↗</span></button>
+      </form>
+      {% endif %}
+      {% with form_token=feed_token, feed_return_to='marketplaces' %}{% include '_avtopro_feed_options.html' %}{% endwith %}
+    </article>
+    {% endfor %}
+  </div>
+  <p class="mp-fine-print">Продаж останньої одиниці та зняття відсутніх у прайсі позицій ще потребують перевірки на Автопро. Порожній прайс не видається, останню позицію знімайте вручну.</p>
   {% endif %}
   <footer class="mp-footer"><span><i class="mp-indicator {{ 'on' if config.auto == '1' else '' }}"></i> {{ 'Prom: автообмін увімкнено' if config.auto == '1' else 'Prom: автообмін вимкнено' }}</span><span>Час у кабінеті — Київ · API дати — UTC</span></footer>
 </div>

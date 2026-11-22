@@ -1,0 +1,13 @@
+<form class="feed-preferences" action="{{ url_for('admin_avtopro_feeds') }}" method="post">
+  <input type="hidden" name="csrf_token" value="{{ form_token }}">
+  <input type="hidden" name="warehouse_id" value="{{ feed.id }}">
+  <input type="hidden" name="action" value="preferences">
+  <input type="hidden" name="return_to" value="{{ feed_return_to|default('') }}">
+  <label class="feed-photo-switch">
+    <span><strong>Фото у прайсі</strong><small class="feed-photo-on">З фото</small><small class="feed-photo-off">Без фото</small></span>
+    <input type="checkbox" role="switch" name="include_photos" value="1" aria-label="Вивантажувати з фото" {% if feed.options.include_photos %}checked{% endif %}>
+    <i aria-hidden="true"></i>
+  </label>
+  <label class="feed-markup">Націнка, %<input type="number" name="markup_percent" min="0" max="10000" step="0.01" required value="{{ feed.options.markup_percent }}" inputmode="decimal"></label>
+  <button class="feed-save" type="submit">Зберегти налаштування</button>
+</form>

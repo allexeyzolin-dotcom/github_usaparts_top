@@ -5,6 +5,7 @@ import json
 import re
 import secrets
 import threading
+from collections import Counter
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
@@ -15,9 +16,12 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from flask import abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func, text
 
+from .avtopro_status import is_new_sale
+
 
 SOURCE = "autopro"
 TOKEN_KEY = "avtopro_browser_token_hash"
+SESSION_KEY = "avtopro_browser_session"
 HOSTS = {"avtopro.ua", "www.avtopro.ua", "avto.pro", "www.avto.pro"}
 LOCK = threading.Lock()
 MAX_BODY = 128 * 1024
@@ -53,7 +57,12 @@ def cancellation_notice(value, external_id):
     return bool(re.fullmatch(prefix + terminal + r"[.!]?", value.casefold()))
 
 
-def validate_capture(raw):
+def completion_notice(value, external_id):
+    prefix = rf"(?:(?:замовлення|заказ)\s+(?:№?\s*{re.escape(external_id)}\s+)?)?"
+    return bool(re.fullmatch(prefix + r"(?:завершен[оё]?|виконано|выполн[её]н[о]?)[.!]?", value.casefold()))
+
+
+def validate_capture(raw, *, allow_status_update=False):
     if not isinstance(raw, dict):
         raise ValueError("Очікується картка одного замовлення")
     order_id = string_field(raw, "orderId", 20, required=True)
@@ -65,8 +74,13 @@ def validate_capture(raw):
         raise ValueError("Адреса має вести до картки цього замовлення Автопро")
     status = string_field(raw, "status", 200, required=True)
     reference = {"orderId": order_id, "sourceUrl": f"https://{url.netloc.lower()}/orders/{order_id}/", "status": status}
+    waybill = string_field(raw, "waybill", 14)
+    if waybill:
+        if not re.fullmatch(r"[0-9]{13,14}", waybill):
+            raise ValueError("Некоректний номер накладної Автопро")
+        reference["waybill"] = waybill
     if raw.get("statusOnly") is True:
-        if not cancellation_notice(status, order_id):
+        if not allow_status_update and not cancellation_notice(status, order_id):
             raise ValueError("Потрібен підтверджений статус скасування цього замовлення")
         return reference
     lines = raw.get("items")
@@ -162,7 +176,77 @@ def install(site):
                         f"Замовлення #{order.id} перенесено в історію. Звільнено резерв: {returned} шт.")
         return "cancelled", bool(returned)
 
-    def import_capture(db, payload):
+    def dollars(uah):
+        return (Decimal(uah) / Decimal(str(site.DEFAULT_UAH_RATE))).quantize(CENT, rounding=ROUND_HALF_UP)
+
+    def apply_capture_fields(db, order, payload, *, replace_items):
+        order.customer_name = payload["customer"] or f"Автопро №{payload['orderId']}"
+        order.phone = payload["phone"]
+        order.delivery_type = delivery_mode(payload["delivery"])
+        order.total_usd = dollars(payload["totalUah"])
+        order.external_status = payload["status"]
+        order.status = initial_status(payload["status"], payload["orderId"])
+        order.updated_at = site.now()
+        if replace_items:
+            order.items[:] = [site.OrderItem(part_id=inventory_match(site, db, item),
+                part_number=item["partNumber"], name=item["name"], qty=item["qty"],
+                price_usd=dollars(item["unitUah"])) for item in payload["items"]]
+
+    def can_refresh_draft(db, order, snapshot, previous, payload):
+        if (not snapshot or snapshot.imported_payload_hash != snapshot.payload_hash
+                or order.status != "new" or order.is_processing or order.stock_reserved
+                or order.ttn or order.prepayment_usd or order.cancel_reason
+                or site.latest_packing_request_for_order(db, order.id)):
+            return False
+        if (order.customer_name != (previous["customer"] or f"Автопро №{order.external_order_id}")
+                or order.phone != previous["phone"] or order.delivery_type != delivery_mode(previous["delivery"])
+                or order.total_usd != dollars(previous["totalUah"])):
+            return False
+        if any(previous[field] and not payload[field] for field in ("customer", "phone", "delivery")):
+            return False
+        current = Counter((item.part_number, item.name, item.qty, item.price_usd) for item in order.items)
+        original = Counter((item["partNumber"], item["name"], item["qty"], dollars(item["unitUah"]))
+                           for item in previous["items"])
+        if current != original:
+            return False
+        if payload["items"] == previous["items"]:
+            return True
+        # Only replace lines whose warehouse associations still match the automatic mapping.
+        current_parts = Counter((item.part_number, item.name, item.qty, item.price_usd, item.part_id)
+                                for item in order.items)
+        matched_parts = Counter((item["partNumber"], item["name"], item["qty"], dollars(item["unitUah"]),
+                                 inventory_match(site, db, item)) for item in previous["items"])
+        return current_parts == matched_parts
+
+    def waybill_conflict(order, payload):
+        return bool(payload.get("waybill") and order.ttn
+                    and payload["waybill"] != site.order_tracking.number(order.ttn))
+
+    def apply_tracking(db, order, payload, *, update_status):
+        if order.status in {"done", "cancelled"}:
+            return False
+        tracking = site.order_tracking
+        waybill = payload.get("waybill", "")
+        conflict = waybill_conflict(order, payload)
+        changed = False
+        if (not order.ttn and tracking.valid_number(waybill)
+                and order.delivery_type == delivery_mode(payload["delivery"]) == "nova_poshta"):
+            changed = tracking.set_waybill(order, waybill)
+            tracking.mark_shipped(db, order, site.now())
+        if update_status and order.external_status != payload["status"]:
+            order.external_status = payload["status"]
+            changed = True
+        if update_status and not conflict and completion_notice(payload["status"], order.external_order_id):
+            pack = site.latest_packing_request_for_order(db, order.id)
+            if order.status in {"new", "shipped"} and (not pack or pack.status in {"shipped", "applied"}):
+                order.status = "done"
+                order.is_processing = False
+                changed = True
+        if changed:
+            order.updated_at = site.now()
+        return changed
+
+    def import_capture(db, payload, *, existing_only=False, sync_draft=False):
         external_id = payload["orderId"]
         if db.get_bind().dialect.name == "postgresql":
             lock_id = int.from_bytes(hashlib.sha256(f"avtopro:{external_id}".encode()).digest()[:8], "big", signed=True)
@@ -172,19 +256,24 @@ def install(site):
         if len(matches) > 1:
             raise ValueError("У кабінеті вже є кілька карток із цим номером. Потрібна ручна звірка.")
         order = matches[0] if matches else None
+        if existing_only and order is None:
+            raise ValueError("Замовлення відсутнє в USAparts.top")
+        if sync_draft and order is None and not is_new_sale(payload["status"]):
+            raise ValueError("Автоімпорт створює лише нові продажі")
         if order is None and snapshot:
             raise ValueError("Це замовлення вже імпортувалося. Перевірте його історію в кабінеті.")
         previous = json.loads(snapshot.payload_json) if snapshot else None
         cancelled = cancellation_notice(payload["status"], external_id)
         if order and previous and cancellation_notice(previous["status"], external_id) and not cancelled:
             return "unchanged", order
-        if "items" not in payload:
+        status_only = "items" not in payload
+        if status_only:
             if not order or not previous:
                 raise ValueError("Замовлення ще не імпортоване. Передайте повну картку Автопро.")
             payload = {**previous, **payload}
         source_was_shipped = bool(previous and (previous.get("sourceWasShipped") or
             initial_status(previous["status"], external_id) in {"shipped", "done"}))
-        if source_was_shipped:
+        if source_was_shipped or payload.get("waybill") or initial_status(payload["status"], external_id) in {"shipped", "done"}:
             payload["sourceWasShipped"] = True
         body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         fingerprint = sha(body)
@@ -194,40 +283,43 @@ def install(site):
         old_empty_draft = bool(order and order.external_status == "email_review" and order.status == "new"
                                and not order.items and not order.stock_reserved
                                and not site.latest_packing_request_for_order(db, order.id))
-        if created or old_empty_draft:
-            rate = Decimal(str(site.DEFAULT_UAH_RATE))
-            def dollars(uah):
-                return (Decimal(uah) / rate).quantize(CENT, rounding=ROUND_HALF_UP)
-
+        refreshed = created or old_empty_draft
+        if refreshed:
             if created:
                 order = site.Order(external_source=SOURCE, external_order_id=external_id)
                 db.add(order)
-            order.external_status = payload["status"]
-            order.status = initial_status(payload["status"], external_id)
+            apply_capture_fields(db, order, payload, replace_items=True)
             if order.status == "cancelled":
                 order.cancel_reason = f"Автопро: {payload['status']}"
-            order.customer_name = payload["customer"] or f"Автопро №{external_id}"
-            order.phone = payload["phone"]
-            order.total_usd = dollars(payload["totalUah"])
-            order.delivery_type = delivery_mode(payload["delivery"])
             if old_empty_draft:
                 order.comment = ""
-            for item in payload["items"]:
-                order.items.append(site.OrderItem(part_id=inventory_match(site, db, item),
-                    part_number=item["partNumber"], name=item["name"], qty=item["qty"], price_usd=dollars(item["unitUah"])))
             db.flush()
-        result = "created" if created else "unchanged" if duplicate else "updated"
+        elif sync_draft and not status_only and not cancelled and not duplicate and can_refresh_draft(db, order, snapshot, previous, payload):
+            apply_capture_fields(db, order, payload, replace_items=payload["items"] != previous["items"])
+            refreshed = True
+        tracking_changed = False
+        if not cancelled:
+            tracking_changed = apply_tracking(db, order, payload, update_status=sync_draft)
+            if (status_only and snapshot and snapshot.imported_payload_hash == snapshot.payload_hash
+                    and not waybill_conflict(order, payload)
+                    and (not completion_notice(payload["status"], external_id) or order.status == "done")):
+                refreshed = True
+        result = "created" if created else "unchanged" if duplicate and not tracking_changed else "updated"
         stock_changed = False
         if cancelled and not created:
-            status_result, stock_changed = apply_cancellation(db, order, payload["status"], source_was_shipped)
+            status_result, stock_changed = apply_cancellation(db, order, payload["status"],
+                                                              source_was_shipped or bool(payload.get("waybill")))
             if status_result != "unchanged":
                 result = status_result
-        if duplicate and result != "cancelled":
+        if duplicate and result != "cancelled" and not tracking_changed:
             return result, order
         if not snapshot:
-            snapshot = AvtoproOrderCapture(external_id=external_id, order_id=order.id,
-                imported_payload_hash=fingerprint if created or old_empty_draft else "")
+            snapshot = AvtoproOrderCapture(external_id=external_id, order_id=order.id, imported_payload_hash="")
             db.add(snapshot)
+        elif snapshot.order_id != order.id:
+            snapshot.order_id = order.id
+        if refreshed:
+            snapshot.imported_payload_hash = fingerprint
         snapshot.payload_json, snapshot.payload_hash = body, fingerprint
         snapshot.captured_at = datetime.utcnow()
         db.commit()
@@ -235,21 +327,76 @@ def install(site):
             site.public_cache_clear()
         return result, order
 
-    @site.app.post("/api/integrations/avtopro/order")
-    def receive_avtopro_order():
+    def valid_key(db):
         header = request.headers.get("Authorization", "")
         if not re.fullmatch(r"Bearer [A-Za-z0-9_-]{43}", header):
-            return jsonify(error="Вкажіть ключ із кабінету USAparts.top"), 401
+            return False
+        expected = db.query(site.ApiSetting).filter_by(setting_key=TOKEN_KEY).one_or_none()
+        return expected is not None and secrets.compare_digest(sha(header[7:]), expected.setting_value)
+
+    @site.app.post("/api/integrations/avtopro/session")
+    def report_avtopro_session():
+        if not request.is_json or request.content_length is None or request.content_length > 256:
+            return jsonify(error="Некоректний формат"), 400
+        with site.SessionLocal() as db:
+            if not valid_key(db):
+                return jsonify(error="Ключ імпорту недійсний"), 401
+            payload = request.get_json(silent=True)
+            state = payload.get("state") if isinstance(payload, dict) else None
+            if state not in ("active", "login_required"):
+                return jsonify(error="Некоректний стан сесії"), 400
+            with LOCK:
+                if db.get_bind().dialect.name == "postgresql":
+                    db.execute(text("SELECT pg_advisory_xact_lock(726576660015)"))
+                setting = db.query(site.ApiSetting).filter_by(setting_key=SESSION_KEY).one_or_none()
+                if not setting or setting.setting_value != state:
+                    site.set_setting(db, SESSION_KEY, state)
+                    if state == "login_required":
+                        site.flash_news(db, "orders", "Автопро потребує входу",
+                                        "Синхронізацію призупинено. Увійдіть через захищену консоль браузера.",
+                                        severity="warning")
+                    db.commit()
+            return jsonify(state=state)
+
+    @site.app.get("/api/integrations/avtopro/orders")
+    def list_avtopro_orders():
+        cursor = request.args.get("after", "")
+        seen = request.args.get("seen")
+        with site.SessionLocal() as db:
+            if not valid_key(db):
+                return jsonify(error="Ключ імпорту недійсний"), 401
+            if cursor and not re.fullmatch(r"[0-9]{3,20}", cursor):
+                return jsonify(error="Некоректний номер замовлення"), 400
+            rows = (db.query(site.Order.external_order_id).filter(
+                site.Order.external_source == SOURCE,
+                site.Order.status.notin_(("done", "cancelled")),
+                site.Order.external_order_id > cursor,
+            ).distinct().order_by(site.Order.external_order_id).limit(100))
+            ids = [ident for ident, in rows if re.fullmatch(r"[0-9]{3,20}", ident)]
+            result = {"ids": ids}
+            if seen is not None:
+                candidates = seen.split(",") if seen else []
+                if len(candidates) > 100 or any(not re.fullmatch(r"[0-9]{3,20}", i) for i in candidates):
+                    return jsonify(error="Некоректні номери замовлень"), 400
+                known = db.query(site.Order.external_order_id).filter(
+                    site.Order.external_source == SOURCE, site.Order.external_order_id.in_(candidates)
+                ).union(db.query(AvtoproOrderCapture.external_id).filter(AvtoproOrderCapture.external_id.in_(candidates)))
+                result["known"] = [ident for ident, in known]
+            return jsonify(result), 200, {"Cache-Control": "no-store"}
+
+    @site.app.post("/api/integrations/avtopro/order")
+    def receive_avtopro_order():
         if not request.is_json or request.content_length is None or request.content_length > MAX_BODY:
             return jsonify(error="Некоректний розмір або формат картки"), 400
         with site.SessionLocal() as db:
-            expected = db.query(site.ApiSetting).filter_by(setting_key=TOKEN_KEY).one_or_none()
-            if not expected or not secrets.compare_digest(sha(header[7:]), expected.setting_value):
+            if not valid_key(db):
                 return jsonify(error="Ключ імпорту недійсний. Перевірте налаштування розширення."), 401
             try:
-                payload = validate_capture(request.get_json(silent=True))
+                existing_only = request.args.get("existing_only") == "1"
+                sync_draft = request.args.get("sync_draft") == "1"
+                payload = validate_capture(request.get_json(silent=True), allow_status_update=existing_only and sync_draft)
                 with LOCK:
-                    status, order = import_capture(db, payload)
+                    status, order = import_capture(db, payload, existing_only=existing_only, sync_draft=sync_draft)
             except ValueError as exc:
                 return jsonify(error=str(exc)), 422
             return jsonify(result=status, message=FORM_MESSAGES[status], orderId=order.id,
@@ -318,9 +465,11 @@ def install(site):
             return {}
         rows = db.query(AvtoproOrderCapture).filter(AvtoproOrderCapture.order_id.in_(ids))
         captures = {}
+        orders_by_id = {order.id: order for order in orders}
         for row in rows:
             data = json.loads(row.payload_json)
             captures[row.order_id] = {"data": data, "changed": row.payload_hash != row.imported_payload_hash,
+                                      "waybillConflict": waybill_conflict(orders_by_id[row.order_id], data),
                                       "cancelled": cancellation_notice(data["status"], row.external_id)}
         return captures
 

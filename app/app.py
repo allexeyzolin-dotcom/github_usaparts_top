@@ -12342,7 +12342,7 @@ def admin_orders():
             capture = avtopro_details.get(order_card["id"])
             if capture:
                 order_card["avtoproCapture"] = capture
-                review = capture["changed"] or any(not item["partId"] for item in order_card["items"])
+                review = capture["changed"] or capture["waybillConflict"] or any(not item["partId"] for item in order_card["items"])
                 order_card["avtoproReview"] = review
                 if review and order_card["group"] != "history":
                     order_card["hasIssue"] = True

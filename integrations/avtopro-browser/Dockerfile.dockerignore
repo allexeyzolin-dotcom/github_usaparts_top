@@ -1,0 +1,6 @@
+**
+!integrations/avtopro-browser/start.sh
+!integrations/avtopro-browser/nginx.conf
+!integrations/avtopro-browser/worker.py
+!app/avtopro_extension/capture.js
+!app/avtopro_status.py

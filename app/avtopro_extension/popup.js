@@ -25,7 +25,8 @@ async function initialize() {
   element("number").textContent = `Замовлення №${result.orderId}`;
   element("summary").textContent = result.statusOnly ? result.status : `${result.status} · ${result.totalUah} грн`;
   if (result.statusOnly) element("send").textContent = "Передати скасування";
-  element("buyer").textContent = [result.customer, result.phone, result.delivery, result.payment].filter(Boolean).join(" · ");
+  const waybill = result.waybill ? "ТТН " + result.waybill : "";
+  element("buyer").textContent = [result.customer, result.phone, result.delivery, result.payment, waybill].filter(Boolean).join(" · ");
   for (const item of result.items || []) {
     const li = document.createElement("li");
     li.textContent = `${item.partNumber} · ${item.name} · ${item.qty} шт. × ${item.unitUah} грн`;

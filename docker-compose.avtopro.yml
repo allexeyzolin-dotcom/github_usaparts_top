@@ -1,0 +1,52 @@
+services:
+  avtopro-browser:
+    hostname: avtopro-browser
+    build:
+      context: .
+      dockerfile: integrations/avtopro-browser/Dockerfile
+    restart: unless-stopped
+    init: true
+    cpus: 0.85
+    mem_limit: 1200m
+    pids_limit: 256
+    shm_size: 256m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:./integrations/avtopro-browser/seccomp.json
+    stop_grace_period: 45s
+    environment:
+      AVTOPRO_INTERVAL_SECONDS: ${AVTOPRO_INTERVAL_SECONDS:-300}
+      AVTOPRO_BATCH_SIZE: ${AVTOPRO_BATCH_SIZE:-10}
+      USAPARTS_ORIGIN: ${USAPARTS_ORIGIN:-https://usaparts.top}
+    secrets:
+      - console-auth
+      - site-key
+    volumes:
+      - browser-profile:/data
+    networks:
+      - proxy_default
+    healthcheck:
+      test: [CMD, curl, -fsS, --max-time, "4", "http://127.0.0.1:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "3"
+
+volumes:
+  browser-profile:
+
+secrets:
+  console-auth:
+    file: ${AVTOPRO_SECRET_DIR:-/opt/usaparts/avtopro}/console.htpasswd
+  site-key:
+    file: ${AVTOPRO_SECRET_DIR:-/opt/usaparts/avtopro}/site.key
+
+networks:
+  proxy_default:
+    external: true

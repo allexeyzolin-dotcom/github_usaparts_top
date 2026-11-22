@@ -345,6 +345,7 @@
           <div class="helper-note {{ 'warn' if order.avtoproReview else '' }}">
             <strong>Автопро №{{ avto.orderId }} · {{ avto.status }}</strong>
             {% if avto.delivery %}<div>{{ avto.delivery }}</div>{% endif %}
+            {% if avto.waybill %}<div>ТТН Автопро · {{ avto.waybill }}{% if order.avtoproCapture.waybillConflict %} · Звірте з ТТН у цій картці{% endif %}</div>{% endif %}
             {% if avto.payment %}<div>{{ avto.payment }}</div>{% endif %}
             {% if order.avtoproCapture.cancelled and order.status not in ('cancelled', 'done') %}<div>Автопро скасував замовлення. Звірте відправлення та резерв перед закриттям.</div>
             {% elif order.avtoproCapture.changed and order.status != 'cancelled' %}<div>У картці Автопро є зміни. Звірте їх перед видачею.</div>{% endif %}

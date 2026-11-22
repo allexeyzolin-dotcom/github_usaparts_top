@@ -25,8 +25,20 @@
   }
   const status = read(document.querySelector("main .order-progressbar-status"));
   const sourceUrl = `${location.origin}/orders/${orderId}/`;
+  const fromSystem = [...document.querySelectorAll("main .thread__post")].filter((post) =>
+    visible(post) && !post.classList.contains("thread__post__private") &&
+    visible(post.querySelector(".thread__post__avatar.pro-image--robot")));
+  const waybills = new Set(fromSystem.flatMap((post) =>
+    (post.querySelector(".thread__post__body")?.innerText || "").split(/\r?\n/).map((line) =>
+      /^(?:ТТН|ШКІ|ШКИ)\s*[:№]?\s*([0-9]{13,14})$/i.exec(clean(line))?.[1]).filter(Boolean)));
+  const labeledNumber = read(valueFor(/^(?:ТТН|ШКІ|Трек[- ]номер|Номер (?:експрес[- ]|товарно[- ]транспортної )?накладної)$/i));
+  if (/^[0-9]{13,14}$/.test(labeledNumber)) waybills.add(labeledNumber);
+  const reference = { orderId, sourceUrl, status };
+  if (waybills.size === 1) reference.waybill = [...waybills][0];
   const cancellation = new RegExp(`^(?:(?:замовлення|заказ)\\s+№?\\s*${orderId}\\s+)?(?:скасовано|отменено|отмен[ёе]н)(?: (?:покупцем|продавцем|системою|автоматично|покупателем|продавцом|системой|автоматически))?[.!]?$`, "i");
-  if (cancellation.test(status)) return { orderId, sourceUrl, status, statusOnly: true };
+  if (cancellation.test(status) || (typeof avtoproTrackingOnly !== "undefined" && avtoproTrackingOnly)) {
+    return { ...reference, statusOnly: true };
+  }
   const money = (text) => {
     const found = [...text.matchAll(/(\d[\d \u00a0\u202f]*(?:[.,]\d{1,2})?)\s*(?:грн|₴|UAH)/gi)];
     return found.length === 1 ? found[0][1].replace(/\s/g, "").replace(",", ".") : "";
@@ -55,7 +67,7 @@
   const buyer = read(buyerField.querySelector(".wrapper-name > div > span:first-child"));
   const visiblePhone = read(valueFor(/^Телефон$/i));
   const phone = /^\+?[0-9 ()-]{9,24}$/.test(visiblePhone) ? visiblePhone : "";
-  return { orderId, sourceUrl, status, currency: "UAH", totalUah,
+  return { ...reference, currency: "UAH", totalUah,
     customer: buyer, phone,
     delivery: read(valueFor(/^(?:Умови доставки|Условия доставки)$/i)?.querySelector(".text-delivery")),
     payment: read(valueFor(/^(?:Спосіб оплати|Способ оплаты)$/i)), items };

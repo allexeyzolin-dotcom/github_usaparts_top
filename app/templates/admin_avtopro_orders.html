@@ -41,6 +41,7 @@
     <summary><strong>№{{ order.orderId }} · {{ order.totalUah }} грн</strong> · {{ order.status }}{% if record.changed %} <span class="badge warn">Зміни для звірки</span>{% endif %} <span class="muted">{{ record.captured_at|mp_time }}</span></summary>
     <p>{{ order.customer }}{% if order.phone %} · {{ order.phone }}{% endif %}</p>
     {% if order.delivery or order.payment %}<p>{{ order.delivery }}{% if order.payment %} · {{ order.payment }}{% endif %}</p>{% endif %}
+    {% if order.waybill %}<p>ТТН Автопро · {{ order.waybill }}</p>{% endif %}
     <ul>{% for item in order['items'] %}<li>{{ item.partNumber }} · {{ item.name }} · {{ item.qty }} шт. × {{ item.unitUah }} грн</li>{% endfor %}</ul>
     <div class="button-row"><a href="{{ order.sourceUrl }}" target="_blank" rel="noreferrer">Картка Автопро ↗</a>{% if record.order_url %}<a href="{{ record.order_url }}">Перейти до видачі</a>{% endif %}</div>
   </details>

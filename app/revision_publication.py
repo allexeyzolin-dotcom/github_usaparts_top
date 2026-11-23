@@ -55,7 +55,7 @@ def register_revision_publication(site):
         site.ensure_part_barcode(db, part)
         part.brand_export = row.brand
         part.part_number_export = row.part_number
-        part.avtopro_flag_1 = "1" if site.part_condition_code(row) == "USED" else ""
+        part.avtopro_flag_1 = site.AVTOPRO_CONDITION_FLAGS[site.part_condition_code(row)]
         part.showcase_photo_urls = row.photo_urls
         part.storage_location = row.location
         part.has_photo = bool(site.parse_media_urls(row.photo_urls))

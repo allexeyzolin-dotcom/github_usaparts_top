@@ -1,5 +1,6 @@
 {% extends 'base_admin.html' %}
 {% from '_storage_location_field.html' import location_field %}
+{% from '_part_condition_field.html' import condition_field %}
 {% from '_part_seo_editor.html' import product_seo_editor with context %}
 {% block admin_content %}
 <div class="panel-header">
@@ -15,6 +16,7 @@
   </div>
   <div class="button-row">
     <a class="btn ghost" href="{{ url_for('export_warehouse', warehouse_id=warehouse.id) }}">Експорт складу</a>
+    <a class="btn ghost" href="{{ url_for('export_warehouse', warehouse_id=warehouse.id, format='avtopro') }}">Експорт для Автопро</a>
     <form id="warehouse-print-all-form" method="post" action="{{ url_for('print_warehouse_barcodes', warehouse_id=warehouse.id) }}">
       <input type="hidden" name="label_qty" value="">
       <button class="btn ghost" type="button" onclick="promptWarehouseLabels(false)">Друк усіх етикеток</button>
@@ -64,6 +66,7 @@
       </select>
       <input id="create-name" name="name" placeholder="Назва товару" required>
       {{ location_field() }}
+      {{ condition_field(allow_inference=true) }}
     </div>
 
     <textarea id="create-description" name="description" placeholder="Службовий опис для кабінету"></textarea>
@@ -121,6 +124,7 @@
           <th>Код</th>
           <th>Штрихкод</th>
           <th>Назва</th>
+          <th>Стан</th>
           <th>Ціна</th>
           <th>Кількість</th>
           <th>Медіа</th>
@@ -154,6 +158,7 @@
             <div class="muted">{{ p.description[:110] }}{% if p.description|length > 110 %}...{% endif %}</div>
             {% endif %}
           </td>
+          <td>{{ warehouse_condition_label(p) }}</td>
           <td>
             ${{ display_usd(p.price_usd, warehouse.markup_percent) }}
             <div class="muted">₴{{ display_uah(p.price_usd, warehouse.markup_percent) }}</div>
@@ -185,7 +190,7 @@
           </td>
         </tr>
         <tr id="part-editor-{{ p.id }}" class="warehouse-editor-row hidden">
-          <td colspan="9" class="warehouse-editor-cell">
+          <td colspan="10" class="warehouse-editor-cell">
             <form method="post" action="{{ url_for('update_part', part_id=p.id) }}" enctype="multipart/form-data" class="edit-form warehouse-part-form">
               <input type="hidden" name="current_showcase_photo_urls" value='{{ p.showcase_photo_urls|e }}'>
 
@@ -209,6 +214,7 @@
                     </select>
                   </div>
 
+                  {{ condition_field(part_condition_code(p)) }}
                   <textarea name="description" placeholder="Службовий опис">{{ p.description }}</textarea>
 
                   {{ product_seo_editor(p.part_number) }}
@@ -283,7 +289,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="muted">У цьому складі поки немає товарів.</td></tr>
+        <tr><td colspan="10" class="muted">У цьому складі поки немає товарів.</td></tr>
         {% endfor %}
       </tbody>
     </table>

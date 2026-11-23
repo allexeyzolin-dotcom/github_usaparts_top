@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from PIL import Image, UnidentifiedImageError
 
 from flask import g, jsonify, render_template, request, session, Response
-from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, desc, func, or_, text, select
+from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, desc, func, inspect, or_, text, select
 from sqlalchemy.exc import IntegrityError
 
 from .avtopro_feed import build_download_csv, review_download_records
@@ -32,6 +32,13 @@ def lock_product_number(db, part_number):
         db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
 
+def migrate_revision_condition(engine):
+    with engine.begin() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("revision_parts")}
+        if "avtopro_flag_1" not in columns:
+            connection.exec_driver_sql("ALTER TABLE revision_parts ADD COLUMN avtopro_flag_1 VARCHAR(32) NOT NULL DEFAULT ''")
+
+
 def register_inventory_revision(site):
     from .native_revision_auth import register_native_revision_auth
     site.NativeRevisionSession, revision_access = register_native_revision_auth(site)
@@ -44,6 +51,7 @@ def register_inventory_revision(site):
         name = Column(String(500), nullable=False)
         brand = Column(String(255), nullable=False, default="")
         producer_type = Column(String(32), nullable=False, default="OEM")
+        avtopro_flag_1 = Column(String(32), nullable=False, default="")
         description = Column(Text, nullable=False, default="")
         price_usd = Column(Numeric(12, 2), nullable=False, default=0)
         qty = Column(Integer, nullable=False, default=1)
@@ -85,6 +93,7 @@ def register_inventory_revision(site):
             "id": row.id, "source": source, "part_number": row.part_number,
             "name": row.name, "brand": row.brand, "barcode": row.barcode,
             "producer_type": row.producer_type, "description": row.description,
+            "part_condition": site.part_condition_code(row),
             "price_usd": str(row.price_usd or 0), "qty": int(getattr(row, "qty", 0) or 0),
             "warehouse_name": getattr(row, "warehouse_name", warehouse),
             "location": getattr(row, "location", getattr(row, "storage_location", "")), "photo_urls": gallery,
@@ -312,6 +321,11 @@ def register_inventory_revision(site):
             if not isinstance(value, str) or len(value.strip()) > limit:
                 raise ValueError(f"Некоректне поле {field} (максимум {limit} символів).")
             values[field] = value.strip()
+        condition = payload.get("part_condition")
+        if condition is not None:
+            if not isinstance(condition, str) or (condition and condition not in site.AVTOPRO_CONDITION_FLAGS):
+                raise ValueError("Оберіть стан товару: Б/В або Нове.")
+            values["avtopro_flag_1"] = site.AVTOPRO_CONDITION_FLAGS.get(condition, "")
         values["part_number"] = unicodedata.normalize("NFKC", values["part_number"]).upper()
         values["part_key"] = number_key(values["part_number"])
         from .storage_locations import clean_location
@@ -475,11 +489,12 @@ def register_inventory_revision(site):
         fields = ["id", "part_number", "name", "brand", "producer_type", "barcode", "qty", "price_usd",
                   "warehouse_name", "location", "description", "photo_urls", "youtube_url", "cross_numbers", "verified_at",
                   "created_by", "updated_by", "created_via"]
-        writer.writerow(fields + ["label"])
+        writer.writerow(fields + ["label", "Стан"])
         with site.SessionLocal() as db:
             for row in db.query(RevisionPart).order_by(RevisionPart.id).yield_per(500):
                 values = [format(row.price_usd, ".2f") if field == "price_usd" else str(getattr(row, field))
-                          for field in fields] + ["Перевірена наявність"]
+                          for field in fields]
+                values += ["Перевірена наявність", site.warehouse_condition_label(row)]
                 # Text remains text when this file is opened in a spreadsheet.
                 writer.writerow(["'" + value if value.lstrip().startswith(("=", "+", "-", "@")) else value for value in values])
         return Response("\ufeff" + output.getvalue(), mimetype="text/csv; charset=utf-8",

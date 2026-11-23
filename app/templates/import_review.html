@@ -53,6 +53,7 @@
               <div>Ціна: {{ c.before_price if c.before_price is not none else '—' }}</div>
               <div>Кількість: {{ c.before_qty if c.before_qty is not none else '—' }}</div>
               <div class="muted" style="margin-top:8px">Опис: {{ c.before_name or '—' }}</div>
+              {% if c.before_condition %}<div class="muted">Стан {{ c.before_condition }}</div>{% endif %}
             </td>
             <td>
               <div>Ціна: {{ c.after_price }}</div>
@@ -60,6 +61,7 @@
               <input type="number" min="0" step="1" name="after_qty_{{ c.id }}" value="{{ c.after_qty }}">
       {{ location_field(c.storage_location, required=c.apply_change, name='storage_location_' ~ c.id) }}
               <div class="muted" style="margin-top:8px">Опис: {{ c.after_name or '—' }}</div>
+              {% if c.after_condition %}<div class="muted">Стан {{ c.after_condition }}</div>{% endif %}
             </td>
             <td>
               {% if c.change_type == 'new' %}

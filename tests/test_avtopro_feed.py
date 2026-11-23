@@ -6,6 +6,7 @@ from decimal import Decimal
 from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from werkzeug.datastructures import FileStorage
 import app.app as site
 
 
@@ -25,7 +26,8 @@ class AvtoproFeedTests(unittest.TestCase):
                                   in_stock=True, price_usd=Decimal('12.35'), avtopro_flag_1='0',
                                   photo_urls='["https://example.com/a.jpg", "https://example.com/b.jpg"]'),
                         site.Part(id=2, warehouse_id=1, brand='VAG', part_number='00123',
-                                  name='Трубка', qty=3, in_stock=True, price_usd=Decimal('12.35')),
+                                  name='Трубка', qty=3, in_stock=True, price_usd=Decimal('12.35'),
+                                  avtopro_flag_1='0'),
                         site.Part(id=3, warehouse_id=1, brand='BMW', part_number='USED', qty=1,
                                   in_stock=True, price_usd=Decimal('50.90'), avtopro_flag_1='1'),
                         site.Part(id=4, warehouse_id=1, brand='BMW', part_number='SOLD', qty=0,
@@ -85,6 +87,28 @@ class AvtoproFeedTests(unittest.TestCase):
         self.assertIn('noindex', response.headers['X-Robots-Tag'])
         self.assertIn('attachment', response.headers['Content-Disposition'])
 
+    def test_warehouse_condition_edit_round_trips_in_avtopro_csv(self):
+        self.login()
+        response = self.client.post('/admin/part/3/update', data={'part_condition': 'NEW', 'storage_location': 'A-1'})
+        self.assertEqual(response.status_code, 302)
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.Part, 3).avtopro_flag_1, '0')
+        response = self.client.get('/admin/export/1?format=avtopro')
+        self.assertEqual(response.status_code, 200)
+        rows = list(csv.DictReader(io.StringIO(response.data.decode('utf-8-sig')), delimiter=';'))
+        self.assertIn('Б/В', rows[0])
+        self.assertEqual({row['Код']: row['Б/В'] for row in rows}, {'00123': '', 'USED': ''})
+        items = site.parse_avtopro_csv(FileStorage(stream=io.BytesIO(response.data), filename='warehouse.csv'))
+        self.assertEqual({row['part_number']: row['avtopro_flag_1'] for row in items},
+                         {'00123': '0', 'USED': '0'})
+        self.assertEqual(self.client.post('/admin/part/3/update', data={'part_condition': 'USED', 'storage_location': 'A-1'}).status_code, 302)
+        response = self.client.get('/admin/export/1?format=avtopro')
+        rows = list(csv.DictReader(io.StringIO(response.data.decode('utf-8-sig')), delimiter=';'))
+        self.assertEqual({row['Код']: row['Б/В'] for row in rows}, {'00123': '', 'USED': '+'})
+        items = site.parse_avtopro_csv(FileStorage(stream=io.BytesIO(response.data), filename='warehouse.csv'))
+        self.assertEqual({row['part_number']: row['avtopro_flag_1'] for row in items},
+                         {'00123': '0', 'USED': '1'})
+
     def test_warehouse_token_is_scoped_and_can_be_revoked(self):
         self.change()
         token = self.token()
@@ -138,7 +162,8 @@ class AvtoproFeedTests(unittest.TestCase):
     def test_all_stock_merges_quantities_at_highest_price(self):
         with self.sessions.begin() as db:
             db.add(site.Part(id=8, warehouse_id=2, brand='vag', part_number='00123',
-                             name='Інша назва', qty=7, in_stock=True, price_usd=Decimal('15.00')))
+                             name='Інша назва', qty=7, in_stock=True, price_usd=Decimal('15.00'),
+                             avtopro_flag_1='0'))
         self.change(warehouse=0)
         rows = list(csv.reader(io.StringIO(self.feed(0).data.decode('utf-8-sig')), delimiter=';'))
         self.assertEqual(len(rows), 3)

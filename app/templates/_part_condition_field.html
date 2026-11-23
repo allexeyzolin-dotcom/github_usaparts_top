@@ -1,0 +1,10 @@
+{% macro condition_field(condition='', allow_inference=false, field_id=none) %}
+<label class="field-label">
+  Стан
+  <select name="part_condition"{% if field_id %} id="{{ field_id }}"{% endif %}>
+    {% if allow_inference %}<option value="">За описом</option>{% endif %}
+    <option value="USED"{% if condition == 'USED' %} selected{% endif %}>Б/В</option>
+    <option value="NEW"{% if condition == 'NEW' %} selected{% endif %}>Нове</option>
+  </select>
+</label>
+{% endmacro %}

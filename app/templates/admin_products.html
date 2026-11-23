@@ -84,6 +84,13 @@
         <option value="{{ warehouse.id }}">{{ warehouse.name }}</option>
         {% endfor %}
       </select>
+      <label class="field-label">
+        Формат
+        <select name="format">
+          <option value="avtopro">Автопро</option>
+          <option value="warehouse">CSV складу</option>
+        </select>
+      </label>
       <button class="btn ghost" type="submit">Експортувати CSV</button>
     </form>
   </section>
@@ -168,7 +175,8 @@ function submitWarehouseExport(form) {
     window.alert('Оберіть склад для експорту.');
     return false;
   }
-  window.location.href = `/admin/export/${select.value}`;
+  const format = form.elements.format.value;
+  window.location.href = `/admin/export/${select.value}?format=${encodeURIComponent(format)}`;
   return false;
 }
 

@@ -1,5 +1,5 @@
 import csv
-from .avtopro_feed import build_price_csv, parse_markup, FeedError
+from .avtopro_feed import build_download_csv, build_price_csv, parse_markup, FeedError
 import gzip
 import hashlib
 import io
@@ -1230,9 +1230,24 @@ def producer_type_label(value: str | None) -> str:
     return text or "OEM"
 
 
+AVTOPRO_CONDITION_FLAGS = {"USED": "1", "NEW": "0"}
+
+
+def condition_from_avtopro_flag(value):
+    flag = normalize_text(value or "").strip().casefold()
+    if flag in {"1", "+", "true", "yes", "так", "б/в", "б/у", "used"}:
+        return "USED"
+    if flag in {"0", "-", "false", "no", "ні", "нет", "нове", "new"}:
+        return "NEW"
+    return ""
+
+
 def part_condition_code(part: Part | None) -> str:
     if not part:
         return "USED"
+    explicit = condition_from_avtopro_flag(getattr(part, "avtopro_flag_1", ""))
+    if explicit:
+        return explicit
     text = " ".join(
         normalize_text(value or "").strip()
         for value in (
@@ -1246,6 +1261,7 @@ def part_condition_code(part: Part | None) -> str:
         )
     ).casefold()
     used_markers = (
+        "б/в",
         "б/у",
         "б у",
         "бу ",
@@ -1277,6 +1293,10 @@ def part_condition_code(part: Part | None) -> str:
     # USAparts.top is primarily an auto dismantling store; avoid marking OEM
     # stock as brand-new unless the card explicitly says it is new.
     return "USED"
+
+
+def warehouse_condition_label(part) -> str:
+    return "Нове" if part_condition_code(part) == "NEW" else "Б/В"
 
 
 def part_schema_item_condition(part: Part | None) -> str:
@@ -8327,7 +8347,7 @@ def parse_avtopro_csv(file_storage):
             "фото", "photo", "photos", "image", "images", "фотографии", "зображення",
         },
         "used": {
-            "бу", "був", "боу", "б/у", "used",
+            "б/в", "бу", "був", "боу", "б/у", "used",
         },
         "restored": {
             "реставрация", "реставрація", "restored", "remanufactured",
@@ -8377,6 +8397,11 @@ def parse_avtopro_csv(file_storage):
         in_stock = qty > 0
         gallery = parse_media_urls(mapped_value(row, header_map, "photo_urls"))
         used_value = mapped_value(row, header_map, "used")
+        used_condition = condition_from_avtopro_flag(used_value)
+        used_index = header_map.get("used")
+        if used_index is not None and used_index < len(row) and not used_value:
+            used_condition = "NEW"
+        used_value = AVTOPRO_CONDITION_FLAGS.get(used_condition, "")
         restored_value = mapped_value(row, header_map, "restored")
         views_seed = int(hashlib.md5(part_number.encode()).hexdigest()[:4], 16)
         return {
@@ -8625,7 +8650,8 @@ def import_payload_card_differs_from_part(part: Part | None, payload: dict) -> b
         return True
     if not import_same_text(part.name, payload.get("name")):
         return True
-    return False
+    condition = condition_from_avtopro_flag(payload.get("avtopro_flag_1"))
+    return bool(condition and condition != condition_from_avtopro_flag(part.avtopro_flag_1))
 
 
 
@@ -8643,6 +8669,7 @@ def wait_for_db(max_attempts=30, delay=2):
 
 def seed_if_empty():
     Base.metadata.create_all(engine)
+    migrate_revision_condition(engine)
     migrate_storage_locations(engine)
     index_existing_storage_locations()
     with engine.begin() as conn:
@@ -8865,6 +8892,8 @@ def inject_globals():
         "transit_status_label": transit_status_label,
         "producer_type_label": producer_type_label,
         "part_condition_label": part_condition_label,
+        "part_condition_code": part_condition_code,
+        "warehouse_condition_label": warehouse_condition_label,
         "part_seo_name": part_seo_name,
         "safe_photo": safe_photo,
         "parse_media_urls": parse_media_urls,
@@ -11939,6 +11968,7 @@ def create_part():
             gallery_urls = template.showcase_photo_urls or dump_media_urls([template.photo_urls] if template.photo_urls else [])
             has_photo = bool(primary_template_photo(template))
 
+        condition_flag = AVTOPRO_CONDITION_FLAGS.get(request.form.get("part_condition"))
         requested_producer_type = normalize_text(request.form.get("producer_type", "")).strip()
         producer_type = producer_type_label(requested_producer_type or (template.producer_type if template else "OEM"))
         brand_value = normalize_text(request.form.get("brand", "").strip() or (template.brand if template else "")).strip()
@@ -12029,6 +12059,8 @@ def create_part():
             )
             db.add(part)
             action_text = "додано"
+        if condition_flag is not None:
+            part.avtopro_flag_1 = condition_flag
         template_payload = {
             "brand": brand_value,
             "producer_type": producer_type,
@@ -12130,6 +12162,9 @@ def update_part(part_id):
         part.brand = requested_brand
         part.producer_type = requested_type
         part.description = requested_description
+        condition_flag = AVTOPRO_CONDITION_FLAGS.get(request.form.get("part_condition"))
+        if condition_flag is not None:
+            part.avtopro_flag_1 = condition_flag
         part.price_usd = requested_price
         part.qty = requested_qty
         part.in_stock = part.qty > 0
@@ -13824,6 +13859,12 @@ def import_review(session_id):
             part = existing_parts.get(normalize_text(change.part_number or "").strip().upper())
             change.before_name = normalize_text(part.name if part else "").strip()
             change.after_name = normalize_text(payload.get("name") or "").strip()
+            change.before_condition = warehouse_condition_label(part) if part else ""
+            incoming_condition = condition_from_avtopro_flag(payload.get("avtopro_flag_1"))
+            change.after_condition = (
+                {"NEW": "Нове", "USED": "Б/В"}[incoming_condition]
+                if incoming_condition else change.before_condition
+            )
             change.storage_location = payload.get("storage_location") or (part.storage_location if part else "")
         all_changes = db.query(ImportChange).filter(ImportChange.import_session_id == session_id).all()
         summary = {
@@ -13974,7 +14015,8 @@ def confirm_import(session_id):
                 part.has_photo = bool(part_gallery_urls(part))
                 part.brand_export = payload["brand_export"]
                 part.part_number_export = payload["part_number_export"]
-                part.avtopro_flag_1 = payload["avtopro_flag_1"]
+                if payload["avtopro_flag_1"]:
+                    part.avtopro_flag_1 = payload["avtopro_flag_1"]
                 part.avtopro_flag_2 = payload["avtopro_flag_2"]
                 part.avtopro_flag_3 = payload["avtopro_flag_3"]
                 part.avtopro_flag_4 = payload["avtopro_flag_4"]
@@ -14029,14 +14071,26 @@ def export_warehouse(warehouse_id):
     db = SessionLocal()
     try:
         warehouse = db.get(Warehouse, warehouse_id)
-        output = io.StringIO()
-        writer = csv.writer(output, delimiter=";")
-        for p in (
+        if not warehouse:
+            abort(404)
+        parts = (
             db.query(Part)
             .filter(Part.warehouse_id == warehouse_id, Part.is_deleted == False)
             .order_by(Part.part_number.asc())
-            .all()
-        ):
+        )
+        if request.args.get("format") == "avtopro":
+            available = parts.filter(Part.in_stock == True, Part.qty > 0).all()
+            records = avtopro_stock_records(available, include_photos=True)
+            try:
+                payload, _ = build_download_csv(records)
+            except FeedError as error:
+                flash(str(error), "error")
+                return redirect(url_for("warehouse_detail", warehouse_id=warehouse.id))
+            return send_file(io.BytesIO(payload), mimetype="text/csv", as_attachment=True,
+                             download_name=f"{warehouse.name}-avtopro.csv")
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter=";")
+        for p in parts.all():
             template = find_part_template(db, p.part_number)
             export_brand = (template.brand if template and template.brand else p.brand) or ""
             export_name = (template.name if template and template.name else p.name) or ""
@@ -14049,7 +14103,7 @@ def export_warehouse(warehouse_id):
                 export_name,
                 f"{export_price:.0f}",
                 p.qty or 0,
-                p.avtopro_flag_1 or "0",
+                AVTOPRO_CONDITION_FLAGS[part_condition_code(p)],
                 export_photo,
                 p.brand_export or export_brand,
                 p.part_number_export or p.part_number or "",
@@ -15394,6 +15448,22 @@ def admin_avtopro_feeds():
         db.close()
 
 
+def avtopro_stock_records(parts, *, include_photos):
+    # Use the warehouse price and public title in both kinds of Avtopro files.
+    return [{
+        "brand": part.brand_export or part.brand,
+        "code": part.part_number_export or part.part_number,
+        "price": part.price_usd,
+        "qty": int(part.qty or 0),
+        "in_stock": part.in_stock,
+        "deleted": part.is_deleted,
+        "used": part_condition_code(part) == "USED",
+        "restored": part.avtopro_flag_2,
+        "name": part.name,
+        "photos": [absolute_public_url(url) for url in parse_media_urls(part.photo_urls)] if include_photos else [],
+    } for part in parts]
+
+
 @app.route("/feeds/avtopro/<int:warehouse_id>/<token>/prices.csv")
 def avtopro_price_feed(warehouse_id, token):
     db = SessionLocal()
@@ -15408,14 +15478,7 @@ def avtopro_price_feed(warehouse_id, token):
             query = query.filter(Part.warehouse_id == warehouse_id)
         parts = query.order_by(Part.id).all()
         options = avtopro_feed_options(get_api_settings_map(db), warehouse_id)
-        # Preserve each warehouse record's manufacturer and base USD price.
-        # Private description/stock notes never belong in a downloadable price file.
-        records = [{"brand": p.brand_export or p.brand, "code": p.part_number_export or p.part_number,
-                    "price": p.price_usd, "qty": int(p.qty or 0), "in_stock": p.in_stock,
-                    "deleted": p.is_deleted, "used": p.avtopro_flag_1,
-                    "restored": p.avtopro_flag_2, "name": p.name,
-                    "photos": [absolute_public_url(url) for url in parse_media_urls(p.photo_urls)]
-                              if options["include_photos"] else []} for p in parts]
+        records = avtopro_stock_records(parts, include_photos=options["include_photos"])
         try:
             payload, count = build_price_csv(records, **options, price_policy="highest" if warehouse_id == 0 else "strict")
         except FeedError as error:
@@ -15439,7 +15502,7 @@ def avtopro_price_feed(warehouse_id, token):
 from . import marketplaces
 marketplace_models = marketplaces.install(app, sys.modules[__name__])
 
-from .inventory_revision import register_inventory_revision, lock_product_number
+from .inventory_revision import register_inventory_revision, lock_product_number, migrate_revision_condition
 
 RevisionPart, RevisionOperation = register_inventory_revision(sys.modules[__name__])
 

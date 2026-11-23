@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_part_condition_field.html' import condition_field %}
 {% from '_storage_location_field.html' import location_field %}
 {% from '_part_seo_editor.html' import product_seo_editor with context %}
 {% from '_part_media_editor.html' import media_editor %}
@@ -103,6 +104,9 @@
       <label class="field-label">2. Опис</label>
       <input id="create-name" name="name" placeholder="Короткий опис товару" required>
       {{ location_field() }}
+      <div id="create-condition-field"{% if not selected_warehouse %} hidden{% endif %}>
+        {{ condition_field(allow_inference=true, field_id='create-condition') }}
+      </div>
 
       <label class="field-label">3. Кількість, шт.</label>
       <input id="create-qty" type="number" min="0" name="qty" value="0" placeholder="0" required>
@@ -287,6 +291,7 @@
               <h3>{{ clean_text(part.name) }}</h3>
               {{ location_badge(part.storage_location) }}
               <div class="muted">{{ clean_text(part.brand) }}{% if part.brand %} / {% endif %}{{ producer_type_label(part.producer_type) }}</div>
+              <div class="muted">Стан {{ warehouse_condition_label(part) }}</div>
               <div class="muted">Штрихкод: {{ part.barcode or 'ще не згенеровано' }}</div>
               {% if part.description %}
               <div class="muted">{{ clean_text(part.description) }}</div>
@@ -326,6 +331,7 @@
 
             <label class="field-label">2. Опис</label>
             <input name="name" value="{{ clean_text(part.name) }}" required>
+            {{ condition_field(part_condition_code(part)) }}
       {{ location_field(part.storage_location) }}
 
             <label class="field-label">3. Кількість, шт.</label>
@@ -589,6 +595,8 @@ function promptPrintLabels(partId, defaultQty) {
     warehouseNote.innerHTML = isAll
       ? 'Якщо вибрано <strong>Всі товари</strong>, картка буде збережена тільки в базу без залишку на складі.'
       : 'Товар буде додано в базу і одразу записаний у вибраний склад.';
+    document.getElementById('create-condition-field').hidden = isAll;
+    document.getElementById('create-condition').disabled = isAll;
     if (isAll && !qtyInput.value) qtyInput.value = '0';
   }
 

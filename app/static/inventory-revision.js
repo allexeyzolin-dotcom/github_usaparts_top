@@ -11,7 +11,7 @@
   const choice = document.getElementById('revision-choice');
   const pageCards = JSON.parse(document.getElementById('revision-page-cards').textContent);
   let controller, searchTimer, state, busy = false, choiceResolver;
-  const textFields = ['part_number', 'name', 'brand', 'producer_type', 'price_usd', 'barcode',
+  const textFields = ['part_number', 'name', 'brand', 'producer_type', 'part_condition', 'price_usd', 'barcode',
     'warehouse_name', 'location', 'description', 'youtube_url', 'cross_numbers'];
   function requestId() {
     if (crypto.randomUUID) return crypto.randomUUID();

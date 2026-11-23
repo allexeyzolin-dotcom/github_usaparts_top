@@ -212,9 +212,15 @@ class RevisionPublicationTests(unittest.TestCase):
     def test_export_condition_matches_the_existing_storefront_condition(self):
         self.create(part_number="NEW", name="Нова деталь")
         self.create(part_number="USED", name="Вживана деталь")
+        override = self.create(part_number="OVERRIDE", name="Деталь Б/В", part_condition="NEW")
         rows = {row[1]: row for row in self.export_rows()}
         self.assertEqual(rows["NEW"][5], "")
         self.assertEqual(rows["USED"][5], "+")
+        self.assertEqual(rows["OVERRIDE"][5], "")
+        with self.sessions() as db:
+            self.assertEqual(site.part_condition_code(db.get(site.RevisionPart, override["id"])), "NEW")
+            published = db.get(site.Part, self.publication(override["id"])["id"])
+            self.assertEqual(site.part_condition_code(published), "NEW")
 
     def test_missing_brand_is_resolved_from_one_catalog_manufacturer_without_inventory_writes(self):
         counted = self.create(part_number="06G-127-028H", brand="")

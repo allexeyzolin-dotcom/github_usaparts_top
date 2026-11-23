@@ -1,4 +1,5 @@
 {% extends 'base_admin.html' %}
+{% from '_part_condition_field.html' import condition_field %}
 {% block admin_body_class %}inventory-revision-page{% if is_mobile_revision %} revision-mobile-client{% endif %}{% endblock %}
 {% block admin_content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='inventory-revision.css') }}?v=20261117-5">
@@ -79,7 +80,7 @@
         </div>
         <div class="revision-authorship"><span class="revision-author-badge">Додав: {{ item.created_by }}</span>{% if item.updated_by != item.created_by %}<span>Остання перевірка: {{ item.updated_by }}</span>{% endif %}</div>
         <h3>{{ item.name }}</h3>
-        <div class="muted">{{ item.brand }}{% if item.brand %} · {% endif %}{{ item.producer_type }} · ${{ item.price_usd }}</div>
+        <div class="muted">{{ item.brand }}{% if item.brand %} · {% endif %}{{ item.producer_type }} · {{ 'Нове' if item.part_condition == 'NEW' else 'Б/В' }} · ${{ item.price_usd }}</div>
         {% if item.warehouse_name or item.location %}<div class="muted">{{ item.warehouse_name }}{% if item.warehouse_name and item.location %} / {% endif %}{{ item.location }}</div>{% endif %}
         <div class="helper-note">Картка #{{ item.id }} · Перевірено {{ item.verified_label }}</div>
         {% if item.barcode %}<div class="helper-note">Штрихкод: {{ item.barcode }}</div>{% endif %}
@@ -132,6 +133,7 @@
       <label class="revision-wide">Назва товару<input name="name" maxlength="500" required></label>
       <label>Бренд<input name="brand" maxlength="255"></label>
       <label>Тип виробника<input name="producer_type" maxlength="32" value="OEM" list="revision-producer-types"></label>
+      {{ condition_field(allow_inference=true) }}
       <label>Ціна, USD<input name="price_usd" type="number" min="0" max="9999999999.99" step="0.01" value="0" required></label>
       <label>Штрихкод<input name="barcode" maxlength="255" placeholder="Автоматично при збереженні"><span class="helper-note">Якщо поле порожнє, штрихкод присвоїться автоматично.</span></label>
       <label>Склад (назва)<input name="warehouse_name" maxlength="255"></label>
@@ -153,5 +155,5 @@
   <h2 id="revision-choice-title"></h2><p id="revision-choice-text"></p>
   <div id="revision-choice-items"></div><div id="revision-choice-actions" class="revision-dialog-actions"></div>
 </dialog>
-<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261117-5"></script>
+<script defer src="{{ url_for('static', filename='inventory-revision.js') }}?v=20261123-1"></script>
 {% endblock %}

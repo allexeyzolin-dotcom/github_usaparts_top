@@ -260,3 +260,90 @@ class CourierTests(TestCase):
         self.assertEqual(courier.telegram_user(good,"token"),"45")
         self.assertEqual(courier.telegram_user(good,"another"),"")
         self.assertEqual(courier.telegram_user(payload(10),"token"),"")
+
+    def test_pause_is_durable_blocks_setup_and_cycle_and_preserves_phone_queue(self):
+        self.handoff()
+        self.pair()
+        token = "123456789:" + "A" * 35
+        self.admin.post("/admin/courier", data={"action":"bot", "csrf_token":"known", "token":token})
+        with self.db.begin() as db:
+            cfg = courier.config(db)
+            cfg.bot_token = courier.marketplaces.cipher().encrypt(token.encode()).decode()
+            cfg.bot_username, cfg.chat_id, cfg.bot_offset = "delivery_bot", "45", 19
+            epoch, credential = cfg.web_epoch, cfg.bot_token
+            pending = db.get(courier.MODELS.BotSetup, 1)
+            pending.next_try = datetime.utcnow() + timedelta(minutes=15)
+            deadline, pending_credential = pending.next_try, pending.credential
+        for _ in range(2):
+            response = self.admin.post("/admin/courier", data={"action":"bot_pause", "csrf_token":"known", "paused":"1"})
+            self.assertEqual(response.status_code, 302)
+        with patch.object(courier, "_telegram_api") as api:
+            with self.db() as db:
+                self.assertTrue(courier.bot_paused(db))
+                courier.verify_bot_setup(db)
+                cfg = courier.config(db)
+                courier_bot.notices(db, cfg, token)
+                courier_bot.process(db, cfg, token, {"message":{"from":{"id":45},"chat":{"type":"private","id":45},"text":"/start"}})
+                with self.assertRaises(courier.BotPaused):
+                    courier.telegram_api(token, "getMe", db=db)
+            courier_bot.cycle()
+            api.assert_not_called()
+        page = self.admin.get("/admin/courier").text
+        self.assertIn("Бота зупинено", page)
+        self.assertNotIn("location.reload()", page)
+        self.assertNotIn("Наступна перевірка:", page)
+        self.assertEqual(self.phone.get("/courier/list").json["rows"][0]["id"], 1)
+        with self.db() as db:
+            cfg = courier.config(db)
+            self.assertEqual((cfg.bot_token, cfg.chat_id, cfg.bot_offset, cfg.web_epoch), (credential, "45", 19, epoch))
+            pending = db.get(courier.MODELS.BotSetup, 1)
+            self.assertEqual((pending.credential, pending.next_try), (pending_credential, deadline))
+        resumed = self.admin.post("/admin/courier", data={"action":"bot_pause", "csrf_token":"known", "paused":"0"})
+        self.assertEqual(resumed.status_code, 302)
+        with self.db() as db:
+            self.assertFalse(courier.bot_paused(db))
+            self.assertEqual(db.get(courier.MODELS.BotSetup, 1).next_try, deadline)
+
+    def test_pause_stops_a_setup_between_network_requests(self):
+        token = "123456789:" + "A" * 35
+        self.admin.post("/admin/courier", data={"action":"bot", "csrf_token":"known", "token":token})
+        with self.db() as db:
+            def completed_get_me(*args, **kwargs):
+                courier.set_bot_paused(db, True)
+                return {"username":"delivery_bot", "first_name":"Доставка товару"}
+            with patch.object(courier, "_telegram_api", side_effect=completed_get_me) as api:
+                with self.assertRaises(courier.BotPaused):
+                    courier.verify_bot_setup(db)
+                self.assertEqual([call.args[1] for call in api.call_args_list], ["getMe"])
+            self.assertIsNotNone(db.get(courier.MODELS.BotSetup, 1))
+            self.assertIsNone(courier.config(db).bot_token)
+
+    def test_pause_during_poll_keeps_update_unacknowledged_and_resume_retries_saved_setup(self):
+        token = "123456789:" + "A" * 35
+        with self.db.begin() as db:
+            cfg = courier.config(db)
+            cfg.bot_token = courier.marketplaces.cipher().encrypt(token.encode()).decode()
+            cfg.bot_username, cfg.chat_id, cfg.bot_offset = "delivery_bot", "45", 19
+        def completed_poll(*args, **kwargs):
+            with self.db.begin() as db:
+                courier.set_bot_paused(db, True)
+            return [{"update_id":20, "message":{"from":{"id":45},"chat":{"type":"private","id":45},"text":"/start"}}]
+        with patch.object(courier, "_telegram_api", side_effect=completed_poll) as api:
+            courier_bot.cycle()
+        self.assertEqual([call.args[1] for call in api.call_args_list], ["getUpdates"])
+        with self.db.begin() as db:
+            self.assertEqual(courier.config(db).bot_offset, 19)
+            db.add(courier.MODELS.BotSetup(id=1, credential="encrypted-pending", next_try=None))
+        self.admin.post("/admin/courier", data={"action":"bot_pause", "csrf_token":"known", "paused":"0"})
+        with self.db() as db:
+            pending = db.get(courier.MODELS.BotSetup, 1)
+            self.assertEqual(pending.credential, "encrypted-pending")
+            self.assertLess(abs((pending.next_try-datetime.utcnow()).total_seconds()), 5)
+
+    def test_pause_requires_admin_csrf_and_valid_explicit_state(self):
+        self.assertEqual(self.phone.post("/admin/courier",data={"action":"bot_pause","paused":"1"}).status_code,302)
+        self.assertEqual(self.admin.post("/admin/courier",data={"action":"bot_pause","paused":"1"}).status_code,403)
+        self.assertEqual(self.admin.post("/admin/courier",data={"action":"bot_pause","csrf_token":"known","paused":"yes"}).status_code,400)
+        self.admin.post("/admin/courier",data={"action":"bot_pause","csrf_token":"known","paused":["0","1"]})
+        with self.db() as db:
+            self.assertTrue(courier.bot_paused(db))

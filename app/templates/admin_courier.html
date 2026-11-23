@@ -10,8 +10,25 @@
 </div>
 <div class="card stack">
   <h3>Telegram · Доставка товару</h3>
+  <style>
+    .courier-stop-switch{display:flex;align-items:center;gap:12px;cursor:pointer;width:fit-content}
+    .courier-stop-switch input{position:absolute;opacity:0;width:1px;height:1px}
+    .courier-stop-track{width:48px;height:28px;border-radius:20px;background:#b6c6d1;position:relative;flex:none;transition:background .15s}
+    .courier-stop-track::after{content:'';position:absolute;width:22px;height:22px;border-radius:50%;background:#fff;top:3px;left:3px;box-shadow:0 1px 3px #0003;transition:transform .15s}
+    .courier-stop-switch input:checked + .courier-stop-track{background:#b45309}
+    .courier-stop-switch input:checked + .courier-stop-track::after{transform:translateX(20px)}
+    .courier-stop-switch input:focus-visible + .courier-stop-track{outline:3px solid #367baa;outline-offset:3px}
+  </style>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="bot_pause">
+    <input type="hidden" name="paused" value="0">
+    <label class="courier-stop-switch"><input type="checkbox" role="switch" name="paused" value="1" {% if paused %}checked{% endif %} onchange="this.form.requestSubmit()"><span class="courier-stop-track" aria-hidden="true"></span><strong>Зупинити бота</strong></label>
+    <noscript><button class="btn ghost" type="submit">Зберегти стан бота</button></noscript>
+  </form>
+  {% if paused %}<p role="status"><strong>Бота зупинено.</strong> Перевірка підключення, опитування й надсилання повідомлень на паузі. Уже розпочатий запит може завершитися.</p>
+  <p>Пауза зберігається після перезапуску сервера. Щоб відновити роботу, вимкніть «Зупинити бота».</p>{% endif %}
   {% if cfg.bot_username %}<p>Підключено <strong>@{{ cfg.bot_username }}</strong> · {{ 'кур’єра прив’язано' if cfg.chat_id else 'очікує прив’язки кур’єра' }}</p>{% endif %}
-  {% if pending %}
+  {% if pending and not paused %}
   <p role="status">{{ 'Очікує перевірки Telegram. Сторінку можна закрити.' if pending.next_try else 'Потрібно перевірити підключення.' }}
     {{ pending.error }} {% if pending.next_try and pending.error %}Сервер повторить спробу автоматично.{% endif %}</p>
   {% if retry_at %}<p>Наступна перевірка: <strong>{{ retry_at }}</strong> за Києвом. Статус оновиться автоматично; повторно вводити токен не потрібно.</p>{% endif %}

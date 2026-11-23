@@ -6,7 +6,8 @@ import threading
 from sqlalchemy import or_
 
 from . import courier as c
-from .telegram_stock import CommandError, api
+from .telegram_stock import CommandError
+from .courier import telegram_api as api
 
 LOG = logging.getLogger(__name__)
 START_LOCK = threading.Lock()
@@ -64,10 +65,12 @@ def send_list(db, token, chat, archive=False, page=0):
                       "callback_data": "active:0" if archive else "archive:0"}], [app_button()]])
     title = "Архів відправлень" if archive else "До відправки"
     api(token, "sendMessage", {"chat_id": chat, "text": title if rows else title + " · порожньо",
-                              "reply_markup": {"inline_keyboard": buttons}, "protect_content": True})
+                              "reply_markup": {"inline_keyboard": buttons}, "protect_content": True}, db=db)
 
 
 def process(db, cfg, token, update):
+    if c.bot_paused(db):
+        return
     cb = update.get("callback_query") or {}
     message = cb.get("message") or update.get("message") or {}
     chat = message.get("chat") or {}
@@ -80,10 +83,10 @@ def process(db, cfg, token, update):
         cfg.chat_id = identifier
         db.flush()
     if cb:
-        api(token, "answerCallbackQuery", {"callback_query_id": cb["id"]})
+        api(token, "answerCallbackQuery", {"callback_query_id": cb["id"]}, db=db)
     if cfg.chat_id != identifier:
         if cmd.startswith("/start"):
-            api(token, "sendMessage", {"chat_id": user, "text": "Отримайте у менеджера особисте посилання для підключення кур’єра."})
+            api(token, "sendMessage", {"chat_id": user, "text": "Отримайте у менеджера особисте посилання для підключення кур’єра."}, db=db)
         return
     action = cb.get("data", "")
     nav = re.fullmatch(r"(active|archive):([0-9]{1,6})", action)
@@ -97,11 +100,11 @@ def process(db, cfg, token, update):
     dispatch = db.get(c.MODELS.Dispatch, order_id)
     order = db.get(c.SITE.Order, order_id) if dispatch else None
     if not order or (not order.ttn and c.is_closed(order)):
-        api(token, "sendMessage", {"chat_id": user, "text": f"Відправлення №{order_id} більше не активне."})
+        api(token, "sendMessage", {"chat_id": user, "text": f"Відправлення №{order_id} більше не активне."}, db=db)
         return
     data = c.card(db, order, dispatch)
     if match[1] == "order":
-        api(token, "sendMessage", {"chat_id": user, "text": summary(data), "reply_markup": keyboard(data), "protect_content": True})
+        api(token, "sendMessage", {"chat_id": user, "text": summary(data), "reply_markup": keyboard(data), "protect_content": True}, db=db)
         return
     index = int(match[3] or 0)
     if index >= len(data["items"]):
@@ -118,14 +121,16 @@ def process(db, cfg, token, update):
     payload = {"chat_id": user, "reply_markup": {"inline_keyboard": buttons}, "protect_content": True}
     if item["photo"]:
         try:
-            api(token, "sendPhoto", {**payload, "photo": c.SITE.absolute_public_url(item["photo"]), "caption": caption})
+            api(token, "sendPhoto", {**payload, "photo": c.SITE.absolute_public_url(item["photo"]), "caption": caption}, db=db)
             return
         except CommandError:
             pass
-    api(token, "sendMessage", {**payload, "text": caption + "\nФото недоступне."})
+    api(token, "sendMessage", {**payload, "text": caption + "\nФото недоступне."}, db=db)
 
 
 def notices(db, cfg, token):
+    if c.bot_paused(db):
+        return
     O, D = c.SITE.Order, c.MODELS.Dispatch
     rows = (db.query(O, D).join(D, D.order_id == O.id)
             .filter(or_(D.notice_version.is_(None), D.notice_version != "closed"))
@@ -150,14 +155,14 @@ def notices(db, cfg, token):
         payload = {"chat_id": cfg.chat_id, "text": content, "reply_markup": buttons}
         if same_chat:
             try:
-                api(token, "editMessageText", {**payload, "message_id": dispatch.notice_id})
+                api(token, "editMessageText", {**payload, "message_id": dispatch.notice_id}, db=db)
             except CommandError as exc:
                 if "400" not in str(exc):
                     raise
                 # A deleted or no-longer-editable card needs a fresh status message.
                 same_chat = False
         if not same_chat:
-            msg = api(token, "sendMessage", {**payload, "protect_content": True})
+            msg = api(token, "sendMessage", {**payload, "protect_content": True}, db=db)
             dispatch.notice_id = msg["message_id"]
             dispatch.notified_chat = cfg.chat_id
         dispatch.notice_version = state
@@ -166,17 +171,19 @@ def notices(db, cfg, token):
 
 def cycle():
     with c.SITE.SessionLocal() as db:
+        if c.bot_paused(db):
+            return
         c.verify_bot_setup(db)
         cfg = c.config(db)
         db.commit()
-        if not cfg.bot_token:
+        if not cfg.bot_token or c.bot_paused(db):
             return
         token = c.bot_token(cfg)
         updates = api(token, "getUpdates", {"offset": cfg.bot_offset or 0, "limit": 25,
-                      "allowed_updates": ["message", "callback_query"], "timeout": 0})
+                      "allowed_updates": ["message", "callback_query"], "timeout": 0}, db=db)
         for update in updates:
             cfg = c.config(db, True)
-            if token != c.bot_token(cfg):
+            if c.bot_paused(db) or token != c.bot_token(cfg):
                 return
             if update["update_id"] >= (cfg.bot_offset or 0):
                 try:
@@ -200,6 +207,8 @@ def worker():
     while True:
         try:
             cycle()
+            seconds = 8
+        except c.BotPaused:
             seconds = 8
         except Exception as exc:
             # Transport exceptions can contain credentials. Only sanitized API errors reach the cabinet.

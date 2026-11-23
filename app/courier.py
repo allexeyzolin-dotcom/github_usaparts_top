@@ -17,15 +17,41 @@ from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, T
 from sqlalchemy.orm import selectinload
 
 from . import marketplaces, order_tracking
-from .telegram_stock import api as telegram_api, CommandError
+from .telegram_stock import api as _telegram_api, CommandError
 
 SITE = MODELS = None
 LIFETIME = 60 * 60 * 24 * 30
 CANCELLED = {"canceled", "cancelled"}
+BOT_PAUSE_SETTING = "courier_bot_paused"
 
 
 class CourierError(ValueError):
     pass
+
+
+class BotPaused(Exception):
+    """Stop this cycle without treating an operator's pause as a bot failure."""
+
+
+def bot_paused(db):
+    # Query the setting rather than a cached Config object so an in-flight cycle
+    # sees a pause before its next Telegram request.
+    return db.query(SITE.ApiSetting.setting_value).filter_by(setting_key=BOT_PAUSE_SETTING).scalar() == "1"
+
+
+def set_bot_paused(db, paused):
+    db.execute(text("""
+        INSERT INTO api_settings (setting_key, setting_value, updated_at)
+        VALUES (:key, :value, :updated)
+        ON CONFLICT (setting_key) DO UPDATE SET
+            setting_value = excluded.setting_value, updated_at = excluded.updated_at
+    """), {"key": BOT_PAUSE_SETTING, "value": "1" if paused else "0", "updated": datetime.utcnow()})
+
+
+def telegram_api(token, method, payload=None, *, db, **kwargs):
+    if bot_paused(db):
+        raise BotPaused()
+    return _telegram_api(token, method, payload, **kwargs)
 
 
 def digest(value):
@@ -231,6 +257,8 @@ def bot_token(cfg):
 
 def verify_bot_setup(db):
     """Verify the new credential before replacing any connected bot."""
+    if bot_paused(db):
+        return
     now = datetime.utcnow()
     # Setup submissions and the worker acquire locks in the same order.
     cfg = config(db, True)
@@ -240,13 +268,13 @@ def verify_bot_setup(db):
     token = marketplaces.cipher().decrypt(pending.credential.encode()).decode()
     step = "Перевірка бота"
     try:
-        me = telegram_api(token, "getMe", timeout=(8, 65))
+        me = telegram_api(token, "getMe", db=db, timeout=(8, 65))
         step = "Перевірка webhook"
-        if telegram_api(token, "getWebhookInfo", timeout=(8, 30)).get("url"):
+        if telegram_api(token, "getWebhookInfo", db=db, timeout=(8, 30)).get("url"):
             raise CourierError("Цей бот уже використовує webhook іншого сервісу.")
         if me.get("first_name") != "Доставка товару":
             step = "Назва бота"
-            telegram_api(token, "setMyName", {"name": "Доставка товару"})
+            telegram_api(token, "setMyName", {"name": "Доставка товару"}, db=db)
     except (CommandError, CourierError) as exc:
         pending.error = f"{step}. {exc}"
         if isinstance(exc, CourierError) or getattr(exc, "status", 0) in {400, 401, 403, 404}:
@@ -318,7 +346,21 @@ def install(site):
             code = link = ""
             if request.method == "POST":
                 check_admin_csrf()
-                if action in ("web", "tg"):
+                if action == "bot_pause":
+                    values = request.form.getlist("paused")
+                    if not values or any(value not in {"0", "1"} for value in values):
+                        abort(400)
+                    paused = values[-1] == "1"
+                    set_bot_paused(db, paused)
+                    if not paused:
+                        pending = db.query(BotSetup).filter_by(id=1).with_for_update().one_or_none()
+                        if pending and pending.next_try is None:
+                            pending.next_try = datetime.utcnow()
+                    db.commit()
+                    flash("Бота зупинено. Автоматичного відновлення немає." if paused else
+                          "Бота відновлено. Сервер продовжить роботу з урахуванням паузи Telegram.", "success")
+                    return redirect(url_for("admin_courier"))
+                elif action in ("web", "tg"):
                     if action == "tg" and not cfg.bot_username:
                         abort(400)
                     code = secrets.token_urlsafe(18)
@@ -349,7 +391,8 @@ def install(site):
                                     next_try = excluded.next_try, attempts = 0, error = ''
                             """), {"credential": marketplaces.cipher().encrypt(token.encode()).decode(),
                                    "next_try": datetime.utcnow()})
-                            flash("Токен збережено. Сервер перевіряє підключення до Telegram.", "success")
+                            flash("Токен збережено. Перевірка почнеться після відновлення бота." if bot_paused(db) else
+                                  "Токен збережено. Сервер перевіряє підключення до Telegram.", "success")
                     except CourierError as exc:
                         flash(str(exc), "error")
                     db.commit()
@@ -358,9 +401,10 @@ def install(site):
                     abort(400)
             db.commit()
             pending = db.get(BotSetup, 1)
+            paused = bot_paused(db)
             retry_at = (pending.next_try.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Kyiv"))
-                        .strftime("%d.%m.%Y %H:%M:%S") if pending and pending.next_try else "")
-            return render_template("admin_courier.html", cfg=cfg, pending=pending, retry_at=retry_at, code=code, link=link,
+                        .strftime("%d.%m.%Y %H:%M:%S") if pending and pending.next_try and not paused else "")
+            return render_template("admin_courier.html", cfg=cfg, pending=pending, paused=paused, retry_at=retry_at, code=code, link=link,
                 csrf=session.setdefault("marketplace_csrf", secrets.token_urlsafe(32)))
 
     @site.app.post("/admin/orders/<int:order_id>/courier")

@@ -346,7 +346,8 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
     state.modified_at = utc_date(raw.get("date_modified")) or created_at
     state.status = remote_status
     state.payment_status = str((raw.get("payment_data") or {}).get("status") or "")
-    order.prepayment_usd = 0 if state.payment_status == "paid" else total
+    dispatch = db.get(SITE.courier_models.Dispatch, order.id)
+    order.prepayment_usd = dispatch.payment if dispatch else (0 if state.payment_status == "paid" else total)
     state.fingerprint = fingerprint
     state.updated_at = datetime.utcnow()
     order.customer_name = " ".join(str(raw.get(k) or "") for k in
@@ -359,7 +360,11 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
     provider = raw.get("delivery_provider_data") or {}
     order.delivery_type = "nova_poshta" if provider.get("provider") == "nova_poshta" else "pickup"
     order.np_warehouse_ref = str(provider.get("recipient_warehouse_id") or "")
-    order.np_warehouse_label = str(address or "")[:255]
+    if isinstance(address, dict):
+        address_parts = [address.get(k) for k in ("city", "warehouse", "warehouse_name", "street", "house", "apartment")]
+        order.np_warehouse_label = ", ".join(dict.fromkeys(str(v) for v in address_parts if isinstance(v, (str, int)) and v))[:255]
+    else:
+        order.np_warehouse_label = str(address or "")[:255]
     already_delivered = order.status == "done" and order_tracking.serialize(db, order)["promProcessed"]
     apply_imported_waybill(db, order, provider.get("declaration_number"), incoming_modified)
     order.external_status = remote_status
@@ -433,7 +438,9 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
         internal = ACTIVE.get(remote_status, "cancelled")
         if order.status not in {"shipped", "done"} or internal in {"done", "cancelled"}:
             order.status = internal
-        order.is_processing = order.status in {"processing", "shipped"}
+        if dispatch and order.status in order_tracking.UNSHIPPED:
+            order.status = "awaiting_shipment"
+        order.is_processing = order.status in {"processing", "awaiting_shipment", "shipped"}
     except (PromError, ValueError) as error:
         state.issue = str(error)[:500]
         if not order.items:

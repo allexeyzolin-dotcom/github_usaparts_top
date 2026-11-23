@@ -1,0 +1,298 @@
+@font-face {
+  font-family: Manrope;
+  src: url('/static/manrope.ttf');
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4f6f7;
+  color: #122e40;
+  font: 16px/1.5 Manrope,system-ui,sans-serif;
+}
+
+header {
+  background: white;
+  border-bottom: 1px solid #d3dde3;
+}
+
+.bar,main {
+  width: min(100%,46rem);
+  margin: auto;
+  padding: 16px clamp(16px,4vw,28px);
+}
+
+.bar,.heading,.paging {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bar img {
+  width: 116px;
+  height: auto;
+}
+
+.bar span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.heading h1,.heading h2 {
+  margin: 0;
+}
+
+main {
+  padding-bottom: calc(32px + env(safe-area-inset-bottom));
+}
+
+h1 {
+  font-size: clamp(1.65rem,5vw,2.15rem);
+  letter-spacing: -.04em;
+}
+
+h2 {
+  font-size: 1.16rem;
+  margin: 24px 0 10px;
+}
+
+p {
+  margin: 8px 0 16px;
+}
+
+button,.action,input {
+  font: inherit;
+}
+
+button,.action {
+  min-height: 46px;
+  border: 1px solid #c4d2da;
+  border-radius: 9px;
+  background: #fff;
+  color: inherit;
+  font-weight: 750;
+  padding: 9px 15px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: .55;
+}
+
+.quiet {
+  background: transparent;
+  border-color: transparent;
+  color: #235a78;
+}
+
+.primary {
+  background: #14394d;
+  color: white;
+  border-color: #14394d;
+}
+
+.wide {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+}
+
+.action input {
+  width: 1px;
+  height: 1px;
+  opacity: .001;
+}
+
+.action:focus-within,button:focus-visible {
+  outline: 3px solid #367baa;
+  outline-offset: 2px;
+}
+
+nav {
+  margin: 20px 0 16px;
+  display: flex;
+  background: #e3eaee;
+  border-radius: 12px;
+  padding: 4px;
+}
+
+nav button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+}
+
+nav [aria-pressed=true] {
+  background: #fff;
+  box-shadow: 0 1px 4px #233c4c22;
+}
+
+article,.row,#login,#destination {
+  background: white;
+  border: 1px solid #d4dfe5;
+  border-radius: 15px;
+  padding: 16px;
+  margin: 10px 0;
+}
+
+.row {
+  display: grid;
+  text-align: left;
+  width: 100%;
+  gap: 3px;
+}
+
+.row strong {
+  font-size: 1.08rem;
+}
+
+.row small,.meta,dt {
+  color: #4b6373;
+}
+
+.row small {
+  font-weight: 500;
+}
+
+.paging {
+  margin-top: 15px;
+}
+
+dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(95px,auto) 1fr;
+  gap: 9px 14px;
+}
+
+dd {
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+a {
+  color: #175575;
+}
+
+.money {
+  color: #08644e;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 14px;
+}
+
+.item img,.no-photo {
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #eef2f4;
+}
+
+.no-photo {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  text-align: center;
+}
+
+.item strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.item p {
+  margin: 5px 0;
+}
+
+.place {
+  color: #784508;
+  background: #fff3d3;
+  border-radius: 5px;
+  padding: 2px 6px;
+  display: inline-block;
+}
+
+.item details {
+  grid-column: 1/-1;
+  overflow-wrap: anywhere;
+}
+
+.item summary {
+  cursor: pointer;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+input:not([type=file]) {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #a7bcc8;
+  border-radius: 8px;
+}
+
+#pair button {
+  margin-top: 16px;
+}
+
+#notice {
+  background: #e1eef4;
+  padding: 12px 14px;
+  border-radius: 9px;
+}
+
+dialog {
+  width: min(94vw,480px);
+  max-height: 92dvh;
+  overflow: auto;
+  border: 0;
+  border-radius: 17px;
+  padding: 20px;
+  color: inherit;
+}
+
+dialog::backdrop {
+  background: #081c29ba;
+}
+
+video {
+  width: 100%;
+  max-height: 40dvh;
+  background: #192d37;
+  border-radius: 9px;
+}
+
+output {
+  font-size: 1.5rem;
+  letter-spacing: .05em;
+}
+
+#scan {
+  position: sticky;
+  bottom: 10px;
+  box-shadow: 0 4px 12px #1233;
+}
+
+#scan-note {
+  font-size: .92rem;
+}
+
+[hidden] {
+  display: none!important;
+}

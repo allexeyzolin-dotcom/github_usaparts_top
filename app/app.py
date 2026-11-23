@@ -2369,7 +2369,7 @@ def packing_button_view(request_obj: PackingRequest | None, order: Order | None 
     if not request_obj:
         return {
             "tone": "violet",
-            "label": "Поставити на видачу",
+            "label": "Передати на самовивіз",
             "disabled": False,
             "action": "send_to_packing",
         }
@@ -3337,6 +3337,8 @@ def mobile_shipment_requests(db):
     visible_requests = []
     for request_obj in requests:
         source_order = db.get(Order, request_obj.source_order_id) if request_obj.source_order_id else None
+        if source_order and db.get(courier_models.Dispatch, source_order.id):
+            continue
         if source_order and order_group_for_status(source_order.status) == "history":
             continue
         visible_requests.append(request_obj)
@@ -12374,7 +12376,9 @@ def admin_orders():
         prom_waybills = marketplaces.waybill_details(db, orders)
         avtopro_details = avtopro_order_details(db, orders)
         order_cards = [serialize_admin_order(db, order) for order in orders]
+        handed_over = {oid for oid, in db.query(courier_models.Dispatch.order_id)}
         for order_card in order_cards:
+            order_card["courierAssigned"] = order_card["id"] in handed_over
             capture = avtopro_details.get(order_card["id"])
             if capture:
                 order_card["avtoproCapture"] = capture
@@ -12462,6 +12466,13 @@ def admin_packing_create():
         np_payload = packing_np_payload_from_form(request.form)
         control_payment_raw = request.form.get("control_payment_uah", "")
         is_nova_poshta = normalized_delivery_type(delivery_type) == "nova_poshta"
+        if is_nova_poshta:
+            courier.check_admin_csrf()
+            try:
+                courier.amount(control_payment_raw)
+            except courier.CourierError as exc:
+                flash(str(exc), "error")
+                return redirect(url_for("admin_orders"))
         control_payment_uah = 0.0
         if is_nova_poshta and not normalize_text(control_payment_raw or "").strip():
             flash('Для Нової пошти вкажіть суму в полі "Контроль оплати".', "error")
@@ -12486,6 +12497,31 @@ def admin_packing_create():
             db.rollback()
             flash("Додайте товари для збирання", "error")
             return redirect(url_for("admin_orders"))
+        if is_nova_poshta:
+            if len(request_obj.items) != len(items_payload):
+                flash("Деякі позиції відсутні на складі. Перевірте список.", "error")
+                return redirect(url_for("admin_orders"))
+            order = Order(customer_name=request_obj.customer_name, phone=request_obj.phone,
+                          city=request_obj.city, comment=request_obj.comment, total_usd=0, status="new")
+            apply_np_payload_to_order(order, delivery_type, np_payload)
+            for item in request_obj.items:
+                part = db.get(Part, item.part_id)
+                order.items.append(OrderItem(part_id=part.id, part_number=part.part_number, name=part.name,
+                                             qty=item.expected_qty, price_usd=part.price_usd))
+                order.total_usd += part.price_usd * item.expected_qty
+            db.add(order)
+            db.flush()
+            request_obj.source_type = "order"
+            request_obj.source_order_id = order.id
+            try:
+                courier.handoff(db, order, courier.amount(control_payment_raw), request_obj)
+            except courier.CourierError as exc:
+                db.rollback()
+                flash(str(exc), "error")
+                return redirect(url_for("admin_orders"))
+            db.commit()
+            flash("Замовлення передано кур’єру.", "success")
+            return redirect(url_for("admin_orders", selected=order.id))
         flash_news(
             db,
             "packing",
@@ -15147,6 +15183,8 @@ def api_mobile_shipment_submit_ttn(request_id):
 
         order = (db.query(Order).filter_by(id=request_obj.source_order_id).with_for_update().one_or_none()
                  if request_obj.source_order_id else None)
+        if order and db.get(courier_models.Dispatch, order.id):
+            return jsonify({"error": "courier_assigned", "message": "Використайте додаток кур’єра."}), 409
         if order and (order.status not in order_tracking.UNSHIPPED or order.external_status in {"canceled", "cancelled"}):
             return jsonify({"error": "request_not_ready", "message": "Замовлення вже відправлено або закрито."}), 400
         if not order:
@@ -15298,6 +15336,8 @@ def api_mobile_packing_item(request_id):
         request_obj = db.get(PackingRequest, request_id)
         if not request_obj:
             return jsonify({"error": "request_not_found"}), 404
+        if request_obj.source_order_id and db.get(courier_models.Dispatch, request_obj.source_order_id):
+            return jsonify({"error": "courier_assigned"}), 409
         item_id = int(request.form.get("itemId") or 0)
         found_qty = max(int(request.form.get("foundQty") or 0), 0)
         item = db.get(PackingRequestItem, item_id)
@@ -15535,6 +15575,9 @@ transit_delivery_models = transit_delivery.install(sys.modules[__name__])
 from . import order_tracking
 order_tracking_models = order_tracking.install(sys.modules[__name__])
 
+from . import courier, courier_bot
+courier_models = courier.install(sys.modules[__name__])
+
 from . import avtopro_orders
 avtopro_order_details = avtopro_orders.install(sys.modules[__name__])
 
@@ -15548,6 +15591,7 @@ if __name__ == "__main__":
     start_backup_scheduler()
     marketplaces.start_scheduler()
     telegram_stock.start_worker()
+    courier_bot.start()
     transit_delivery.start_worker()
     order_tracking.start_worker()
     merchant_revision.start_worker()

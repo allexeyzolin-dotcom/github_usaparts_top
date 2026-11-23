@@ -1,0 +1,14 @@
+<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#102b3d"><meta name="robots" content="noindex,nofollow"><title>Доставка товару · USAparts</title>
+<link rel="icon" href="/static/favicon-48.png"><link rel="apple-touch-icon" href="/static/favicon-180.png"><link rel="manifest" href="/static/courier.webmanifest"><link rel="stylesheet" href="/static/courier.css?v=1"></head>
+<body><header><div class="bar"><img src="/static/usaparts-logo-transparent.png" alt="USAparts"><span>Кур’єрська доставка</span></div></header>
+<main><p id="notice" role="status" hidden></p>
+<section id="login" hidden><h1>Вхід кур’єра</h1><p>Введіть одноразовий код, отриманий від менеджера.</p><form id="pair"><label>Код підключення<input id="code" required autocomplete="off" autocapitalize="none" spellcheck="false"></label><button class="primary">Підключити телефон</button></form></section>
+<section id="queue" hidden><div class="heading"><h1>Відправлення</h1><button id="refresh" class="quiet">Оновити</button></div>
+<nav aria-label="Відправлення"><button data-tab="active" aria-pressed="true">До відправки</button><button data-tab="archive" aria-pressed="false">Архів</button></nav>
+<div id="rows"></div><div class="paging"><button id="prev" hidden>← Назад</button><button id="next" hidden>Далі →</button></div></section>
+<section id="detail" hidden><button id="back" class="quiet">← До списку</button><h1 id="order-title"></h1><div id="destination"></div><h2>Товари до відправлення</h2><div id="items"></div><button id="scan" class="primary wide">Додати ТТН</button></section></main>
+<dialog id="scanner"><div class="heading"><h2 id="scan-title">Сканування ТТН</h2><button id="close" class="quiet" aria-label="Закрити">Закрити</button></div>
+<p id="identity"></p><video id="video" muted playsinline></video><p id="scan-note" role="status"></p>
+<label id="file-label" class="action">Зчитати з фото<input type="file" accept="image/*" id="barcode-file"></label>
+<form id="confirm" hidden><label>Зчитана ТТН<output id="decoded"></output></label><button class="primary wide">Підтвердити й перенести в архів</button></form><button type="button" id="again" class="quiet">Сканувати ще раз</button></dialog>
+<script src="/static/courier.js?v=1" defer></script></body></html>

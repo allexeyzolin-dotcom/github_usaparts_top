@@ -44,6 +44,7 @@
 </style>
 <div class="orders-page-head workspace-heading">
   <div><span class="workspace-eyebrow">Продажі</span><h2>Замовлення / Видача</h2><p>Комплектування, відправлення та видача в одному місці</p></div>
+  <a class="btn ghost" href="{{ url_for('admin_courier') }}">Кур’єр</a>
   <button class="btn primary" type="button" data-cabinet-open="manual-packing-create">+ Створити видачу</button>
 </div>
 <div class="orders-toolbar">
@@ -68,6 +69,7 @@
         <div class="muted">Пошук починає працювати з 3 символів. Додайте товари в кошик і сформуйте список на видачу.</div>
       </div><button class="btn ghost" type="button" data-cabinet-close>Закрити</button></div>
       <form method="post" action="{{ url_for('admin_packing_create') }}" class="stack" data-picker="parts" data-search-url="{{ url_for('admin_parts_search') }}" data-initial-items="[]" data-delivery-form>
+        <input type="hidden" name="csrf_token" value="{{ marketplace_csrf }}">
         <div class="grid-2">
           <label class="choice"><input type="radio" name="delivery_type" value="pickup" checked> Самовивіз</label>
           <label class="choice"><input type="radio" name="delivery_type" value="nova_poshta"> Нова пошта</label>
@@ -107,7 +109,6 @@
             </div>
             <input name="house" data-role="house-input" placeholder="Будинок">
           </div>
-          <input name="control_payment_uah" type="number" step="0.01" min="0" placeholder="РљРѕРЅС‚СЂРѕР»СЊ РѕРїР»Р°С‚Рё, РіСЂРЅ">
           <div class="control-payment-block" data-control-payment-block>
             <span class="field-label">&#1050;&#1086;&#1085;&#1090;&#1088;&#1086;&#1083;&#1100; &#1086;&#1087;&#1083;&#1072;&#1090;&#1080;, &#1075;&#1088;&#1085;</span>
             <input
@@ -134,7 +135,7 @@
         </div>
 
         <input type="hidden" name="items_json" data-role="items-json">
-        <button class="btn primary" type="submit" data-control-payment-submit>Поставити на видачу</button>
+        <button class="btn primary" type="submit" data-control-payment-submit data-manual-dispatch>Передати на самовивіз</button>
       </form>
     </dialog>
 
@@ -440,6 +441,17 @@
 
           {% if order.status not in ['done', 'cancelled'] %}
           <div class="button-row" style="margin-top:14px">
+            {% if order.courierAssigned %}
+            <strong>Передано на доставку</strong>
+            {% elif order.packingDeliveryType == 'nova_poshta' and order.status != 'shipped' and not order.ttn %}
+            <form method="post" action="{{ url_for('admin_courier_handoff', order_id=order.id) }}" class="control-payment-submit" data-control-payment-form>
+              <input type="hidden" name="csrf_token" value="{{ marketplace_csrf }}">
+              <label class="field-label">Контроль оплати, грн
+                <input name="control_payment_uah" type="number" step="0.01" min="0" max="9999999999.99" inputmode="decimal" required data-control-payment-input placeholder="0, якщо оплачено">
+              </label>
+              <button class="btn primary" type="submit" data-control-payment-submit disabled>Передати на доставку</button>
+            </form>
+            {% else %}
             <form id="order-packing-form-{{ order.id }}" method="post" action="{% if order.packingButton.action == 'send_to_order' and order.packingRequestId %}{{ url_for('admin_packing_send_to_order', request_id=order.packingRequestId) }}{% else %}{{ url_for('admin_order_send_to_packing', order_id=order.id) }}{% endif %}" class="{% if order.packingButton.action == 'send_to_order' and order.packingRequestId and order.packingDeliveryType == 'nova_poshta' %}control-payment-submit{% endif %}" data-control-payment-form>
               {% if order.packingButton.action == 'send_to_order' and order.packingRequestId and order.packingDeliveryType == 'nova_poshta' %}
               <input
@@ -457,6 +469,7 @@
               <button class="btn packing-btn {{ order.packingButton.tone }}" type="submit" {% if order.packingButton.disabled %}disabled{% endif %}>{{ order.packingButton.label }}</button>
               {% endif %}
             </form>
+            {% endif %}
           </div>
           {% endif %}
 
@@ -613,7 +626,7 @@ function cancelOrder(orderId) {
     const forceDisabled = button.dataset.forceDisabled === '1';
 
     input.classList.toggle('is-invalid', normalized !== '' && !isValid);
-    button.disabled = forceDisabled || !isValid;
+    button.disabled = forceDisabled || !isValid || !input.validity.valid;
   }
 
   function initStandaloneControlPaymentForm(form) {
@@ -794,6 +807,7 @@ document.querySelectorAll('button[onclick^="togglePanel(\'order-edit-"]').forEac
 
       controlPaymentInput.classList.toggle('is-invalid', isNovaPoshta && normalized !== '' && !isValid);
       controlPaymentButtons.forEach((button) => {
+        if (button.hasAttribute('data-manual-dispatch')) button.textContent = isNovaPoshta ? 'Передати на доставку' : 'Передати на самовивіз';
         if (button.dataset.forceDisabled === '1') {
           button.disabled = true;
           return;

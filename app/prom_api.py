@@ -111,6 +111,24 @@ class PromClient:
             cursor = next_cursor
         raise PromError("Забагато сторінок Prom за один обмін. Зменшіть період імпорту")
 
+    def order(self, identifier):
+        identifier = int(identifier)
+        order = self.request("GET", f"/orders/{identifier}").get("order")
+        if not isinstance(order, dict) or str(order.get("id")) != str(identifier):
+            raise PromError("Prom не повернув запитане замовлення")
+        if not isinstance(order.get("delivery_provider_data") or {}, dict):
+            raise PromError("Prom повернув некоректні дані доставки")
+        return order
+
+    def save_waybill(self, identifier, number):
+        result = self.request("POST", "/delivery/save_declaration_id", payload={
+            "order_id": int(identifier),
+            "declaration_id": number,
+            "delivery_type": "nova_poshta",
+        })
+        if result.get("status") != "success" or result.get("errors"):
+            raise PromError("Prom відхилив ТТН. Перевірте номер і дані доставки замовлення")
+
     def product(self, identifier):
         data = self.request("GET", f"/products/{int(identifier)}")
         if not isinstance(data.get("product"), dict):

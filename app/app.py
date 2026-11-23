@@ -12371,6 +12371,7 @@ def admin_orders():
         orders = db.query(Order).order_by(desc(Order.created_at)).all()
         order_tracking.prime_cache(db, orders)
         prom_stock = marketplaces.prom_order_stock_details(db, orders)
+        prom_waybills = marketplaces.waybill_details(db, orders)
         avtopro_details = avtopro_order_details(db, orders)
         order_cards = [serialize_admin_order(db, order) for order in orders]
         for order_card in order_cards:
@@ -12381,6 +12382,7 @@ def admin_orders():
                 order_card["avtoproReview"] = review
                 if review and order_card["group"] != "history":
                     order_card["hasIssue"] = True
+            order_card["promWaybill"] = prom_waybills.get(order_card["id"], {})
             detail = prom_stock.get(order_card["id"])
             if detail:
                 order_card["promStock"] = detail
@@ -12442,7 +12444,9 @@ def admin_orders_tracking_status():
     with SessionLocal() as db:
         orders = db.query(Order).filter(Order.id.in_([int(value) for value in ids])).all() if ids else []
         order_tracking.prime_cache(db, orders)
+        prom_waybills = marketplaces.waybill_details(db, orders)
         response = jsonify({"orders": [{"id": order.id, "group": order_group_for_status(order.status), "orderStatus": order.status,
+                                      "promWaybill": prom_waybills.get(order.id),
                                       **order_tracking.serialize(db, order)} for order in orders]})
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -13058,17 +13062,26 @@ def admin_order_update(order_id):
         else:
             order.prepayment_usd = 0
         new_ttn = order_tracking.number(request.form.get("ttn"))
-        ttn_changed = bool(new_ttn and new_ttn != order_tracking.number(order.ttn))
+        previous_ttn = order_tracking.number(order.ttn)
+        ttn_changed = bool(new_ttn and new_ttn != previous_ttn)
         if ttn_changed and not capabilities["canDirectTtnEdit"]:
             flash("ТТН можна змінити в незакритому замовленні з доставкою Новою поштою.", "error")
             return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
         if ttn_changed and not order_tracking.valid_number(new_ttn):
             flash("ТТН Нової пошти повинна містити 14 цифр.", "error")
             return redirect(url_for("admin_orders", group=order_group_for_status(order.status)))
+        send_to_prom = (order.external_source == "prom" and capabilities["canDirectTtnEdit"]
+                        and order_tracking.valid_number(new_ttn))
+        if send_to_prom:
+            expected = session.get("marketplace_csrf", "")
+            if not expected or not secrets.compare_digest(expected.encode(), request.form.get("csrf_token", "").encode()):
+                abort(403)
         if ttn_changed:
             order_tracking.set_waybill(order, new_ttn)
             queue_telegram_message(db, build_order_ttn_telegram_message(order, new_ttn))
             flash_news(db, "telegram", "ТТН передано в Telegram", f"Замовлення #{order.id}: {new_ttn}.", "info")
+        if send_to_prom:
+            marketplaces.queue_waybill(db, order, previous_ttn)
 
         order_tracking.mark_shipped(db, order, now())
         if order.status in {"cancelled", "done"}:

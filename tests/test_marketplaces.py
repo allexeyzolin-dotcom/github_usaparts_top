@@ -145,6 +145,105 @@ class MarketplaceTests(unittest.TestCase):
             self.assertTrue(order.stock_reserved)
         self.assertEqual(self.part_qty(), 2)
 
+    def submit_waybill(self, number, *, authenticated_form=True):
+        self.login()
+        self.client.get("/admin/orders")
+        with self.client.session_transaction() as state:
+            token = state["marketplace_csrf"] if authenticated_form else "invalid"
+        return self.client.post("/admin/orders/1/update", data={"ttn": number, "csrf_token": token})
+
+    def test_admin_waybill_retries_and_verifies_without_duplicate_writes(self):
+        old, desired = "20450000000001", "20450000000002"
+        row = self.raw(status="received")
+        row["delivery_provider_data"]["declaration_number"] = old
+        self.assertEqual(self.process(row), "created")
+        self.assertEqual(self.submit_waybill(desired, authenticated_form=False).status_code, 403)
+        self.assertEqual(self.submit_waybill(desired).status_code, 302)
+        self.assertEqual(self.submit_waybill(desired).status_code, 302)
+        self.assertIn("ТТН очікує передачі на Prom", self.client.get("/admin/orders?selected=1").text)
+
+        first_run = datetime.utcnow() + timedelta(seconds=1)
+        row["date_modified"] = first_run.isoformat()
+        self.process(row)
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.Order, 1).ttn, desired)
+            self.assertEqual(db.get(mp.MODELS.Waybill, 1).previous_number, old)
+            self.assertEqual(db.query(mp.MODELS.Waybill).count(), 1)
+
+        transport = Mock()
+        transport.request.side_effect = [
+            Mock(status_code=503),
+            Mock(status_code=200, **{"json.return_value": {"order": copy.deepcopy(row)}}),
+            Mock(status_code=200, **{"json.return_value": {"status": "success"}}),
+            Mock(status_code=200, **{"json.return_value": {"order": copy.deepcopy(row)}}),
+        ]
+        client = PromClient("FAKE_TOKEN_FOR_LOCAL_TESTS_123456", transport=transport)
+        with patch.object(mp, "PromClient", return_value=client):
+            mp.sync_one_waybill(first_run)
+            mp.sync_one_waybill(first_run + timedelta(seconds=10))
+            self.assertEqual(transport.request.call_count, 1)
+            mp.sync_one_waybill(first_run + timedelta(seconds=30))
+        with self.sessions() as db:
+            job = db.get(mp.MODELS.Waybill, 1)
+            self.assertEqual((job.status, job.attempts), ("pending", 2))
+            self.assertEqual(db.get(site.Order, 1).ttn, desired)
+
+        confirmed = copy.deepcopy(row)
+        confirmed["delivery_provider_data"]["declaration_number"] = desired
+        confirmed["date_modified"] = (first_run + timedelta(seconds=85)).isoformat()
+        transport.request.side_effect = None
+        transport.request.return_value = Mock(status_code=200, **{"json.return_value": {"order": confirmed}})
+        with patch.object(mp, "PromClient", return_value=client):
+            mp.sync_one_waybill(first_run + timedelta(seconds=90))
+            mp.sync_one_waybill(first_run + timedelta(seconds=100))
+        writes = [call for call in transport.request.call_args_list if call.args[0] == "POST"]
+        self.assertEqual(len(writes), 1)
+        self.assertTrue(writes[0].args[1].endswith("/delivery/save_declaration_id"))
+        self.assertEqual(writes[0].kwargs["json"], {
+            "order_id": row["id"], "declaration_id": desired, "delivery_type": "nova_poshta",
+        })
+        result = self.client.get("/admin/orders/tracking-status?id=1").json["orders"][0]
+        self.assertEqual(result["promWaybill"], {"label": "ТТН передано на Prom", "error": ""})
+
+        # A stale snapshot must not undo a TTN confirmed by a newer readback.
+        row["date_modified"] = (first_run + timedelta(seconds=40)).isoformat()
+        self.process(row)
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.Order, 1).ttn, desired)
+        row["date_modified"] = (first_run + timedelta(seconds=120)).isoformat()
+        self.process(row)
+        with self.sessions() as db:
+            self.assertEqual(db.get(site.Order, 1).ttn, old)
+        self.assertEqual(self.part_qty(), 2)
+
+    def test_waybill_conflict_is_visible_and_never_replaces_prom_number(self):
+        self.process(self.raw(status="received"))
+        self.assertEqual(self.submit_waybill("20450000000002").status_code, 302)
+        remote = self.raw(status="received")
+        remote["delivery_provider_data"]["declaration_number"] = "20450000000003"
+        client = Mock()
+        client.order.return_value = remote
+        clock = datetime.utcnow() + timedelta(seconds=1)
+        with patch.object(mp, "PromClient", return_value=client):
+            mp.sync_one_waybill(clock)
+            mp.sync_one_waybill(clock + timedelta(hours=1))
+        client.save_waybill.assert_not_called()
+        self.assertEqual(client.order.call_count, 1)
+        result = self.client.get("/admin/orders/tracking-status?id=1").json["orders"][0]
+        self.assertIn("уже інша ТТН", result["promWaybill"]["error"])
+        self.assertEqual(result["ttn"], "20450000000002")
+
+    def test_cancelled_waybill_is_never_sent(self):
+        self.process(self.raw(status="received"))
+        self.assertEqual(self.submit_waybill("20450000000002").status_code, 302)
+        with self.sessions.begin() as db:
+            db.get(site.Order, 1).status = "cancelled"
+        with patch.object(mp, "PromClient") as client:
+            mp.sync_one_waybill(datetime.utcnow() + timedelta(seconds=1))
+            client.assert_not_called()
+        with self.sessions() as db:
+            self.assertEqual(db.get(mp.MODELS.Waybill, 1).status, "blocked")
+
     def test_cancel_releases_only_our_reservation_once(self):
         row = self.raw()
         self.process(row)

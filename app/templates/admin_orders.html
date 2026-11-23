@@ -463,10 +463,17 @@
           {% if order.canDirectTtnEdit or order.ttn %}
           <form method="post" action="{{ url_for('admin_order_update', order_id=order.id) }}" class="stack order-ttn-form" style="margin-top:14px">
             <input type="hidden" name="prepayment_usd" value="{{ order.prepaymentUsd or 0 }}">
+            {% if order.externalSource == 'prom' %}<input type="hidden" name="csrf_token" value="{{ marketplace_csrf }}">{% endif %}
             <label class="stack field-label">ТТН Нової пошти<input name="ttn" value="{{ order.ttn or '' }}" data-saved-ttn="{{ order.ttn or '' }}" placeholder="14 цифр" inputmode="numeric" pattern="(?:[0-9] *){14}" {% if not order.canDirectTtnEdit %}readonly{% endif %}></label>
             <div class="muted" data-ttn-status>{{ order.tracking.status or 'Очікує перевірки' }}</div>
             <div class="muted" data-ttn-checked>{{ ('Перевірено: ' ~ order.tracking.checkedAt ~ ' · Київ') if order.tracking.checkedAt else 'Перша перевірка — автоматично протягом 5 хвилин.' }}</div>
             <div class="ttn-error" data-ttn-error {% if not order.tracking.error %}hidden{% endif %}>{{ order.tracking.error }}</div>
+            {% if order.externalSource == 'prom' %}
+            <div role="status">
+              <div class="muted" data-prom-waybill-label>{{ order.promWaybill.label or '' }}</div>
+              <div class="ttn-error" data-prom-waybill-error {% if not order.promWaybill.error %}hidden{% endif %}>{{ order.promWaybill.error or '' }}</div>
+            </div>
+            {% endif %}
             <div class="button-row">
               {% if order.canDirectTtnEdit %}<button class="btn ghost" type="submit">Зберегти ТТН</button>{% endif %}
               {% if order.ttn and order.status != 'cancelled' %}
@@ -520,7 +527,7 @@
   </section>
   {% endif %}
 </div>
-<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261121-2"></script>
+<script defer src="{{ url_for('static', filename='orders-workspace.js') }}?v=20261123-3"></script>
 
 <div class="payment-modal hidden" id="control-payment-modal" aria-hidden="true">
   <div class="payment-modal__backdrop" data-control-payment-close></div>

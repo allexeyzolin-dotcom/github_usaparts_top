@@ -199,6 +199,112 @@ def prom_order_stock_details(db, orders):
     return details
 
 
+def queue_waybill(db, order, previous_number):
+    if order.external_source != "prom" or not (order.external_order_id or "").isdigit():
+        return
+    job = db.get(MODELS.Waybill, order.id)
+    if job and job.number == order.ttn and job.status != "blocked":
+        return
+    if job is None:
+        job = MODELS.Waybill(order_id=order.id, previous_number=previous_number)
+        db.add(job)
+    elif job.status == "confirmed" or job.number != previous_number:
+        job.previous_number = previous_number
+    job.number = order.ttn
+    job.status = "pending"
+    job.attempts = 0
+    job.next_attempt_at = datetime.utcnow()
+    job.confirmed_modified_at = None
+    job.error = ""
+
+
+def apply_imported_waybill(db, order, number, modified_at):
+    job = db.get(MODELS.Waybill, order.id)
+    if job and job.number == order.ttn:
+        if job.status != "confirmed":
+            return
+        if job.confirmed_modified_at and (not modified_at or modified_at <= job.confirmed_modified_at):
+            return
+    order_tracking.set_waybill(order, number)
+
+
+def waybill_details(db, orders):
+    numbers = {order.id: order.ttn for order in orders if order.external_source == "prom" and order.ttn}
+    ids = list(numbers)
+    details = {}
+    for offset in range(0, len(ids), 500):
+        for job in db.query(MODELS.Waybill).filter(MODELS.Waybill.order_id.in_(ids[offset:offset + 500])):
+            if numbers[job.order_id] != job.number:
+                continue
+            label = {
+                "confirmed": "ТТН передано на Prom",
+                "blocked": "Передача ТТН на Prom потребує перевірки",
+            }.get(job.status, "Повторимо передачу ТТН на Prom" if job.error else "ТТН очікує передачі на Prom")
+            details[job.order_id] = {"label": label, "error": job.error}
+    return details
+
+
+def sync_one_waybill(now):
+    with SITE.SessionLocal() as db:
+        pending = (
+            db.query(SITE.Order, MODELS.Waybill)
+            .join(MODELS.Waybill, MODELS.Waybill.order_id == SITE.Order.id)
+            .filter(MODELS.Waybill.status == "pending", MODELS.Waybill.next_attempt_at <= now)
+            .order_by(MODELS.Waybill.next_attempt_at, SITE.Order.id)
+            .with_for_update(of=SITE.Order, skip_locked=True)
+            .first()
+        )
+        if pending is None:
+            return
+        order, job = pending
+        if order.ttn != job.number or order.external_source != "prom" or not (order.external_order_id or "").isdigit():
+            job.status = "blocked"
+            job.error = "Дані замовлення змінилися. Перевірте ТТН."
+        elif order.status == "cancelled" or order.external_status in {"canceled", "cancelled"}:
+            job.status = "blocked"
+            job.error = "Замовлення скасовано."
+        else:
+            client = None
+            try:
+                client = PromClient(token(db))
+                send_waybill(client, order, job)
+            except PromError as error:
+                job.attempts += 1
+                job.next_attempt_at = now + timedelta(seconds=min(30 * 2 ** min(job.attempts - 1, 6), 1800))
+                job.error = str(error)
+            finally:
+                if client:
+                    client.close()
+        db.commit()
+
+
+def send_waybill(client, order, job):
+    remote = client.order(order.external_order_id)
+    delivery = remote.get("delivery_provider_data") or {}
+    remote_number = order_tracking.number(delivery.get("declaration_number"))
+    if remote_number != job.number:
+        if remote.get("status") in {"canceled", "cancelled", "delivered"}:
+            job.status = "blocked"
+            job.error = "Замовлення на Prom уже закрите."
+            return
+        if delivery.get("provider") not in {None, "", "nova_poshta"}:
+            job.status = "blocked"
+            job.error = "У замовленні Prom вказано іншу службу доставки."
+            return
+        if remote_number and remote_number != job.previous_number:
+            job.status = "blocked"
+            job.error = "У замовленні на Prom уже інша ТТН. Звірте номер у кабінеті Prom."
+            return
+        client.save_waybill(order.external_order_id, job.number)
+        remote = client.order(order.external_order_id)
+        delivery = remote.get("delivery_provider_data") or {}
+        if order_tracking.number(delivery.get("declaration_number")) != job.number:
+            raise PromError("Номер ще не підтвердився в замовленні Prom")
+    job.confirmed_modified_at = utc_date(remote.get("date_modified")) or datetime.utcnow()
+    job.status = "confirmed"
+    job.error = ""
+
+
 def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
     identifier = str(raw.get("id") or "")
     if not identifier.isdigit():
@@ -255,7 +361,7 @@ def process_order(db, raw, *, retry=False, adopt=False, confirm_return=False):
     order.np_warehouse_ref = str(provider.get("recipient_warehouse_id") or "")
     order.np_warehouse_label = str(address or "")[:255]
     already_delivered = order.status == "done" and order_tracking.serialize(db, order)["promProcessed"]
-    order_tracking.set_waybill(order, provider.get("declaration_number"))
+    apply_imported_waybill(db, order, provider.get("declaration_number"), incoming_modified)
     order.external_status = remote_status
     order.updated_at = datetime.utcnow()
     state.issue = ""
@@ -640,6 +746,10 @@ def kick(kind="sync"):
 def scheduler_loop():
     while True:
         try:
+            sync_one_waybill(datetime.utcnow())
+        except Exception:
+            SITE.app.logger.warning("Prom waybill synchronization failed")
+        try:
             with SITE.SessionLocal() as db:
                 enabled = setting(db, "prom_auto") == "1"
                 interval = max(120, min(3600, int(setting(db, "prom_interval", "120"))))
@@ -711,6 +821,17 @@ def install(app, site):
         modified_at = Column(DateTime, nullable=True)
         updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+    class Waybill(site.Base):
+        __tablename__ = "prom_waybills"
+        order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), primary_key=True)
+        number = Column(String(14), nullable=False)
+        previous_number = Column(String(64), nullable=False, default="")
+        status = Column(String(16), nullable=False, index=True, default="pending")
+        attempts = Column(Integer, nullable=False, default=0)
+        next_attempt_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+        confirmed_modified_at = Column(DateTime)
+        error = Column(Text, nullable=False, default="")
+
     class Event(site.Base):
         __tablename__ = "marketplace_events"
         id = Column(Integer, primary_key=True)
@@ -732,7 +853,7 @@ def install(app, site):
         started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
         finished_at = Column(DateTime, nullable=True)
 
-    MODELS = SimpleNamespace(Link=Link, OrderState=OrderState, Event=Event, Run=Run)
+    MODELS = SimpleNamespace(Link=Link, OrderState=OrderState, Waybill=Waybill, Event=Event, Run=Run)
 
     @app.template_filter("mp_time")
     def marketplace_time(value):

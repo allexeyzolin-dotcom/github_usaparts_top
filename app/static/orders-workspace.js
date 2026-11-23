@@ -247,7 +247,14 @@
           if (checked) checked.textContent = item.checkedAt ? `Перевірено: ${item.checkedAt} · Київ` : 'Перша перевірка — автоматично протягом 5 хвилин.';
           const error = card.querySelector('[data-ttn-error]');
           if (error) {error.textContent = item.error || ''; error.hidden = !item.error;}
-          card.dataset.orderIssue = card.dataset.packingIssue === '1' || item.attention ? '1' : '0';
+          const promLabel = card.querySelector('[data-prom-waybill-label]');
+          const promError = card.querySelector('[data-prom-waybill-error]');
+          if (promLabel) promLabel.textContent = item.promWaybill?.label || '';
+          if (promError) {
+            promError.textContent = item.promWaybill?.error || '';
+            promError.hidden = !item.promWaybill?.error;
+          }
+          card.dataset.orderIssue = card.dataset.packingIssue === '1' || item.attention || item.promWaybill?.error ? '1' : '0';
         }
       }
       label.textContent = normalLabel;

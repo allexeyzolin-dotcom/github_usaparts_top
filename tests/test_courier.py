@@ -234,6 +234,22 @@ class CourierTests(TestCase):
                 self.assertIn("Перевірка webhook", db.get(courier.MODELS.BotSetup, 1).error)
                 self.assertEqual(courier.config(db).bot_token, "existing-encrypted-credential")
 
+    def test_telegram_retry_after_overrides_long_local_backoff(self):
+        token = "123456789:" + "A" * 35
+        self.admin.post("/admin/courier", data={"action":"bot", "csrf_token":"known", "token":token})
+        with self.db.begin() as db:
+            db.get(courier.MODELS.BotSetup, 1).attempts = 5
+        error = courier.CommandError("Telegram не підтвердив запит (код 429)")
+        error.status, error.retry_after = 429, 32
+        with patch.object(courier, "telegram_api", side_effect=error):
+            with self.db() as db:
+                courier.verify_bot_setup(db)
+                pending = db.get(courier.MODELS.BotSetup, 1)
+                self.assertEqual(pending.attempts, 6)
+                delay = (pending.next_try - datetime.utcnow()).total_seconds()
+                self.assertGreater(delay, 32)
+                self.assertLess(delay, 35)
+
     def test_telegram_signed_launch(self):
         def payload(stamp):
             fields={"auth_date":str(stamp),"user":json.dumps({"id":45})}

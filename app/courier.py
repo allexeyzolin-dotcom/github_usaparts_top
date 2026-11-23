@@ -248,7 +248,8 @@ def verify_bot_setup(db):
             pending.next_try = None
         else:
             pending.attempts += 1
-            retry = max(30 * 2 ** min(pending.attempts, 5), int(getattr(exc, "retry_after", 0) or 0))
+            retry_after = int(getattr(exc, "retry_after", 0) or 0)
+            retry = retry_after if retry_after > 0 else 30 * 2 ** min(pending.attempts, 5)
             pending.next_try = datetime.utcnow() + timedelta(seconds=retry + 2)
         db.commit()
         return

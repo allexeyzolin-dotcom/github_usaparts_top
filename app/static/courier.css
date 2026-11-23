@@ -147,7 +147,8 @@ article,.row,#login,#destination {
   display: grid;
   text-align: left;
   width: 100%;
-  gap: 3px;
+  gap: 10px;
+  overflow-wrap: anywhere;
 }
 
 .row strong {
@@ -160,6 +161,39 @@ article,.row,#login,#destination {
 
 .row small {
   font-weight: 500;
+}
+
+.row-items,.row-item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.row-items {
+  gap: 10px;
+}
+
+.row-item + .row-item {
+  border-top: 1px solid #e3eaee;
+  padding-top: 10px;
+}
+
+.row-item-oem {
+  font-size: .94rem;
+  font-weight: 750;
+}
+
+.row-item-name,.row-item-description {
+  color: #4b6373;
+  font-size: .9rem;
+  font-weight: 500;
+}
+
+.row-item-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 
 .paging {

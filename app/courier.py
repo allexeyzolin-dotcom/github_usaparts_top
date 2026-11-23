@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from flask import abort, flash, jsonify, redirect, render_template, request, session, url_for
 from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Text, text
+from sqlalchemy.orm import selectinload
 
 from . import marketplaces, order_tracking
 from .telegram_stock import api as telegram_api, CommandError
@@ -98,16 +99,20 @@ def handoff(db, order, payment, packing=None):
     SITE.flash_news(db, "orders", "Передано на доставку", f"Замовлення #{order.id} передано кур’єру.", "success")
 
 
+def item_summary(item, part):
+    return {"oem": (part.part_number if part else "") or item.part_number,
+            "name": item.name or (part.name if part else ""),
+            "description": (part.description or "") if part else "",
+            "qty": item.qty}
+
+
 def item_card(db, item):
     part = db.get(SITE.Part, item.part_id) if item.part_id else None
     gallery = SITE.part_gallery_urls(part)
     photo = gallery[0] if gallery else ""
     if photo and not (photo.startswith("/") and not photo.startswith("//") or urlsplit(photo).scheme in ("https", "http")):
         photo = ""
-    return {"oem": (part.part_number if part else "") or item.part_number,
-            "name": item.name or (part.name if part else ""),
-            "description": (part.description or "") if part else "",
-            "qty": item.qty, "photo": photo,
+    return {**item_summary(item, part), "photo": photo,
             "warehouse": part.warehouse.name if part and part.warehouse else "",
             "location": (part.storage_location or "") if part else ""}
 
@@ -404,9 +409,13 @@ def install(site):
         page = max(1, min(request.args.get("page", 1, type=int), 100000))
         with site.SessionLocal() as db:
             csrf = auth(db)
-            rows = queue(db, archived).offset((page-1)*25).limit(26).all()
+            rows = queue(db, archived).options(selectinload(site.Order.items)).offset((page-1)*25).limit(26).all()
+            part_ids = {item.part_id for order, _ in rows[:25] for item in order.items if item.part_id}
+            parts = {part.id: part for part in db.query(site.Part).filter(site.Part.id.in_(part_ids)).all()} if part_ids else {}
             return jsonify(csrf=csrf, more=len(rows)>25, rows=[{"id": o.id, "name": o.customer_name,
-                "city": o.city, "qty": sum(i.qty for i in o.items), "ttn": o.ttn} for o, _ in rows[:25]])
+                "city": o.city, "qty": sum(i.qty for i in o.items), "ttn": o.ttn,
+                "items": [item_summary(i, parts.get(i.part_id)) for i in sorted(o.items, key=lambda i: i.id)]}
+                for o, _ in rows[:25]])
 
     @site.app.route("/courier/orders/<int:order_id>", methods=["GET", "POST"])
     def courier_detail(order_id):

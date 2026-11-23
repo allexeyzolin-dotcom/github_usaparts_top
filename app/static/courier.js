@@ -31,8 +31,20 @@
     document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
     const rows = data.rows.map(r => {
       const btn = node('button', '', 'row');
-      btn.append(node('strong','№' + r.id + ' · ' + (r.name || 'Отримувача не вказано')),
-        node('small',[r.city, r.qty + ' шт.', r.ttn && 'ТТН ' + r.ttn].filter(Boolean).join(' · ')));
+      btn.append(node('strong','№' + r.id + ' · ' + (r.name || 'Отримувача не вказано')));
+      const items = node('span', '', 'row-items');
+      for (const item of r.items || []) {
+        const line = node('span', '', 'row-item');
+        line.append(node('span', 'OEM ' + (item.oem || 'не вказано') + ' · ' + item.qty + ' шт.', 'row-item-oem'),
+          node('span', item.name || 'Товар без назви', 'row-item-name'));
+        if (item.description && item.description !== item.name) {
+          line.append(node('span', item.description, 'row-item-description'));
+        }
+        items.append(line);
+      }
+      if (items.childElementCount) btn.append(items);
+      else btn.append(node('small', r.qty + ' шт.'));
+      if (r.ttn) btn.append(node('small', 'ТТН ' + r.ttn));
       btn.onclick = () => openCard(r.id).catch(e => notice(e.message));
       return btn;
     });

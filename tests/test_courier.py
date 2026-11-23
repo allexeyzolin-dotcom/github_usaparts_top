@@ -160,6 +160,20 @@ class CourierTests(TestCase):
             self.assertEqual(api.call_args.args[1],"editMessageText")
             self.assertIn("Архів",api.call_args.args[2]["text"])
 
+    def test_connect_named_bot_and_keep_credential_private(self):
+        token = "123456789:" + "A" * 35
+        with patch.object(courier, "telegram_api", side_effect=[
+            {"username":"USAparts_delivery_bot","first_name":"Доставка товару"}, {"url":""}
+        ]) as api:
+            result = self.admin.post("/admin/courier",data={"action":"bot","csrf_token":"known","token":token})
+        self.assertIn("@USAparts_delivery_bot",result.text)
+        self.assertNotIn(token,result.text)
+        self.assertEqual([call.args[1] for call in api.call_args_list], ["getMe", "getWebhookInfo"])
+        with self.db() as db:
+            cfg = courier.config(db)
+            self.assertNotIn(token,cfg.bot_token)
+            self.assertEqual(courier.bot_token(cfg),token)
+
     def test_telegram_signed_launch(self):
         def payload(stamp):
             fields={"auth_date":str(stamp),"user":json.dumps({"id":45})}

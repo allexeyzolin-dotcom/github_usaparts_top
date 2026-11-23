@@ -286,18 +286,24 @@ def install(site):
                             raise CourierError("Перевірте токен BotFather.")
                         if token == site.telegram_settings(db)["bot_token"]:
                             raise CourierError("Вкажіть окремого бота для кур’єра.")
+                        step = "Перевірка бота"
                         me = telegram_api(token, "getMe")
+                        step = "Перевірка webhook"
                         if telegram_api(token, "getWebhookInfo").get("url"):
                             raise CourierError("Цей бот вже підключений до іншого сервісу через webhook.")
-                        telegram_api(token, "setMyName", {"name": "Доставка товару"})
+                        if me.get("first_name") != "Доставка товару":
+                            step = "Назва бота"
+                            telegram_api(token, "setMyName", {"name": "Доставка товару"})
                         if cfg.bot_username != me["username"]:
                             cfg.chat_id = cfg.invite_hash = cfg.tg_epoch = cfg.bot_offset = None
                         cfg.bot_username = me["username"]
                         cfg.bot_token = marketplaces.cipher().encrypt(token.encode()).decode()
                         cfg.bot_error = ""
                         flash("Бота підключено.", "success")
-                    except (CourierError, CommandError) as exc:
+                    except CourierError as exc:
                         flash(str(exc), "error")
+                    except CommandError as exc:
+                        flash(f"{step}. {exc}", "error")
                 else:
                     abort(400)
             db.commit()

@@ -166,7 +166,19 @@ class CourierTests(TestCase):
             {"username":"USAparts_delivery_bot","first_name":"Доставка товару"}, {"url":""}
         ]) as api:
             result = self.admin.post("/admin/courier",data={"action":"bot","csrf_token":"known","token":token})
-        self.assertIn("@USAparts_delivery_bot",result.text)
+            with self.db() as db:
+                bad = courier.CommandError("Telegram тимчасово недоступний")
+                bad.status, bad.retry_after = 429, 600
+                with patch.object(courier, "telegram_api", side_effect=bad):
+                    courier.verify_bot_setup(db)
+                pending = db.get(courier.MODELS.BotSetup,1)
+                self.assertNotIn(token,pending.credential)
+                self.assertGreater(pending.next_try, datetime.utcnow() + timedelta(seconds=599))
+                pending.next_try = datetime.utcnow()
+                db.commit()
+                courier.verify_bot_setup(db)
+                self.assertIsNone(db.get(courier.MODELS.BotSetup,1))
+        self.assertIn("@USAparts_delivery_bot",self.admin.get("/admin/courier").text)
         self.assertNotIn(token,result.text)
         self.assertEqual([call.args[1] for call in api.call_args_list], ["getMe", "getWebhookInfo"])
         with self.db() as db:

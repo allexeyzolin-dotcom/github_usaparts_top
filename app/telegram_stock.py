@@ -57,7 +57,10 @@ def api(token, method, payload=None, *, timeout=20):
         raise CommandError("Telegram тимчасово недоступний") from None
     if response.status_code >= 400 or not result.get("ok"):
         code = result.get("error_code", response.status_code)
-        raise CommandError("Telegram не підтвердив запит (код " + str(code) + ")")
+        error = CommandError("Telegram не підтвердив запит (код " + str(code) + ")")
+        error.status = code
+        error.retry_after = (result.get("parameters") or {}).get("retry_after", 0)
+        raise error
     return result.get("result")
 
 

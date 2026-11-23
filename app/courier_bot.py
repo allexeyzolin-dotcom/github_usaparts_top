@@ -166,6 +166,7 @@ def notices(db, cfg, token):
 
 def cycle():
     with c.SITE.SessionLocal() as db:
+        c.verify_bot_setup(db)
         cfg = c.config(db)
         db.commit()
         if not cfg.bot_token:
@@ -209,7 +210,7 @@ def worker():
                     c.config(db).bot_error = message
             except Exception:
                 pass
-            seconds = 30
+            seconds = max(30, int(getattr(exc, "retry_after", 0) or 0))
         wait.wait(seconds)
 
 

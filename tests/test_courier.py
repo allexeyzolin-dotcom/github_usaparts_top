@@ -186,6 +186,54 @@ class CourierTests(TestCase):
             self.assertNotIn(token,cfg.bot_token)
             self.assertEqual(courier.bot_token(cfg),token)
 
+    def test_repeated_setup_keeps_telegram_backoff_and_refresh_uses_get(self):
+        token = "123456789:" + "A" * 35
+        data = {"action":"bot", "csrf_token":"known", "token":token}
+        result = self.admin.post("/admin/courier", data=data)
+        self.assertEqual(result.status_code, 302)
+        self.assertTrue(result.location.endswith("/admin/courier"))
+        retry_at = datetime(2030, 1, 15, 12, 30)
+        with self.db.begin() as db:
+            pending = db.get(courier.MODELS.BotSetup, 1)
+            pending.next_try, pending.attempts, pending.error = retry_at, 4, "Telegram: 429"
+            credential = pending.credential
+        with patch.object(courier, "telegram_api") as api:
+            page = self.admin.post("/admin/courier", data=data, follow_redirects=True)
+            self.admin.get("/admin/courier")
+            with self.db() as db:
+                pending = db.get(courier.MODELS.BotSetup, 1)
+                self.assertEqual((pending.next_try, pending.attempts, pending.error), (retry_at, 4, "Telegram: 429"))
+                self.assertEqual(pending.credential, credential)
+                courier.verify_bot_setup(db)
+            api.assert_not_called()
+        self.assertNotIn(token, page.text)
+        self.assertIn("15.01.2030 14:30:00", page.text)
+        self.assertIn("location.reload()", page.text)
+        # A generated one-time phone code must stay on screen until copied.
+        invite = self.admin.post("/admin/courier", data={"action":"web", "csrf_token":"known"})
+        self.assertNotIn("location.reload()", invite.text)
+        # A genuinely different credential replaces the pending setup.
+        self.admin.post("/admin/courier", data={**data, "token":"123456789:" + "B" * 35})
+        with self.db() as db:
+            pending = db.get(courier.MODELS.BotSetup, 1)
+            self.assertEqual(pending.attempts, 0)
+            self.assertLess(pending.next_try, retry_at)
+
+    def test_setup_error_names_failing_stage_and_keeps_working_bot(self):
+        token = "123456789:" + "A" * 35
+        self.admin.post("/admin/courier", data={"action":"bot", "csrf_token":"known", "token":token})
+        error = courier.CommandError("Telegram не підтвердив запит (код 429)")
+        error.status, error.retry_after = 429, 600
+        with self.db.begin() as db:
+            cfg = courier.config(db)
+            cfg.bot_username = "working_bot"
+            cfg.bot_token = "existing-encrypted-credential"
+        with patch.object(courier, "telegram_api", side_effect=[{"username":"new_bot", "first_name":"Доставка товару"}, error]):
+            with self.db() as db:
+                courier.verify_bot_setup(db)
+                self.assertIn("Перевірка webhook", db.get(courier.MODELS.BotSetup, 1).error)
+                self.assertEqual(courier.config(db).bot_token, "existing-encrypted-credential")
+
     def test_telegram_signed_launch(self):
         def payload(stamp):
             fields={"auth_date":str(stamp),"user":json.dumps({"id":45})}

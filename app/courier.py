@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlsplit
+from zoneinfo import ZoneInfo
 
 from flask import abort, flash, jsonify, redirect, render_template, request, session, url_for
 from itsdangerous import BadData, URLSafeTimedSerializer
@@ -226,18 +227,23 @@ def bot_token(cfg):
 def verify_bot_setup(db):
     """Verify the new credential before replacing any connected bot."""
     now = datetime.utcnow()
+    # Setup submissions and the worker acquire locks in the same order.
+    cfg = config(db, True)
     pending = db.query(MODELS.BotSetup).filter(MODELS.BotSetup.next_try <= now).with_for_update(skip_locked=True).first()
     if not pending:
         return
     token = marketplaces.cipher().decrypt(pending.credential.encode()).decode()
+    step = "Перевірка бота"
     try:
         me = telegram_api(token, "getMe", timeout=(8, 65))
+        step = "Перевірка webhook"
         if telegram_api(token, "getWebhookInfo", timeout=(8, 30)).get("url"):
             raise CourierError("Цей бот уже використовує webhook іншого сервісу.")
         if me.get("first_name") != "Доставка товару":
+            step = "Назва бота"
             telegram_api(token, "setMyName", {"name": "Доставка товару"})
     except (CommandError, CourierError) as exc:
-        pending.error = str(exc)
+        pending.error = f"{step}. {exc}"
         if isinstance(exc, CourierError) or getattr(exc, "status", 0) in {400, 401, 403, 404}:
             pending.next_try = None
         else:
@@ -246,7 +252,6 @@ def verify_bot_setup(db):
             pending.next_try = datetime.utcnow() + timedelta(seconds=retry + 2)
         db.commit()
         return
-    cfg = config(db, True)
     if cfg.bot_username != me["username"]:
         cfg.chat_id = cfg.invite_hash = cfg.tg_epoch = cfg.bot_offset = None
     cfg.bot_username, cfg.bot_token, cfg.bot_error = me["username"], pending.credential, ""
@@ -303,7 +308,7 @@ def install(site):
     def admin_courier():
         with site.SessionLocal() as db:
             action = request.form.get("action") if request.method == "POST" else None
-            cfg = config(db, action in ("web", "tg", "revoke"))
+            cfg = config(db, action in ("web", "tg", "revoke", "bot"))
             code = link = ""
             if request.method == "POST":
                 check_admin_csrf()
@@ -325,20 +330,31 @@ def install(site):
                             raise CourierError("Перевірте токен BotFather.")
                         if token == site.telegram_settings(db)["bot_token"]:
                             raise CourierError("Вкажіть окремого бота для кур’єра.")
-                        db.execute(text("""
-                            INSERT INTO courier_bot_setup (id, credential, next_try, attempts, error)
-                            VALUES (1, :credential, :next_try, 0, '')
-                            ON CONFLICT (id) DO UPDATE SET credential = excluded.credential,
-                                next_try = excluded.next_try, attempts = 0, error = ''
-                        """), {"credential": marketplaces.cipher().encrypt(token.encode()).decode(),
-                               "next_try": datetime.utcnow()})
-                        flash("Токен збережено. Сервер перевіряє підключення до Telegram.", "success")
+                        pending = db.query(BotSetup).filter_by(id=1).with_for_update().one_or_none()
+                        same_pending = pending and pending.next_try is not None and hmac.compare_digest(
+                            marketplaces.cipher().decrypt(pending.credential.encode()), token.encode())
+                        if same_pending:
+                            flash("Цей токен уже очікує перевірки. Час повторної спроби збережено.", "success")
+                        else:
+                            db.execute(text("""
+                                INSERT INTO courier_bot_setup (id, credential, next_try, attempts, error)
+                                VALUES (1, :credential, :next_try, 0, '')
+                                ON CONFLICT (id) DO UPDATE SET credential = excluded.credential,
+                                    next_try = excluded.next_try, attempts = 0, error = ''
+                            """), {"credential": marketplaces.cipher().encrypt(token.encode()).decode(),
+                                   "next_try": datetime.utcnow()})
+                            flash("Токен збережено. Сервер перевіряє підключення до Telegram.", "success")
                     except CourierError as exc:
                         flash(str(exc), "error")
+                    db.commit()
+                    return redirect(url_for("admin_courier"))
                 else:
                     abort(400)
             db.commit()
-            return render_template("admin_courier.html", cfg=cfg, pending=db.get(BotSetup, 1), code=code, link=link,
+            pending = db.get(BotSetup, 1)
+            retry_at = (pending.next_try.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Kyiv"))
+                        .strftime("%d.%m.%Y %H:%M:%S") if pending and pending.next_try else "")
+            return render_template("admin_courier.html", cfg=cfg, pending=pending, retry_at=retry_at, code=code, link=link,
                 csrf=session.setdefault("marketplace_csrf", secrets.token_urlsafe(32)))
 
     @site.app.post("/admin/orders/<int:order_id>/courier")

@@ -289,7 +289,7 @@
             <div class="stack" style="gap:6px">
               <div class="part-admin-code">{{ part.part_number }}</div>
               <h3>{{ clean_text(part.name) }}</h3>
-              {{ location_badge(part.storage_location) }}
+              {{ location_badge(storage_location_for(part)) }}
               <div class="muted">{{ clean_text(part.brand) }}{% if part.brand %} / {% endif %}{{ producer_type_label(part.producer_type) }}</div>
               <div class="muted">Стан {{ warehouse_condition_label(part) }}</div>
               <div class="muted">Штрихкод: {{ part.barcode or 'ще не згенеровано' }}</div>
@@ -332,7 +332,7 @@
             <label class="field-label">2. Опис</label>
             <input name="name" value="{{ clean_text(part.name) }}" required>
             {{ condition_field(part_condition_code(part)) }}
-      {{ location_field(part.storage_location) }}
+      {{ location_field(storage_location_for(part)) }}
 
             <label class="field-label">3. Кількість, шт.</label>
             <input type="number" min="0" name="qty" value="{{ part.qty }}" required>

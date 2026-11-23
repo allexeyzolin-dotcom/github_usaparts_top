@@ -137,7 +137,7 @@
       <label>Ціна, USD<input name="price_usd" type="number" min="0" max="9999999999.99" step="0.01" value="0" required></label>
       <label>Штрихкод<input name="barcode" maxlength="255" placeholder="Автоматично при збереженні"><span class="helper-note">Якщо поле порожнє, штрихкод присвоїться автоматично.</span></label>
       <label>Склад (назва)<input name="warehouse_name" maxlength="255"></label>
-      <label>Місце на складі *<input name="location" maxlength="255" data-storage-location required autocomplete="off"></label>
+      <label>Місце на складі *<input name="location" maxlength="255" data-storage-location required autocomplete="off"><small>Спільне для цього номера на всіх складах; передається в замовлення та на видачу.</small></label>
       <label class="revision-wide">Опис / примітка<textarea name="description" maxlength="20000" rows="3"></textarea></label>
       <label class="revision-wide">Додати фото<input id="revision-photo-files" type="file" accept="image/jpeg,image/png,image/webp" multiple><span class="helper-note">JPG, PNG або WebP, до 10 МБ на фото.</span></label>
       <label class="revision-wide">Посилання на фото (кожне з нового рядка)<textarea name="photo_urls" rows="2"></textarea></label>

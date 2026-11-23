@@ -206,7 +206,7 @@
 
                   <div class="warehouse-inline-grid">
                     <input name="name" value="{{ p.name }}" placeholder="Назва">
-      {{ location_field(p.storage_location) }}
+      {{ location_field(storage_location_for(p)) }}
                     <input name="brand" value="{{ p.brand }}" placeholder="Бренд">
                     <select name="producer_type">
                       <option value="OEM" {% if p.producer_type == 'OEM' %}selected{% endif %}>OEM</option>

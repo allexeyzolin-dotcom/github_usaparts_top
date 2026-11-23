@@ -114,7 +114,7 @@ def item_card(db, item):
         photo = ""
     return {**item_summary(item, part), "photo": photo,
             "warehouse": part.warehouse.name if part and part.warehouse else "",
-            "location": (part.storage_location or "") if part else ""}
+            "location": SITE.location_payload(part, db=db, part_number=item.part_number)["storageLocation"]}
 
 
 def card(db, order, dispatch):

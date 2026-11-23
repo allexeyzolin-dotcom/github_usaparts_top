@@ -61,7 +61,7 @@
 
       <label class="field-label">Фактична кількість</label>
       <input type="number" min="0" name="qty" value="{{ part.qty }}">
-      {{ location_field(part.storage_location) }}
+      {{ location_field(storage_location_for(part)) }}
 
       <label class="field-label">Додати або замінити фото</label>
       <input type="file" name="photo" accept="image/*" capture="environment">

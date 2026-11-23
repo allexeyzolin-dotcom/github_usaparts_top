@@ -250,6 +250,9 @@ class InventoryRevisionTests(unittest.TestCase):
 
     def test_copy_is_a_snapshot_and_count_is_only_what_operator_enters(self):
         self.login()
+        # Location is now shared by article; this test isolates copied stock/media.
+        with self.sessions.begin() as db:
+            db.get(site.Part, 1).storage_location = "A-12"
         before = self.snapshot_main()
         source = self.client.get("/admin/revision/search?q=06g").json["catalog"][0]
         saved = self.save(source, qty="3").json["card"]

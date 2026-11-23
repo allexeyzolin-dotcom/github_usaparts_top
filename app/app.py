@@ -762,7 +762,7 @@ def queue_part_inventory_change(db, part: "Part", before_qty: int, context_label
         part_number=part.part_number,
         title=part.name or part.description or "",
         before_qty=before_qty,
-        storage_location=part.storage_location or request_location(),
+        storage_location=location_payload(part)["storageLocation"] or request_location(),
         after_qty=int(part.qty or 0),
         context_label=context_label,
         reason=reason,
@@ -777,7 +777,7 @@ def queue_template_inventory_change(db, template: "PartTemplate", before_qty: in
         part_number=template.part_number,
         title=template.name or template.description or "",
         before_qty=before_qty,
-        storage_location=template.storage_location or request_location(),
+        storage_location=location_payload(template)["storageLocation"] or request_location(),
         after_qty=template_unassigned_qty(template),
         context_label=context_label,
         reason=reason,
@@ -1518,8 +1518,8 @@ def build_all_goods_cards(db, query_text: str = ""):
                 barcode,
                 " ".join(cross_numbers),
                 " ".join(warehouse_names),
-                template.storage_location if template else "",
-                " ".join(part.storage_location or "" for part in related_parts),
+                location_payload(template)["storageLocation"] if template else "",
+                " ".join(location_payload(part)["storageLocation"] for part in related_parts),
             ]
         ).casefold()
         if needle and needle not in haystack:
@@ -1549,7 +1549,7 @@ def build_all_goods_cards(db, query_text: str = ""):
         cards.append(
             {
                 "partNumber": part_number,
-                "storageLocation": (template.storage_location if template else exemplar.storage_location if exemplar else ""),
+                **location_payload(template or exemplar, db=db, part_number=part_number),
                 "templateId": template.id if template else None,
                 "name": name or part_number,
                 "description": description,
@@ -2126,7 +2126,7 @@ def serialize_availability_item(db, item: AvailabilityRequestItem):
     photo_url = primary_part_photo(part) if part else ""
     barcode = part.barcode if part else ""
     return {
-        **location_payload(part),
+        **location_payload(part, db=db, part_number=item.part_number),
         "id": item.id,
         "partId": item.part_id,
         "partNumber": item.part_number or "",
@@ -2248,7 +2248,7 @@ def serialize_packing_item(db, item: PackingRequestItem):
     if available_qty <= 0 and part:
         available_qty = max(int(part.qty or 0), 0)
     return {
-        **location_payload(part or template),
+        **location_payload(part or template, db=db, part_number=item.part_number),
         "id": item.id,
         "partId": item.part_id,
         "partNumber": item.part_number or "",
@@ -2462,7 +2462,8 @@ def serialize_admin_order(db, order: Order):
             has_issue = True
         linked_part = db.get(Part, item.part_id) if item.part_id else None
         items.append({
-            **location_payload(linked_part if item.part_id else find_part_template(db, item.part_number)),
+            **location_payload(linked_part if item.part_id else find_part_template(db, item.part_number),
+                               db=db, part_number=item.part_number),
             "id": item.id,
             "partId": item.part_id,
             "partNumber": item.part_number or "",
@@ -2570,7 +2571,7 @@ def serialize_transit_order(db, order: TransitOrder):
 
     return {
         "id": order.id,
-        "storageLocation": order.storage_location,
+        **location_payload(order),
         "batchId": normalize_text(order.batch_id or "").strip(),
         "delivery": transit_delivery.serialize(db, order.batch_id),
         "partNumber": normalize_text(order.part_number or ""),
@@ -4993,7 +4994,7 @@ def serialize_receiving_item(db, item: ReceivingDraftItem):
         "warehouseName": warehouse.name if warehouse else "Без складу",
         "barcode": item.barcode or "",
         "partNumber": item.part_number,
-        "storageLocation": item.storage_location,
+        **location_payload(item),
         "title": item.title,
         "qty": int(item.qty or 0),
         "priceUsd": float(item.price_usd or 0),
@@ -11576,7 +11577,7 @@ def admin_part_prefill():
                 "part": {
                     "id": part.id,
                     "partNumber": part.part_number or "",
-                    "storageLocation": part.storage_location,
+                    **location_payload(part),
                     "brand": part.brand or "",
                     "producerType": part.producer_type or "OEM",
                     "name": part.name or "",
@@ -11613,7 +11614,7 @@ def admin_part_prefill():
             "part": {
                 "id": None,
                 "partNumber": template.part_number or "",
-                "storageLocation": template.storage_location,
+                **location_payload(template),
                 "crossNumber": part_number if cross_match else "",
                 "brand": template.brand or "",
                 "producerType": template.producer_type or "OEM",

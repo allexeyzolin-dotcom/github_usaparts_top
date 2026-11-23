@@ -10,6 +10,41 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from .inventory_revision import number_key
+
+SITE = None
+
+
+def revision_locations(db):
+    """One transaction-local lookup, shared by warehouse cards and order payloads."""
+    cached = db.info.get("revision_locations")
+    if cached is not None:
+        return cached
+    with db.no_autoflush:
+        rows = db.query(SITE.RevisionPart.id, SITE.RevisionPart.part_number, SITE.RevisionPart.location).order_by(
+            SITE.RevisionPart.verified_at, SITE.RevisionPart.id).all()
+    changes = [row for row in list(db.new) + list(db.dirty) if isinstance(row, SITE.RevisionPart)
+               and (row in db.new or any(inspect(row).attrs[field].history.has_changes() for field in ("location", "part_number")))]
+    replaced = {row.id for row in list(db.deleted) + changes if isinstance(row, SITE.RevisionPart) and row.id is not None}
+    result = {}
+    for row in rows:
+        if row.id not in replaced and (row.location or "").strip():
+            result[number_key(row.part_number or "")] = clean_location(row.location)
+    # The source can be saved in the same flush as a newly received stock card.
+    for row in changes:
+        if (row.location or "").strip():
+            result[number_key(row.part_number or "")] = clean_location(row.location)
+    db.info["revision_locations"] = result
+    return result
+
+
+def effective_location(record=None, *, db=None, part_number=""):
+    state = inspect(record, raiseerr=False) if record is not None else None
+    db = db if db is not None else getattr(state, "session", None)
+    number = getattr(record, "part_number", "") or part_number
+    shared = revision_locations(db).get(number_key(number or ""), "") if db is not None and SITE else ""
+    return shared or str(getattr(record, "storage_location", getattr(record, "location", "")) or "").strip()
+
 
 def clean_location(value, required=True):
     if not isinstance(value, str):
@@ -39,6 +74,9 @@ def migrate_storage_locations(engine):
 
 
 def register_storage_locations(site):
+    global SITE
+    SITE = site
+    site.app.jinja_env.globals["storage_location_for"] = effective_location
     class StorageLocation(site.Base):
         __tablename__ = "storage_locations"
         id = Column(Integer, primary_key=True)
@@ -78,7 +116,7 @@ def register_storage_locations(site):
                 g.stock_location_number = str(values.get("part_number") or "").strip().upper()
                 g.stock_location_order_id = (request.view_args or {}).get("order_id")
             elif request.endpoint in singles:
-                g.stock_location = clean_location(values.get("storage_location", values.get("storageLocation", "")))
+                g.stock_location = clean_location(values.get("storage_location", values.get("storageLocation", "")), required=False)
                 g.stock_location_number = str(values.get("part_number") or values.get("partNumber") or "").strip().upper()
                 g.stock_location_warehouse = values.get("warehouse_id", values.get("warehouseId"))
                 g.stock_location_part_id = (request.view_args or {}).get("part_id") or values.get("partId")
@@ -108,6 +146,9 @@ def register_storage_locations(site):
                         if part:
                             g.stock_location_part_id = part.id
                             g.stock_location_number = part.part_number.upper()
+                with site.SessionLocal() as db:
+                    g.stock_location = revision_locations(db).get(number_key(g.stock_location_number), "") or g.stock_location
+                g.stock_location = clean_location(g.stock_location)
             elif request.endpoint == "admin_transit_create":
                 # A batch can contain several different positions, one per draft row.
                 g.stock_location_number = str(values.get("part_number") or "").strip().upper()
@@ -148,7 +189,7 @@ def register_storage_locations(site):
                         location_changed = field_name in values and values[field_name].strip() != payload.get("storage_location", "")
                         if not row.apply_change and not location_changed and not (values.get("action") == "all" and row.change_type != "same"):
                             continue
-                        location = values.get(field_name, payload.get("storage_location", ""))
+                        location = revision_locations(db).get(number_key(row.part_number), "") or values.get(field_name, payload.get("storage_location", ""))
                         try:
                             positions[row.part_number.upper()] = clean_location(location)
                         except ValueError:
@@ -176,9 +217,51 @@ def register_storage_locations(site):
     @event.listens_for(Session, "after_rollback")
     def reset_location_cache(db):
         db.info.pop("storage_location_keys_seen", None)
+        db.info.pop("revision_locations", None)
+        db.info.pop("revision_location_changes", None)
+        db.info.pop("revision_locations_changed", None)
+
+    def apply_revision_locations(db, positions):
+        """Materialize only locations; quantities, prices, and item links stay intact."""
+        if not positions:
+            return
+        with db.no_autoflush:
+            for model in models:
+                field = "location" if model is site.RevisionPart else "storage_location"
+                groups = {}
+                for identifier, number, previous in db.query(model.id, model.part_number, getattr(model, field)):
+                    value = positions.get(number_key(number or ""))
+                    if value and previous != value:
+                        groups.setdefault(value, []).append(identifier)
+                for value, identifiers in groups.items():
+                    changes = {field: value}
+                    if model is site.RevisionPart:
+                        # A stale editor must not put an older shared position back.
+                        changes["version"] = model.version + 1
+                    for start in range(0, len(identifiers), 500):
+                        db.query(model).filter(model.id.in_(identifiers[start:start+500])).update(
+                            changes, synchronize_session="fetch")
+        db.info.pop("revision_locations", None)
+
+    @event.listens_for(Session, "after_flush_postexec")
+    def share_revision_positions(db, *_):
+        changed = db.info.pop("revision_location_changes", {})
+        if db.info.pop("revision_locations_changed", False):
+            db.info.pop("revision_locations", None)
+        apply_revision_locations(db, {key: clean_location(row.location) for key, row in changed.items()
+                                      if (row.location or "").strip()})
 
     @event.listens_for(Session, "before_flush")
     def persist_manual_position(db, *_):
+        revision_changes = [row for row in list(db.new) + list(db.dirty) if isinstance(row, site.RevisionPart)
+                            and (row in db.new or any(inspect(row).attrs[field].history.has_changes()
+                                                     for field in ("location", "part_number")))]
+        if revision_changes or any(isinstance(row, site.RevisionPart) for row in db.deleted):
+            db.info.pop("revision_locations", None)
+            db.info["revision_locations_changed"] = True
+        for row in revision_changes:
+            if (row.location or "").strip():
+                db.info.setdefault("revision_location_changes", {})[number_key(row.part_number or "")] = row
         names = set()
         current = request_location()
         mapping = getattr(g, "stock_location_map", {}) if has_request_context() else {}
@@ -209,6 +292,8 @@ def register_storage_locations(site):
                 if applies:
                     setattr(row, field, value)
             position = clean_location(getattr(row, field, "") or "", required=False)
+            if not isinstance(row, site.RevisionPart):
+                position = revision_locations(db).get(number_key(row.part_number or ""), "") or position
             if position:
                 setattr(row, field, position)
                 if row in db.new or inspect(row).attrs[field].history.has_changes():
@@ -232,7 +317,7 @@ def register_storage_locations(site):
     def prepare_import_rows(db, rows, default=""):
         default = clean_location(default or "", required=False)
         for row in rows:
-            value = row.get("storage_location") or default
+            value = revision_locations(db).get(number_key(row.get("part_number") or ""), "") or row.get("storage_location") or default
             if not value:
                 part = db.query(site.Part).filter_by(part_number=row["part_number"], warehouse_id=int(request.form["warehouse_id"])).first()
                 value = part.storage_location if part else ""
@@ -242,6 +327,7 @@ def register_storage_locations(site):
     site.prepare_import_locations = prepare_import_rows
     def index_existing():
         with site.SessionLocal() as db:
+            apply_revision_locations(db, revision_locations(db))
             names = set()
             for model in models:
                 field = model.location if model is site.RevisionPart else model.storage_location
@@ -252,17 +338,18 @@ def register_storage_locations(site):
             remember(db, names)
             db.commit()
     site.index_existing_storage_locations = index_existing
+    site.revision_locations = revision_locations
     return StorageLocation
 
 
-def location_payload(record):
-    value = str(getattr(record, "storage_location", "") or "").strip() if record else ""
+def location_payload(record=None, *, db=None, part_number=""):
+    value = effective_location(record, db=db, part_number=part_number)
     return {"storageLocation": value, "storageLocationLabel": "Місце на складі: " + value if value else "",
             "storageLocationHighlight": bool(value)}
 
 
-def location_line(record):
-    value = location_payload(record)["storageLocation"]
+def location_line(record=None, *, db=None, part_number=""):
+    value = location_payload(record, db=db, part_number=part_number)["storageLocation"]
     return "📍 Місце на складі: " + value if value else ""
 
 

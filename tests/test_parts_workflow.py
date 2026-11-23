@@ -246,12 +246,13 @@ class PartsWorkflowTests(unittest.TestCase):
             self.assertIn('📍 Місце на складі: A-12', text)
             self.assertEqual(len(site.location_entities(text)), 1)
 
-    def test_public_card_highlights_only_filled_location(self):
+    def test_public_card_keeps_storage_location_private(self):
         with self.sessions() as db, site.app.test_request_context('/'):
             part = db.get(site.Part, 1)
             html = site.render_template('_product_card.html', part=part)
-            self.assertIn('storage-location-badge', html)
-            self.assertIn('A-12', html)
+            self.assertNotIn('storage-location-badge', html)
+            self.assertNotIn(part.storage_location, html)
+            self.assertNotIn('A-12', html)
             part.storage_location = ''
             self.assertNotIn('storage-location-badge', site.render_template('_product_card.html', part=part))
 

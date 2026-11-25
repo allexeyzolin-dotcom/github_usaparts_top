@@ -81,14 +81,23 @@
       dl.append(node('dt',label),val);
     }
     el('destination').replaceChildren(dl);
-    el('items').replaceChildren(...current.items.map(itemBlock)); el('scan').hidden = !!current.ttn;
+    el('items').replaceChildren(...current.items.map(itemBlock)); el('waybill-actions').hidden = !!current.ttn;
     window.scrollTo(0,0);
     if (autoScan && !current.ttn) await startScan();
   }
   function reader() {
     if (!readerPromise) readerPromise = new Promise((resolve,reject) => {
       const script = node('script'); script.src = '/static/vendor/zxing-browser-0.1.5.min.js';
-      script.onload = () => resolve(new ZXingBrowser.BrowserMultiFormatReader());
+      script.onload = () => {
+        try {
+          const scanner = new ZXingBrowser.BrowserMultiFormatReader(new Map(), {
+            delayBetweenScanAttempts: 180, delayBetweenScanSuccess: 250, tryPlayVideoTimeout: 8000
+          });
+          scanner.possibleFormats = [ZXingBrowser.BarcodeFormat.CODE_128, ZXingBrowser.BarcodeFormat.ITF,
+            ZXingBrowser.BarcodeFormat.CODE_39, ZXingBrowser.BarcodeFormat.QR_CODE];
+          resolve(scanner);
+        } catch (_) {readerPromise = null; reject(Error('Не вдалося запустити сканер. Введіть ТТН вручну.'));}
+      };
       script.onerror = () => {readerPromise = null; reject(Error('Не вдалося завантажити сканер.'));};
       document.head.append(script);
     });
@@ -99,38 +108,55 @@
     const video = el('video'); if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
     video.srcObject = null;
   }
+  const normalizeTtn = value => String(value).replace(/[\s-]/g, '');
+  function updateCandidate(value) {
+    const number = normalizeTtn(value);
+    el('ttn').value = number;
+    candidate = /^[0-9]{14}$/.test(number) ? number : '';
+    el('confirm').querySelector('button').disabled = busy || !candidate;
+    return candidate;
+  }
   function found(value) {
-    const ttn = value.trim();
+    const ttn = normalizeTtn(value);
     if (!/^[0-9]{14}$/.test(ttn)) { el('scan-note').textContent = 'Потрібен штрихкод ТТН Нової пошти з 14 цифрами.'; return; }
-    candidate = ttn; stopCamera();
-    el('decoded').textContent = ttn; el('confirm').hidden = false;
-    el('video').hidden = el('file-label').hidden = true;
+    stopCamera(); updateCandidate(ttn);
+    el('video').hidden = true;
     el('scan-note').textContent = 'Звірте номер із накладною та отримувачем.';
   }
-  async function startScan() {
+  function openWaybill(manual=false) {
     if (!current || current.ttn || busy) return;
-    stopCamera(); candidate = ''; const ticket = scanSession;
+    stopCamera(); updateCandidate('');
     el('identity').textContent = '№' + current.id + ' · ' + current.name + ' · ' + current.payment + ' грн';
-    el('confirm').hidden = true; el('file-label').hidden = el('video').hidden = false;
-    el('scan-note').textContent = 'Наведіть задню камеру на штрихкод накладної.';
+    el('file-label').hidden = false; el('video').hidden = manual;
+    el('scan-note').textContent = manual ? 'Введіть 14 цифр ТТН Нової пошти.' : 'Наведіть задню камеру на штрихкод накладної.';
     if (!dialog.open) dialog.showModal();
+    if (manual) el('ttn').focus();
+    return true;
+  }
+  async function startScan() {
+    if (!openWaybill()) return;
+    const ticket = scanSession;
+    el('scan-note').textContent = 'Наведіть задню камеру на штрихкод накладної.';
     try {
+      if (!navigator.mediaDevices?.getUserMedia) throw Error('Camera unavailable');
       const scanner = await reader(); if (ticket !== scanSession) return;
-      const active = await scanner.decodeFromConstraints({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1280}}},
+      const active = await scanner.decodeFromConstraints({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}},
         el('video'), (result, error, ctl) => {
-          if (ticket === scanSession && result) {controls = ctl; found(result.getText());}
+          if (ticket === scanSession && dialog.open && !document.hidden && result) {controls = ctl; found(result.getText());}
         });
       if (ticket !== scanSession) active.stop(); else controls = active;
     } catch (_) {
-      if (ticket === scanSession) {el('video').hidden = true; el('scan-note').textContent = 'Камеру не відкрито. Дозвольте доступ до камери або зчитайте штрихкод із фото.';}
+      if (ticket === scanSession) {stopCamera(); el('video').hidden = true; el('scan-note').textContent = 'Камеру не відкрито. Дозвольте доступ, зчитайте штрихкод із фото або введіть ТТН вручну.';}
     }
   }
+  el('manual').onclick = () => openWaybill(true);
+  el('ttn').oninput = () => {if (busy) return; stopCamera(); el('video').hidden = true; updateCandidate(el('ttn').value);};
   el('barcode-file').onchange = async event => {
     const file = event.target.files[0]; event.target.value = ''; if (!file) return;
     stopCamera(); const ticket = scanSession;
     const image = URL.createObjectURL(file);
     try { const result = await (await reader()).decodeFromImageUrl(image); if (ticket === scanSession) found(result.getText()); }
-    catch (_) { if (ticket === scanSession) el('scan-note').textContent = 'Штрихкод не зчитано. Виберіть чіткіше фото або натисніть «Сканувати ще раз».'; }
+    catch (_) { if (ticket === scanSession) el('scan-note').textContent = 'Штрихкод не зчитано. Виберіть чіткіше фото, скануйте ще раз або введіть ТТН вручну.'; }
     finally { URL.revokeObjectURL(image); }
   };
   dialog.onclose = stopCamera;
@@ -138,15 +164,16 @@
   dialog.oncancel = e => {if (busy) e.preventDefault();};
   el('scan').onclick = el('again').onclick = startScan;
   el('confirm').onsubmit = async event => {
-    event.preventDefault(); if (busy || !candidate || !current) return;
+    event.preventDefault(); if (busy || !current || !updateCandidate(el('ttn').value)) return;
     const id = current.id, number = candidate; busy = true;
-    const button = el('confirm').querySelector('button'); button.disabled = true;
+    stopCamera();
+    const button = el('confirm').querySelector('button'); button.disabled = true; el('ttn').disabled = true;
     try {
       await api('orders/' + id,{ttn:number, version:current.version});
       dialog.close(); tab = 'archive'; page = 1; await showList();
       notice('Відправлення №' + id + ' перенесено в архів. ТТН ' + number + '.');
     } catch (error) {el('scan-note').textContent = error.message;}
-    finally {busy = false; button.disabled = false;}
+    finally {busy = false; el('ttn').disabled = false; updateCandidate(el('ttn').value);}
   };
   function loadList() {showList().catch(e => notice(e.message));}
   el('refresh').onclick = el('back').onclick = loadList;
@@ -184,7 +211,12 @@
   launch().catch(e => notice(e.message));
   setInterval(() => {if (!document.hidden && !el('queue').hidden) loadList();},30000);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && dialog.open && !busy && !candidate) dialog.close();
+    // Android permission prompts and the photo picker can hide the WebView.
+    // Keep the entry form open so the pending scan/photo result stays usable.
+    if (document.hidden && dialog.open && controls && !busy) {
+      stopCamera(); el('video').hidden = true;
+      el('scan-note').textContent = 'Камеру призупинено. Скануйте ще раз, виберіть фото або введіть ТТН вручну.';
+    }
     if (!document.hidden && !el('queue').hidden) loadList();
   });
 })();

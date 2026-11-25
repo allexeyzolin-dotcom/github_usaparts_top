@@ -317,14 +317,33 @@ output {
   letter-spacing: .05em;
 }
 
-#scan {
+#waybill-actions {
   position: sticky;
   bottom: 10px;
+  background: #f4f6f7;
+  padding: 4px 0 10px;
+}
+
+#scan {
   box-shadow: 0 4px 12px #1233;
 }
 
-#scan-note {
+#scan-note,#ttn-help {
   font-size: .92rem;
+}
+
+#confirm {
+  margin-top: 18px;
+}
+
+#ttn {
+  font-size: 1.2rem;
+  letter-spacing: .04em;
+}
+
+#ttn-help {
+  margin: 8px 0 0;
+  color: #4b6373;
 }
 
 [hidden] {

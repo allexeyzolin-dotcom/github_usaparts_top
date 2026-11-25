@@ -22,6 +22,9 @@ class RevisionPublicationTests(unittest.TestCase):
     def setUp(self):
         revision_tests.InventoryRevisionTests.setUp(self)
         site.public_cache_clear()
+        self.backup_patch = patch.object(site, "BACKUP_DIR", revision_tests.Path(self.temp.name))
+        self.backup_patch.start()
+        self.addCleanup(self.backup_patch.stop)
 
     def create(self, **changes):
         self.login()
@@ -222,19 +225,20 @@ class RevisionPublicationTests(unittest.TestCase):
             published = db.get(site.Part, self.publication(override["id"])["id"])
             self.assertEqual(site.part_condition_code(published), "NEW")
 
-    def test_missing_brand_is_resolved_from_one_catalog_manufacturer_without_inventory_writes(self):
+    def test_missing_brand_is_resolved_from_catalog_while_stock_moves_without_summing(self):
         counted = self.create(part_number="06G-127-028H", brand="")
         rows = self.export_rows()
         self.assertEqual(rows[0][0], "VAG")
         with self.sessions() as db:
             self.assertEqual(db.get(site.RevisionPart, counted["id"]).brand, "")
-            self.assertEqual(db.get(site.Part, 1).qty, 40)
+            self.assertEqual(db.get(site.Part, 1).qty, 2)
+            self.assertEqual(self.publication(counted["id"])["id"], 1)
 
     def test_ambiguous_brand_is_not_guessed_and_partial_download_is_explicit(self):
         bad = self.create(part_number="06G-127-028H", brand="")
         self.create(part_number="READY", brand="BMW")
         with self.sessions.begin() as db:
-            db.get(site.Part, 1).brand_export = "OTHER"
+            db.add(site.Part(warehouse_id=1, part_number="06G-127-028H", brand="OTHER", qty=1))
         response = self.client.get("/admin/revision/export/avtopro")
         self.assertIn("Виправити картку", response.text)
         self.assertIn(f"edit={bad['id']}", response.text)
@@ -245,6 +249,13 @@ class RevisionPublicationTests(unittest.TestCase):
         rows = list(csv.reader(io.StringIO(response.data.decode("utf-8-sig")), delimiter=";"))
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[1][1], "READY")
+
+    def test_manufacturer_survives_moving_stock_without_a_master_template(self):
+        with self.sessions.begin() as db:
+            db.delete(db.get(site.PartTemplate, 2))
+        counted = self.create(part_number="06G-127-028H", brand="")
+        self.assertEqual(self.publication(counted["id"])["id"], 1)
+        self.assertEqual(self.export_rows()[0][0], "VAG")
 
     def test_photos_use_commas_and_dimension_columns_match_the_sample(self):
         self.create(photo_urls=["https://example.com/a.jpg", "https://example.com/b.jpg"])

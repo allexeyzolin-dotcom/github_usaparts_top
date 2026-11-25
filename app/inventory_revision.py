@@ -512,9 +512,10 @@ def register_inventory_revision(site):
         candidates = {}
         if missing:
             sources = list(db.query(site.PartTemplate.part_number, site.PartTemplate.brand))
+            from .revision_publication import MOVED_NOTE_PREFIX
             sources += [(code, exported or brand) for code, exported, brand in db.query(
-                site.Part.part_number, site.Part.brand_export, site.Part.brand).filter(
-                site.Part.is_deleted.is_(False), ~site.Part.revision_publication.has())]
+                site.Part.part_number, site.Part.brand_export, site.Part.brand).filter(or_(
+                    site.Part.is_deleted.is_(False), site.Part.stock_check_note.startswith(MOVED_NOTE_PREFIX)))]
             for code, brand in sources:
                 key, brand = number_key(code or ""), (brand or "").strip()
                 if key in missing and brand:

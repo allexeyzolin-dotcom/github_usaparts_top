@@ -246,19 +246,19 @@ class StorageLocationTests(unittest.TestCase):
                 self.assertEqual(connection.exec_driver_sql(f"SELECT qty, storage_location FROM {table}").one(), (7, ""))
         engine.dispose()
 
-    def test_revision_position_is_shared_by_exact_number_and_existing_order_tasks(self):
+    def test_revision_moves_existing_card_and_preserves_order_issue_links(self):
         from app import courier
         self.login()
         with self.sessions.begin() as db:
             db.add(site.Warehouse(id=2, name="Другий"))
             db.flush()
             db.add_all([
-                site.Part(id=3, warehouse_id=2, part_number="06g127028h", name="Той самий номер", qty=7, price_usd=33, storage_location="Стара полиця"),
+                site.Part(id=3, warehouse_id=2, part_number="０６ｇ / １２７.０２８ｈ", name="Дублікат", qty=7, price_usd=33, storage_location="Стара полиця"),
                 site.Part(id=4, warehouse_id=2, part_number="X06G127028H", name="Інший номер", qty=5, storage_location="НЕ РУХАТИ"),
             ])
             db.flush()
             order = site.Order(id=901, customer_name="Тест", status="awaiting_shipment", delivery_type="nova_poshta", stock_reserved=True)
-            order.items.append(site.OrderItem(part_id=3, part_number="MARKETPLACE-SKU", name="Насос", qty=2))
+            order.items.append(site.OrderItem(part_id=3, part_number="MARKETPLACE-SKU", name="Насос", qty=2, price_usd=33))
             db.add_all([order, site.PackingRequest(id=901, source_order_id=901), site.AvailabilityRequest(id=901, warehouse_id=2, title="Тест")])
             db.flush()
             db.add_all([
@@ -266,85 +266,114 @@ class StorageLocationTests(unittest.TestCase):
                 site.AvailabilityRequestItem(id=901, request_id=901, part_id=3, part_number="06G127028H", title="Насос", expected_qty=2),
                 courier.MODELS.Dispatch(order_id=901, payment=Decimal("0"), created_at=datetime.utcnow()),
             ])
-        result = self.save(part_number="06G-127-028H", location="Стелаж 7 / Полиця 2")
+        result = self.save(part_number="06G-127-028H", location="Стелаж 7 / Полиця 2", qty="2")
         self.assertEqual(result.status_code, 200, result.text)
         with self.sessions() as db:
-            self.assertEqual((db.get(site.Part, 1).qty, db.get(site.Part, 3).qty), (40, 7))
-            self.assertEqual(db.get(site.Part, 3).price_usd, Decimal("33"))
-            for row in (db.get(site.Part, 1), db.get(site.Part, 3), db.get(site.PartTemplate, 2)):
-                self.assertEqual(row.storage_location, "Стелаж 7 / Полиця 2")
+            link = db.get(site.RevisionPublication, result.json["card"]["id"])
+            self.assertEqual(link.part_id, 1)
+            canonical, old = db.get(site.Part, 1), db.get(site.Part, 3)
+            self.assertEqual((canonical.qty, canonical.warehouse.name, canonical.storage_location), (2, "Ревізія", "Стелаж 7 / Полиця 2"))
+            self.assertEqual((old.qty, old.is_deleted, old.in_stock, old.storage_location), (0, True, False, ""))
+            self.assertEqual(old.price_usd, Decimal("33"))
+            self.assertEqual(db.query(site.Part).filter_by(is_deleted=False).count(), 2)
             self.assertEqual(db.get(site.Part, 4).storage_location, "НЕ РУХАТИ")
-            self.assertEqual(site.serialize_admin_order(db, db.get(site.Order, 901))["items"][0]["storageLocation"], "Стелаж 7 / Полиця 2")
+            self.assertEqual(db.get(site.PartTemplate, 2).storage_location, "A-12")
+            order = db.get(site.Order, 901)
+            self.assertEqual((order.items[0].part_id, order.items[0].qty, order.items[0].price_usd), (1, 2, Decimal("33")))
+            for model in (site.PackingRequestItem, site.AvailabilityRequestItem):
+                self.assertEqual(db.get(model, 901).part_id, 1)
+            self.assertEqual(site.serialize_admin_order(db, order)["items"][0]["storageLocation"], "Стелаж 7 / Полиця 2")
             self.assertEqual(site.serialize_packing_item(db, db.get(site.PackingRequestItem, 901))["storageLocation"], "Стелаж 7 / Полиця 2")
             self.assertEqual(site.serialize_availability_item(db, db.get(site.AvailabilityRequestItem, 901))["storageLocation"], "Стелаж 7 / Полиця 2")
-            card = courier.card(db, db.get(site.Order, 901), db.get(courier.MODELS.Dispatch, 901))
-            self.assertEqual(card["items"][0]["location"], "Стелаж 7 / Полиця 2")
-            self.assertIn("Стелаж 7 / Полиця 2", site.location_line(db.get(site.Part, 3)))
+            self.assertEqual(courier.card(db, order, db.get(courier.MODELS.Dispatch, 901))["items"][0]["location"], "Стелаж 7 / Полиця 2")
 
-    def test_shared_position_is_inherited_by_new_stock_imports_and_normalized_numbers(self):
+    def test_revision_locations_are_resolved_for_orders_without_writing_other_stock(self):
         self.login()
-        self.assertEqual(self.save(part_number="06G-127-028H", location="РЕВІЗІЯ-21").status_code, 200)
+        first = self.save(part_number="06G-127-028H", location="РЕВІЗІЯ-21").json["card"]
         with self.sessions.begin() as db:
             db.add(site.Warehouse(id=20, name="Другий"))
+            db.flush()
             db.add_all([
-                site.Part(id=30, warehouse_id=20, part_number="０６ｇ / １２７.０２８ｈ", qty=9, storage_location="Інше"),
+                site.Part(id=30, warehouse_id=20, part_number="06g127028h", qty=9, storage_location="Інше"),
                 site.ReceivingDraftItem(id=1, part_number="06G_127_028H", title="Насос", qty=2),
                 site.TransitOrder(id=1, part_number="06G127028H", title="Насос", qty=3),
             ])
         with self.sessions() as db:
-            for row in (db.get(site.Part, 30), db.get(site.ReceivingDraftItem, 1), db.get(site.TransitOrder, 1)):
-                self.assertEqual(row.storage_location, "РЕВІЗІЯ-21")
+            self.assertEqual(db.get(site.Part, 30).storage_location, "Інше")
+            self.assertEqual(db.get(site.ReceivingDraftItem, 1).storage_location, "")
+            self.assertEqual(db.get(site.TransitOrder, 1).storage_location, "")
             self.assertEqual(site.location_payload(None, db=db, part_number="06g 127 028h")["storageLocation"], "РЕВІЗІЯ-21")
-        result = self.client.post("/admin/part/1/update", data={"part_number":"06G-127-028H", "name":"Насос", "qty":"40", "price_usd":"20", "storage_location":""})
-        self.assertEqual(result.status_code, 302)
+        # Publishing an edit also absorbs a copy imported since the original count.
+        response = self.save(first, action="update", target_id=first["id"], qty="3", location="ПОЛИЦЯ-2")
+        self.assertEqual(response.status_code, 200, response.text)
         with self.sessions() as db:
-            self.assertEqual(db.get(site.Part, 1).storage_location, "РЕВІЗІЯ-21")
-        self.import_file("Код;Назва;Кількість;Ціна\n06G-127-028H;Насос;40;20\n")
-        with self.sessions() as db:
-            self.assertEqual(json.loads(db.query(site.ImportChange).order_by(site.ImportChange.id.desc()).first().payload_json)["storage_location"], "РЕВІЗІЯ-21")
-        # Reads also cover a stale legacy writer that bypassed ORM synchronization.
-        with self.sessions.begin() as db:
-            db.query(site.Part).filter_by(id=1).update({"storage_location":"LEGACY-STALE"})
-            db.query(site.PartTemplate).filter_by(id=2).update({"storage_location":"LEGACY-STALE"})
-        page = self.client.get("/admin/parts?warehouse_id=1&q=06G").text
-        self.assertIn("РЕВІЗІЯ-21", page)
-        self.assertNotIn("LEGACY-STALE", page)
+            self.assertEqual((db.get(site.Part, 1).qty, db.get(site.Part, 30).qty), (3, 0))
+            self.assertTrue(db.get(site.Part, 30).is_deleted)
+            self.assertEqual(db.get(site.PartTemplate, 2).storage_location, "A-12")
 
-    def test_position_change_updates_duplicate_revision_cards_and_rolls_back_atomically(self):
+    def test_explicit_separate_revision_cards_keep_their_own_counts_and_locations(self):
         self.login()
         first = self.save(part_number="06G-127-028H", location="ПОЛИЦЯ-1").json["card"]
-        second = self.save(part_number="06g127028h", location="ПОЛИЦЯ-2", duplicate_action="new_card").json["card"]
+        second = self.save(part_number="06g127028h", location="ПОЛИЦЯ-2", duplicate_action="new_card", qty="3").json["card"]
         with self.sessions() as db:
-            original = db.get(site.RevisionPart, first["id"])
-            self.assertEqual(original.location, "ПОЛИЦЯ-2")
-            self.assertGreater(original.version, first["version"])
-            self.assertEqual((original.qty, db.get(site.RevisionPart, second["id"]).qty, db.get(site.Part, 1).qty), (2, 2, 40))
-        stale = self.save(action="update", target_id=first["id"], version=first["version"], part_number="06G-127-028H", location="ПОЛИЦЯ-1")
-        self.assertEqual(stale.status_code, 409)
-        with self.sessions() as db:
-            db.get(site.RevisionPart, second["id"]).location = "НЕ ЗБЕРІГАТИ"
-            db.flush()
-            self.assertEqual(db.get(site.Part, 1).storage_location, "НЕ ЗБЕРІГАТИ")
-            db.rollback()
-            self.assertEqual(db.get(site.Part, 1).storage_location, "ПОЛИЦЯ-2")
-            self.assertEqual(site.location_payload(db.get(site.Part, 1))["storageLocation"], "ПОЛИЦЯ-2")
+            self.assertEqual((db.get(site.RevisionPart, first["id"]).qty, db.get(site.RevisionPart, second["id"]).qty), (2, 3))
+            self.assertEqual(db.get(site.RevisionPart, first["id"]).location, "ПОЛИЦЯ-1")
+            self.assertEqual(db.query(site.Part).filter_by(is_deleted=False).count(), 2)
+            self.assertEqual(db.get(site.Part, 1).storage_location, "ПОЛИЦЯ-1")
 
-    def test_startup_backfills_latest_nonempty_revision_position_idempotently(self):
-        # Raw inserts model legacy rows created before the synchronization rule.
+    def test_startup_cleans_other_locations_and_absorbs_legacy_duplicates_once_with_backup(self):
+        from pathlib import Path
+        self.login()
+        counted = self.save(part_number="06G-127-028H", location="РЕВІЗІЯ-21").json["card"]
         with self.sessions.begin() as db:
-            db.execute(site.RevisionPart.__table__.insert(), [
-                {"id":201, "part_number":"06G-127-028H", "part_key":"06G127028H", "name":"Старе", "location":"СТАРЕ", "verified_at":datetime(2026,11,1)},
-                {"id":202, "part_number":"06G127028H", "part_key":"06G127028H", "name":"Нове", "location":"СПІЛЬНЕ", "verified_at":datetime(2026,11,2)},
-                {"id":203, "part_number":"06g127028h", "part_key":"06G127028H", "name":"Порожнє", "location":"", "verified_at":datetime(2026,11,3)},
+            db.add_all([
+                site.Part(id=50, warehouse_id=1, part_number="06g127028h", qty=99, in_stock=True, storage_location="ДУБЛІКАТ"),
+                site.Part(id=51, warehouse_id=1, part_number="НЕ-ЗБІГ", qty=7, in_stock=True, storage_location="СТАРЕ"),
+                site.ReceivingDraftItem(id=1, part_number="НЕ-ЗБІГ", title="Деталь", qty=4, storage_location="ПРИЙМАННЯ"),
+                site.TransitOrder(id=1, part_number="НЕ-ЗБІГ", title="Деталь", qty=8, storage_location="В ДОРОЗІ"),
             ])
-        site.index_existing_storage_locations()
+        with patch.object(site, "BACKUP_DIR", Path(self.temp.name)):
+            with self.sessions.begin() as db:
+                site.publish_existing_revision_parts(db)
+            files = list(Path(self.temp.name).glob("revision_stock_before_move_*.json"))
+            self.assertEqual(len(files), 1)
+            backup = json.loads(files[0].read_text(encoding="utf-8"))
+            self.assertEqual(next(row for row in backup["tables"]["parts"] if row["id"] == 50)["qty"], 99)
+            with self.sessions.begin() as db:
+                self.assertEqual((db.get(site.Part, 1).qty, db.get(site.Part, 1).storage_location), (2, "РЕВІЗІЯ-21"))
+                self.assertEqual(db.get(site.RevisionPart, counted["id"]).location, "РЕВІЗІЯ-21")
+                self.assertTrue(db.get(site.Part, 50).is_deleted)
+                self.assertEqual((db.get(site.Part, 51).qty, db.get(site.Part, 51).storage_location), (7, ""))
+                for model in (site.PartTemplate, site.ReceivingDraftItem, site.TransitOrder):
+                    self.assertTrue(all(row.storage_location == "" for row in db.query(model)))
+                db.get(site.Part, 51).storage_location = "НОВЕ ПІСЛЯ ОЧИЩЕННЯ"
+            site.index_existing_storage_locations()
+            with self.sessions.begin() as db:
+                site.publish_existing_revision_parts(db)
+                self.assertEqual(db.get(site.Part, 51).storage_location, "НОВЕ ПІСЛЯ ОЧИЩЕННЯ")
+                self.assertEqual(db.get(site.PartTemplate, 2).storage_location, "")
+            self.assertEqual(len(list(Path(self.temp.name).glob("revision_stock_before_move_*.json"))), 1)
+
+    def test_move_and_reference_changes_roll_back_together(self):
+        self.login()
+        with self.sessions.begin() as db:
+            db.add(site.RevisionPart(id=99, part_number="06G127028H", part_key="06G127028H", name="Ревізія", qty=2, location="R-1"))
+            db.add(site.Part(id=3, warehouse_id=1, part_number="06g127028h", qty=7, in_stock=True))
+            db.flush()
+            order = site.Order(id=901, customer_name="Тест")
+            order.items.append(site.OrderItem(part_id=3, part_number="SKU", name="Насос", qty=1))
+            db.add(order)
         with self.sessions() as db:
-            before = [(row.id, row.location, row.version, row.qty) for row in db.query(site.RevisionPart).order_by(site.RevisionPart.id)]
-            self.assertEqual(db.get(site.Part, 1).storage_location, "СПІЛЬНЕ")
-            self.assertEqual(db.get(site.Part, 1).qty, 40)
-        site.index_existing_storage_locations()
+            site.publish_revision_part(db, db.get(site.RevisionPart, 99))
+            db.flush()
+            self.assertEqual((db.get(site.Part, 1).qty, db.get(site.Part, 1).warehouse.name), (2, "Ревізія"))
+            self.assertEqual(db.get(site.Order, 901).items[0].part_id, 1)
+            db.rollback()
         with self.sessions() as db:
-            self.assertEqual(before, [(row.id, row.location, row.version, row.qty) for row in db.query(site.RevisionPart).order_by(site.RevisionPart.id)])
+            self.assertEqual((db.get(site.Part, 1).qty, db.get(site.Part, 1).warehouse_id), (40, 1))
+            self.assertIsNone(db.get(site.RevisionPublication, 99))
+            self.assertEqual((db.get(site.Part, 3).qty, db.get(site.Part, 3).is_deleted), (7, False))
+            self.assertEqual(db.get(site.Order, 901).items[0].part_id, 3)
 
 
 if __name__ == "__main__":

@@ -248,18 +248,19 @@ class InventoryRevisionTests(unittest.TestCase):
         self.assertEqual(self.client.get("/admin/revision/search?q=%25%25%25").json["catalog"], [])
         self.assertEqual(before, self.snapshot_main())
 
-    def test_copy_is_a_snapshot_and_count_is_only_what_operator_enters(self):
+    def test_copy_moves_matching_stock_and_keeps_independent_media_and_actual_count(self):
         self.login()
-        # Location is now shared by article; this test isolates copied stock/media.
-        with self.sessions.begin() as db:
-            db.get(site.Part, 1).storage_location = "A-12"
-        before = self.snapshot_main()
         source = self.client.get("/admin/revision/search?q=06g").json["catalog"][0]
         saved = self.save(source, qty="3").json["card"]
         self.assertEqual(saved["qty"], 3)
         self.assertEqual(saved["name"], source["name"])
         self.assertEqual(saved["label"], "Перевірена наявність")
-        self.assertEqual(before, self.snapshot_main())
+        with self.sessions() as db:
+            moved = db.get(site.Part, 1)
+            self.assertEqual(moved.qty, 3)
+            self.assertEqual(moved.warehouse.name, "Ревізія")
+            self.assertEqual(moved.revision_publication.revision_id, saved["id"])
+            self.assertEqual(db.get(site.PartTemplate, 2).name, source["name"])
         local_photo = next(url for url in saved["photo_urls"] if url.startswith("/uploads/"))
         self.assertTrue(local_photo.startswith("/uploads/revision_"))
         with self.sessions.begin() as db:

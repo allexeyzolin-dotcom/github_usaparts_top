@@ -90,12 +90,7 @@
       const script = node('script'); script.src = '/static/vendor/zxing-browser-0.1.5.min.js';
       script.onload = () => {
         try {
-          const scanner = new ZXingBrowser.BrowserMultiFormatReader(new Map(), {
-            delayBetweenScanAttempts: 180, delayBetweenScanSuccess: 250, tryPlayVideoTimeout: 8000
-          });
-          scanner.possibleFormats = [ZXingBrowser.BarcodeFormat.CODE_128, ZXingBrowser.BarcodeFormat.ITF,
-            ZXingBrowser.BarcodeFormat.CODE_39, ZXingBrowser.BarcodeFormat.QR_CODE];
-          resolve(scanner);
+          resolve(CourierBarcode.createReader(ZXingBrowser));
         } catch (_) {readerPromise = null; reject(Error('Не вдалося запустити сканер. Введіть ТТН вручну.'));}
       };
       script.onerror = () => {readerPromise = null; reject(Error('Не вдалося завантажити сканер.'));};
@@ -140,6 +135,7 @@
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw Error('Camera unavailable');
       const scanner = await reader(); if (ticket !== scanSession) return;
+      scanner.live = true;
       const active = await scanner.decodeFromConstraints({audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}},
         el('video'), (result, error, ctl) => {
           if (ticket === scanSession && dialog.open && !document.hidden && result) {controls = ctl; found(result.getText());}
@@ -155,7 +151,11 @@
     const file = event.target.files[0]; event.target.value = ''; if (!file) return;
     stopCamera(); const ticket = scanSession;
     const image = URL.createObjectURL(file);
-    try { const result = await (await reader()).decodeFromImageUrl(image); if (ticket === scanSession) found(result.getText()); }
+    try {
+      const scanner = await reader(); if (ticket !== scanSession) return;
+      scanner.live = false;
+      const result = await scanner.decodeFromImageUrl(image); if (ticket === scanSession) found(result.getText());
+    }
     catch (_) { if (ticket === scanSession) el('scan-note').textContent = 'Штрихкод не зчитано. Виберіть чіткіше фото, скануйте ще раз або введіть ТТН вручну.'; }
     finally { URL.revokeObjectURL(image); }
   };

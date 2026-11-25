@@ -65,7 +65,7 @@ async function setup(options = {}) {
     document, navigator: options.noCamera ? {} : { mediaDevices: { getUserMedia() {} } },
     window: { scrollTo() {} }, location: { search: '', hash: '', pathname: '/courier/' }, history: { replaceState() {} },
     URLSearchParams, URL: { createObjectURL: () => 'blob:fixture', revokeObjectURL() {} },
-    fetch, setInterval() {}, setTimeout, console,
+    fetch, setInterval() {}, setTimeout, console, CourierBarcode: {createReader: () => new Reader()},
     ZXingBrowser: { BrowserMultiFormatReader: Reader, BarcodeFormat: { CODE_128: 4, ITF: 8, CODE_39: 2, QR_CODE: 11 } }
   };
   vm.runInNewContext(code, context);
